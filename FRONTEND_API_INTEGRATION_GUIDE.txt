@@ -1,0 +1,1124 @@
+================================================================================
+RICE SOFT BACKEND - FRONTEND API INTEGRATION GUIDE
+================================================================================
+
+This document contains all technical details needed to integrate with the 
+Rice Soft Backend API. Use this as a reference for implementing API calls, 
+handling authentication, and managing state in the frontend application.
+
+================================================================================
+1. BASE API CONFIGURATION
+================================================================================
+
+Base URL: http://localhost:3000/api/v1
+Environment Variable Recommended: REACT_APP_API_BASE_URL or NEXT_PUBLIC_API_URL
+
+All endpoints use the /api/v1 prefix.
+
+CORS Configuration:
+- Origin: http://localhost:3001 (configurable via .env)
+- Credentials: Enabled (supports cookies/auth headers)
+
+Security Headers:
+- Helmet.js enabled
+- Rate limiting active (see section 8)
+
+================================================================================
+2. STANDARD API RESPONSE FORMAT
+================================================================================
+
+All API responses follow this structure:
+
+SUCCESS RESPONSE:
+{
+  "success": true,
+  "message": "Optional success message",
+  "data": { /* actual response data */ },
+  "timestamp": "2025-10-13T04:40:28.280Z"
+}
+
+ERROR RESPONSE:
+{
+  "success": false,
+  "message": "Error message",
+  "error": "Detailed error information",
+  "timestamp": "2025-10-13T04:40:28.280Z"
+}
+
+HTTP Status Codes:
+- 200: Success
+- 201: Resource Created
+- 204: No Content (successful delete)
+- 400: Bad Request (validation error)
+- 401: Unauthorized (missing or invalid token)
+- 403: Forbidden (insufficient permissions)
+- 404: Not Found
+- 409: Conflict (duplicate resource)
+- 429: Too Many Requests (rate limit exceeded)
+- 500: Internal Server Error
+
+================================================================================
+3. AUTHENTICATION & AUTHORIZATION
+================================================================================
+
+AUTHENTICATION METHOD: JWT Bearer Token
+
+TOKEN STORAGE:
+- Store JWT token securely (localStorage, sessionStorage, or httpOnly cookie)
+- Token expires in 24 hours (configurable)
+- Include token in all authenticated requests
+
+REQUEST HEADER FORMAT:
+Authorization: Bearer <your_jwt_token>
+
+TOKEN PAYLOAD STRUCTURE (decoded):
+{
+  "userId": "uuid",
+  "username": "string",
+  "roleId": "uuid",
+  "roleName": "admin | salesman | accountant | warehouse_operator | broker | viewer",
+  "iat": timestamp,
+  "exp": timestamp
+}
+
+ROLE-BASED PERMISSIONS:
+- admin: Full access to all endpoints
+- salesman: Limited to own resources, no user management
+- accountant: Read access to most resources
+- warehouse_operator: Inventory management
+- broker: Contract and negotiation access
+- viewer: Read-only access
+
+================================================================================
+4. API ENDPOINTS - HEALTH CHECK
+================================================================================
+
+GET /health
+Description: Check if API is running
+Access: Public (no authentication required)
+Response:
+{
+  "status": "OK",
+  "timestamp": "2025-10-13T04:40:28.280Z",
+  "uptime": 12345.678
+}
+
+================================================================================
+5. API ENDPOINTS - AUTHENTICATION
+================================================================================
+
+---------------------------------------------------------------------------
+POST /auth/login
+---------------------------------------------------------------------------
+Description: Authenticate user and get JWT token
+Access: Public
+Rate Limit: 5 requests per 15 minutes per IP
+
+Request Body:
+{
+  "username": "string (required)",
+  "password": "string (required)"
+}
+
+Success Response (200):
+{
+  "success": true,
+  "message": "Login successful",
+  "data": {
+    "user": {
+      "id": "uuid",
+      "username": "string",
+      "email": "string",
+      "role_id": "uuid",
+      "role_name": "string",
+      "full_name": "string",
+      "phone": "string | null",
+      "is_active": true,
+      "last_login": "ISO date string | null",
+      "created_at": "ISO date string",
+      "updated_at": "ISO date string"
+    },
+    "token": "jwt_token_string",
+    "expires_in": "24h"
+  },
+  "timestamp": "ISO date string"
+}
+
+Error Response (401):
+{
+  "success": false,
+  "message": "Invalid credentials",
+  "error": "Invalid credentials",
+  "timestamp": "ISO date string"
+}
+
+Frontend Logic:
+1. Validate form inputs before sending
+2. On success: Store token securely
+3. Store user data in state/context
+4. Redirect to dashboard
+5. Set up axios/fetch interceptor with token
+6. Handle 401 errors globally (token expired/invalid)
+
+---------------------------------------------------------------------------
+POST /auth/logout
+---------------------------------------------------------------------------
+Description: Logout current user (stateless, client-side token removal)
+Access: Private (requires authentication)
+
+Request Headers:
+Authorization: Bearer <token>
+
+Request Body: None
+
+Success Response (200):
+{
+  "success": true,
+  "message": "Logout successful",
+  "data": null,
+  "timestamp": "ISO date string"
+}
+
+Frontend Logic:
+1. Call logout endpoint (optional, for logging)
+2. Remove token from storage
+3. Clear user state/context
+4. Redirect to login page
+
+---------------------------------------------------------------------------
+GET /auth/profile
+---------------------------------------------------------------------------
+Description: Get current authenticated user's profile
+Access: Private (requires authentication)
+
+Request Headers:
+Authorization: Bearer <token>
+
+Success Response (200):
+{
+  "success": true,
+  "data": {
+    "id": "uuid",
+    "username": "string",
+    "email": "string",
+    "role_id": "uuid",
+    "role_name": "string",
+    "full_name": "string",
+    "phone": "string | null",
+    "is_active": true,
+    "last_login": "ISO date string | null",
+    "created_at": "ISO date string",
+    "updated_at": "ISO date string"
+  },
+  "timestamp": "ISO date string"
+}
+
+Frontend Logic:
+- Use this to verify token validity on app initialization
+- Refresh user data after profile updates
+- Handle 401 to trigger re-authentication
+
+================================================================================
+6. API ENDPOINTS - USER MANAGEMENT
+================================================================================
+
+---------------------------------------------------------------------------
+GET /users
+---------------------------------------------------------------------------
+Description: Get all users
+Access: Private - Admin only
+Query Parameters:
+  - include_inactive (optional): "true" | "false" (default: false)
+
+Request Headers:
+Authorization: Bearer <token>
+
+Success Response (200):
+{
+  "success": true,
+  "data": [
+    {
+      "id": "uuid",
+      "username": "string",
+      "email": "string",
+      "role_id": "uuid",
+      "role_name": "string",
+      "full_name": "string",
+      "phone": "string | null",
+      "is_active": boolean,
+      "last_login": "ISO date string | null",
+      "created_at": "ISO date string",
+      "updated_at": "ISO date string"
+    }
+    // ... more users
+  ],
+  "timestamp": "ISO date string"
+}
+
+Frontend Logic:
+- Display in a table/list component
+- Implement client-side filtering/sorting if needed
+- Show active/inactive status badges
+- Provide actions based on current user role
+
+---------------------------------------------------------------------------
+GET /users/:id
+---------------------------------------------------------------------------
+Description: Get specific user by ID
+Access: Private - Admin or self
+URL Parameters:
+  - id: User UUID (required)
+
+Request Headers:
+Authorization: Bearer <token>
+
+Success Response (200):
+{
+  "success": true,
+  "data": {
+    "id": "uuid",
+    "username": "string",
+    "email": "string",
+    "role_id": "uuid",
+    "role_name": "string",
+    "full_name": "string",
+    "phone": "string | null",
+    "is_active": boolean,
+    "last_login": "ISO date string | null",
+    "created_at": "ISO date string",
+    "updated_at": "ISO date string"
+  },
+  "timestamp": "ISO date string"
+}
+
+Error Response (404):
+{
+  "success": false,
+  "message": "User not found",
+  "error": "User not found",
+  "timestamp": "ISO date string"
+}
+
+Frontend Logic:
+- Use for user detail pages
+- Pre-populate edit forms
+- Check permissions before allowing edits
+
+---------------------------------------------------------------------------
+POST /users
+---------------------------------------------------------------------------
+Description: Create new user
+Access: Private - Admin only
+
+Request Headers:
+Authorization: Bearer <token>
+Content-Type: application/json
+
+Request Body:
+{
+  "username": "string (required, 3-50 chars)",
+  "email": "string (required, valid email)",
+  "password": "string (required, min 8 chars)",
+  "role_id": "uuid (required)",
+  "full_name": "string (required, 2-100 chars)",
+  "phone": "string (optional)",
+  "is_active": boolean (optional, default: true)
+}
+
+Success Response (201):
+{
+  "success": true,
+  "message": "User created successfully",
+  "data": {
+    "id": "uuid",
+    "username": "string",
+    "email": "string",
+    "role_id": "uuid",
+    "role_name": "string",
+    "full_name": "string",
+    "phone": "string | null",
+    "is_active": boolean,
+    "last_login": null,
+    "created_at": "ISO date string",
+    "updated_at": "ISO date string"
+  },
+  "timestamp": "ISO date string"
+}
+
+Error Response (409 - Duplicate):
+{
+  "success": false,
+  "message": "Username already exists",
+  "error": "Username already exists",
+  "timestamp": "ISO date string"
+}
+
+Error Response (400 - Validation):
+{
+  "success": false,
+  "message": "Validation failed",
+  "error": "Validation error details",
+  "timestamp": "ISO date string"
+}
+
+Frontend Logic:
+1. Fetch roles first (GET /roles) to populate role dropdown
+2. Validate form fields:
+   - Username: 3-50 chars, alphanumeric + underscore
+   - Email: Valid email format
+   - Password: Min 8 chars, recommend complexity requirements
+   - Full name: 2-100 chars
+   - Phone: Optional, format validation recommended
+3. Handle duplicate errors and show appropriate messages
+4. On success: Refresh user list, show success message
+5. Clear form or close modal
+
+---------------------------------------------------------------------------
+PUT /users/:id
+---------------------------------------------------------------------------
+Description: Update existing user
+Access: Private - Admin or self (self can't change role)
+URL Parameters:
+  - id: User UUID (required)
+
+Request Headers:
+Authorization: Bearer <token>
+Content-Type: application/json
+
+Request Body (all fields optional):
+{
+  "username": "string (3-50 chars)",
+  "email": "string (valid email)",
+  "password": "string (min 8 chars)",
+  "role_id": "uuid (admin only)",
+  "full_name": "string (2-100 chars)",
+  "phone": "string",
+  "is_active": boolean (admin only)
+}
+
+Success Response (200):
+{
+  "success": true,
+  "message": "User updated successfully",
+  "data": {
+    "id": "uuid",
+    "username": "string",
+    "email": "string",
+    "role_id": "uuid",
+    "role_name": "string",
+    "full_name": "string",
+    "phone": "string | null",
+    "is_active": boolean,
+    "last_login": "ISO date string | null",
+    "created_at": "ISO date string",
+    "updated_at": "ISO date string"
+  },
+  "timestamp": "ISO date string"
+}
+
+Error Response (403 - Permission):
+{
+  "success": false,
+  "message": "You can only update your own profile",
+  "error": "You can only update your own profile",
+  "timestamp": "ISO date string"
+}
+
+Frontend Logic:
+1. Pre-populate form with existing user data
+2. Only send fields that changed (partial update supported)
+3. Hide role_id and is_active fields for non-admin users
+4. Handle password change separately (optional field)
+5. Show confirmation before role changes
+6. Validate same as create endpoint
+7. Handle 403 for permission errors
+8. Update user list/profile on success
+
+---------------------------------------------------------------------------
+DELETE /users/:id
+---------------------------------------------------------------------------
+Description: Delete user permanently
+Access: Private - Admin only
+URL Parameters:
+  - id: User UUID (required)
+
+Request Headers:
+Authorization: Bearer <token>
+
+Success Response (200):
+{
+  "success": true,
+  "message": "User deleted successfully",
+  "data": null,
+  "timestamp": "ISO date string"
+}
+
+Error Response (403 - Self Delete):
+{
+  "success": false,
+  "message": "You cannot delete your own account",
+  "error": "You cannot delete your own account",
+  "timestamp": "ISO date string"
+}
+
+Frontend Logic:
+1. Show confirmation dialog before delete
+2. Prevent deleting own account (frontend check)
+3. Remove user from list on success
+4. Consider soft delete (set is_active=false) as alternative
+5. Handle error if user tries to delete themselves
+
+================================================================================
+7. API ENDPOINTS - ROLE MANAGEMENT
+================================================================================
+
+---------------------------------------------------------------------------
+GET /roles
+---------------------------------------------------------------------------
+Description: Get all roles
+Access: Private (all authenticated users)
+
+Request Headers:
+Authorization: Bearer <token>
+
+Success Response (200):
+{
+  "success": true,
+  "data": [
+    {
+      "id": "uuid",
+      "name": "string",
+      "description": "string | null",
+      "permissions": {
+        "resource_name": ["read", "create", "update", "delete"],
+        // ... more permissions
+      },
+      "created_at": "ISO date string",
+      "updated_at": "ISO date string"
+    }
+    // ... more roles
+  ],
+  "timestamp": "ISO date string"
+}
+
+Frontend Logic:
+- Use for role selection dropdowns in user forms
+- Display role descriptions in UI
+- Show permissions in role detail views
+- Cache roles data (doesn't change frequently)
+
+---------------------------------------------------------------------------
+GET /roles/:id
+---------------------------------------------------------------------------
+Description: Get specific role by ID
+Access: Private (all authenticated users)
+URL Parameters:
+  - id: Role UUID (required)
+
+Request Headers:
+Authorization: Bearer <token>
+
+Success Response (200):
+{
+  "success": true,
+  "data": {
+    "id": "uuid",
+    "name": "string",
+    "description": "string | null",
+    "permissions": {
+      "resource_name": ["read", "create", "update", "delete"],
+      // ... more permissions
+    },
+    "created_at": "ISO date string",
+    "updated_at": "ISO date string"
+  },
+  "timestamp": "ISO date string"
+}
+
+Frontend Logic:
+- Use for role detail pages
+- Display permissions in readable format
+- Show role usage (how many users have this role)
+
+---------------------------------------------------------------------------
+POST /roles
+---------------------------------------------------------------------------
+Description: Create new custom role
+Access: Private - Admin only
+
+Request Headers:
+Authorization: Bearer <token>
+Content-Type: application/json
+
+Request Body:
+{
+  "name": "string (required, 2-50 chars)",
+  "description": "string (optional)",
+  "permissions": {
+    "resource_name": ["read", "create", "update", "delete"],
+    // Example:
+    // "contracts": ["read", "create"],
+    // "lots": ["read"]
+  }
+}
+
+Success Response (201):
+{
+  "success": true,
+  "message": "Role created successfully",
+  "data": {
+    "id": "uuid",
+    "name": "string",
+    "description": "string | null",
+    "permissions": { /* ... */ },
+    "created_at": "ISO date string",
+    "updated_at": "ISO date string"
+  },
+  "timestamp": "ISO date string"
+}
+
+Error Response (409 - Duplicate):
+{
+  "success": false,
+  "message": "Role name already exists",
+  "error": "Role name already exists",
+  "timestamp": "ISO date string"
+}
+
+Frontend Logic:
+1. Provide permission builder UI (checkboxes for resources/actions)
+2. Validate role name uniqueness
+3. Make description field user-friendly
+4. Show permission preview before creating
+5. On success: Add to roles list
+
+---------------------------------------------------------------------------
+PUT /roles/:id
+---------------------------------------------------------------------------
+Description: Update existing role
+Access: Private - Admin only
+URL Parameters:
+  - id: Role UUID (required)
+
+Request Headers:
+Authorization: Bearer <token>
+Content-Type: application/json
+
+Request Body (all fields optional):
+{
+  "name": "string (2-50 chars)",
+  "description": "string",
+  "permissions": {
+    "resource_name": ["read", "create", "update", "delete"]
+  }
+}
+
+Success Response (200):
+{
+  "success": true,
+  "message": "Role updated successfully",
+  "data": {
+    "id": "uuid",
+    "name": "string",
+    "description": "string | null",
+    "permissions": { /* ... */ },
+    "created_at": "ISO date string",
+    "updated_at": "ISO date string"
+  },
+  "timestamp": "ISO date string"
+}
+
+Frontend Logic:
+1. Pre-populate form with existing role data
+2. Show warning if updating default system roles
+3. Display affected users count
+4. Partial updates supported (only send changed fields)
+5. Refresh role list on success
+
+---------------------------------------------------------------------------
+DELETE /roles/:id
+---------------------------------------------------------------------------
+Description: Delete role permanently
+Access: Private - Admin only
+URL Parameters:
+  - id: Role UUID (required)
+
+Request Headers:
+Authorization: Bearer <token>
+
+Success Response (200):
+{
+  "success": true,
+  "message": "Role deleted successfully",
+  "data": null,
+  "timestamp": "ISO date string"
+}
+
+Frontend Logic:
+1. Check if role is in use (has users assigned)
+2. Show confirmation with warning if role has users
+3. Prevent deletion of system roles (admin, salesman, etc.)
+4. Remove from roles list on success
+
+================================================================================
+8. RATE LIMITING
+================================================================================
+
+GENERAL RATE LIMIT:
+- 100 requests per 15 minutes per IP
+- Applies to all endpoints except auth
+
+AUTH RATE LIMIT:
+- 5 requests per 15 minutes per IP
+- Applies to /auth/login endpoint only
+
+RATE LIMIT HEADERS (included in response):
+- X-RateLimit-Limit: Maximum requests allowed
+- X-RateLimit-Remaining: Remaining requests
+- X-RateLimit-Reset: Time until limit resets (timestamp)
+
+429 RESPONSE (Too Many Requests):
+{
+  "success": false,
+  "message": "Too many requests",
+  "error": "Rate limit exceeded. Please try again later.",
+  "timestamp": "ISO date string"
+}
+
+Frontend Logic:
+1. Display rate limit error to user
+2. Show countdown timer for retry
+3. Implement exponential backoff for retries
+4. Monitor rate limit headers to show warnings
+
+================================================================================
+9. ERROR HANDLING STRATEGY
+================================================================================
+
+IMPLEMENT GLOBAL ERROR HANDLER:
+
+Handle these error types:
+
+1. NETWORK ERRORS (no response from server):
+   - Show: "Unable to connect to server. Please check your connection."
+   - Action: Retry button, check network status
+
+2. 401 UNAUTHORIZED:
+   - Token expired or invalid
+   - Action: Clear auth state, redirect to login
+   - Show: "Session expired. Please login again."
+
+3. 403 FORBIDDEN:
+   - User lacks permission
+   - Show: "You don't have permission to perform this action."
+   - Action: Disable unavailable features
+
+4. 404 NOT FOUND:
+   - Resource doesn't exist
+   - Show: "Resource not found."
+   - Action: Redirect to list/dashboard
+
+5. 409 CONFLICT:
+   - Duplicate resource (username, email, etc.)
+   - Show specific field error
+   - Action: Highlight conflicting field
+
+6. 400 BAD REQUEST:
+   - Validation error
+   - Show: Field-specific error messages
+   - Action: Highlight invalid fields
+
+7. 429 TOO MANY REQUESTS:
+   - Rate limit exceeded
+   - Show: "Too many attempts. Please try again in X minutes."
+   - Action: Disable submit button with countdown
+
+8. 500 INTERNAL SERVER ERROR:
+   - Server error
+   - Show: "Something went wrong. Please try again later."
+   - Action: Log error, show error ID if available
+
+================================================================================
+10. TYPESCRIPT INTERFACES FOR FRONTEND
+================================================================================
+
+// API Response Types
+interface ApiResponse<T = any> {
+  success: boolean;
+  message?: string;
+  data?: T;
+  error?: string;
+  timestamp: string;
+}
+
+// User Types
+interface User {
+  id: string;
+  username: string;
+  email: string;
+  role_id: string;
+  role_name: string;
+  full_name: string;
+  phone: string | null;
+  is_active: boolean;
+  last_login: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface CreateUserRequest {
+  username: string;
+  email: string;
+  password: string;
+  role_id: string;
+  full_name: string;
+  phone?: string;
+  is_active?: boolean;
+}
+
+interface UpdateUserRequest {
+  username?: string;
+  email?: string;
+  password?: string;
+  role_id?: string;
+  full_name?: string;
+  phone?: string;
+  is_active?: boolean;
+}
+
+// Auth Types
+interface LoginRequest {
+  username: string;
+  password: string;
+}
+
+interface LoginResponse {
+  user: User;
+  token: string;
+  expires_in: string;
+}
+
+// Role Types
+interface Role {
+  id: string;
+  name: string;
+  description: string | null;
+  permissions: Record<string, string[]>;
+  created_at: string;
+  updated_at: string;
+}
+
+interface CreateRoleRequest {
+  name: string;
+  description?: string;
+  permissions?: Record<string, string[]>;
+}
+
+interface UpdateRoleRequest {
+  name?: string;
+  description?: string;
+  permissions?: Record<string, string[]>;
+}
+
+// JWT Token Payload (decoded)
+interface JWTPayload {
+  userId: string;
+  username: string;
+  roleId: string;
+  roleName: string;
+  iat: number;
+  exp: number;
+}
+
+================================================================================
+11. RECOMMENDED FRONTEND IMPLEMENTATION PATTERNS
+================================================================================
+
+API SERVICE LAYER:
+Create a centralized API service with axios/fetch interceptors
+
+Example structure:
+- services/api.ts - Base axios instance with interceptors
+- services/auth.service.ts - Authentication methods
+- services/user.service.ts - User management methods
+- services/role.service.ts - Role management methods
+
+STATE MANAGEMENT:
+- Use Context API / Redux / Zustand for auth state
+- Store: token, user, isAuthenticated, loading
+- Actions: login, logout, refreshProfile, checkAuth
+
+PROTECTED ROUTES:
+- Implement route guards based on authentication
+- Check user roles for role-based access
+- Redirect to login if not authenticated
+- Show 403 page if insufficient permissions
+
+TOKEN MANAGEMENT:
+- Axios interceptor to add token to all requests
+- Axios response interceptor to handle 401 globally
+- Token refresh logic (if implementing refresh tokens)
+- Automatic logout on token expiration
+
+LOADING STATES:
+- Show loading spinner during API calls
+- Disable buttons while submitting
+- Skeleton loaders for data fetching
+- Optimistic UI updates where appropriate
+
+VALIDATION:
+- Client-side validation before API calls
+- Match backend validation rules
+- Show inline validation errors
+- Prevent duplicate submissions
+
+CACHING:
+- Cache roles data (rarely changes)
+- Implement query invalidation after mutations
+- Use React Query / SWR for smart caching
+- Invalidate user list after create/update/delete
+
+================================================================================
+12. API CALL EXAMPLES (JAVASCRIPT/TYPESCRIPT)
+================================================================================
+
+// Setup axios instance
+import axios from 'axios';
+
+const api = axios.create({
+  baseURL: process.env.REACT_APP_API_BASE_URL || 'http://localhost:3000/api/v1',
+  timeout: 10000,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+});
+
+// Add token to all requests
+api.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
+
+// Handle 401 globally
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem('token');
+      window.location.href = '/login';
+    }
+    return Promise.reject(error);
+  }
+);
+
+// Login
+async function login(username: string, password: string) {
+  const response = await api.post<ApiResponse<LoginResponse>>('/auth/login', {
+    username,
+    password,
+  });
+  
+  if (response.data.success && response.data.data) {
+    const { token, user } = response.data.data;
+    localStorage.setItem('token', token);
+    return { token, user };
+  }
+  
+  throw new Error(response.data.error || 'Login failed');
+}
+
+// Get all users
+async function getUsers(includeInactive = false) {
+  const response = await api.get<ApiResponse<User[]>>('/users', {
+    params: { include_inactive: includeInactive },
+  });
+  return response.data.data;
+}
+
+// Create user
+async function createUser(userData: CreateUserRequest) {
+  const response = await api.post<ApiResponse<User>>('/users', userData);
+  return response.data.data;
+}
+
+// Update user
+async function updateUser(userId: string, userData: UpdateUserRequest) {
+  const response = await api.put<ApiResponse<User>>(`/users/${userId}`, userData);
+  return response.data.data;
+}
+
+// Delete user
+async function deleteUser(userId: string) {
+  await api.delete(`/users/${userId}`);
+}
+
+// Get all roles
+async function getRoles() {
+  const response = await api.get<ApiResponse<Role[]>>('/roles');
+  return response.data.data;
+}
+
+// Error handling example
+try {
+  const users = await getUsers();
+  // Handle success
+} catch (error) {
+  if (axios.isAxiosError(error)) {
+    const apiError = error.response?.data as ApiResponse;
+    // Show error to user: apiError.error || apiError.message
+  } else {
+    // Network error or other error
+    // Show generic error message
+  }
+}
+
+================================================================================
+13. SECURITY BEST PRACTICES
+================================================================================
+
+1. TOKEN STORAGE:
+   - Use httpOnly cookies (most secure) OR
+   - Use sessionStorage (cleared on tab close) OR
+   - Use localStorage (persists across sessions)
+   - NEVER store in plain text or expose to XSS
+
+2. TOKEN TRANSMISSION:
+   - Always use HTTPS in production
+   - Never send token in URL parameters
+   - Use Authorization header
+
+3. SENSITIVE DATA:
+   - Never log tokens or passwords to console
+   - Clear sensitive data on logout
+   - Don't cache sensitive information
+
+4. PERMISSIONS:
+   - Check permissions on frontend (UX)
+   - Always rely on backend for actual authorization
+   - Hide UI elements user can't access
+   - Handle 403 errors gracefully
+
+5. INPUT VALIDATION:
+   - Validate all inputs client-side
+   - Sanitize user inputs
+   - Use parameterized queries (backend does this)
+   - Prevent XSS attacks
+
+6. RATE LIMITING:
+   - Respect rate limits
+   - Don't retry too aggressively
+   - Implement exponential backoff
+
+================================================================================
+14. TESTING CHECKLIST
+================================================================================
+
+Test these scenarios in your frontend integration:
+
+AUTHENTICATION:
+□ Successful login with valid credentials
+□ Failed login with invalid credentials
+□ Token storage after login
+□ Token removal after logout
+□ Automatic logout on token expiration
+□ Profile fetching on app load
+□ Redirect to login if not authenticated
+
+USER MANAGEMENT:
+□ List all users (admin only)
+□ View single user details
+□ Create new user with validation
+□ Update user (own profile)
+□ Update user (as admin)
+□ Handle duplicate username/email errors
+□ Delete user (admin only)
+□ Prevent self-deletion
+□ Role-based UI changes
+
+ROLE MANAGEMENT:
+□ List all roles
+□ View role details
+□ Create custom role (admin)
+□ Update role (admin)
+□ Delete role (admin)
+□ Load roles for user form dropdown
+
+ERROR HANDLING:
+□ Network error (server down)
+□ 401 Unauthorized (redirect to login)
+□ 403 Forbidden (show error message)
+□ 404 Not Found (show not found state)
+□ 409 Conflict (show field errors)
+□ 429 Rate Limit (show retry timer)
+□ 500 Server Error (show generic error)
+
+PERMISSIONS:
+□ Admin can access all features
+□ Non-admin can't create users
+□ Non-admin can't delete users
+□ User can update own profile
+□ User can't update others' profiles
+□ User can't change own role
+
+================================================================================
+15. ADDITIONAL NOTES
+================================================================================
+
+AUDIT LOGGING:
+- All user create/update/delete operations are logged
+- All role create/update/delete operations are logged
+- Audit logs include: user_id, action, table_name, record_id, changes, timestamp
+- Frontend doesn't need to handle this (automatic on backend)
+
+DEFAULT SYSTEM ROLES:
+1. admin - Full system access
+2. salesman - Sales operations
+3. accountant - Financial operations
+4. warehouse_operator - Inventory management
+5. broker - Contract negotiations
+6. viewer - Read-only access
+
+RECOMMENDED TESTING CREDENTIALS:
+After running create-admin script:
+- Username: admin
+- Password: admin123
+- Role: admin
+
+API VERSIONING:
+- Current version: v1
+- Base path includes version: /api/v1
+- Future versions will use /api/v2, etc.
+
+PAGINATION:
+- Currently not implemented
+- All list endpoints return full datasets
+- Consider implementing infinite scroll or pagination if datasets grow large
+
+FILTERING & SEARCH:
+- Currently limited (only include_inactive for users)
+- Implement client-side filtering for now
+- Backend can add query parameters for filtering in future
+
+LOGGING & DEBUGGING:
+- Server logs available in ./logs/combined.log and ./logs/error.log
+- Check server logs for detailed error information
+- All API requests are logged with method, path, and IP
+
+================================================================================
+END OF INTEGRATION GUIDE
+================================================================================
+
+For any questions or issues, refer to:
+- API_TESTING.md for curl examples
+- PROJECT_SUMMARY.md for project overview
+- README.md for setup instructions
+
+Backend API version: 1.0.0
+Last updated: 2025-10-13
+

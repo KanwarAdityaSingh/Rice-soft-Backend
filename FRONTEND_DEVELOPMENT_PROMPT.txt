@@ -1,0 +1,702 @@
+================================================================================
+RICE SOFT TRADING PLATFORM - FRONTEND DEVELOPMENT PROMPT
+================================================================================
+
+You are building a React/Next.js frontend for a Rice Trading Platform with the following backend API already implemented and tested.
+
+================================================================================
+PROJECT OVERVIEW
+================================================================================
+
+BACKEND STATUS: ✅ COMPLETE & TESTED
+- Authentication system with JWT tokens
+- User management (CRUD operations)
+- Role-based access control (RBAC)
+- 6 predefined roles: admin, salesman, accountant, warehouse_operator, broker, viewer
+- API Base URL: http://localhost:3000/api/v1
+- All endpoints tested and working
+
+FRONTEND REQUIREMENTS: Build a modern, responsive web application
+
+================================================================================
+TECHNICAL STACK REQUIREMENTS
+================================================================================
+
+RECOMMENDED STACK:
+- React 18+ with TypeScript
+- Next.js 14+ (App Router)
+- Tailwind CSS for styling
+- Axios for API calls
+- React Query/TanStack Query for state management
+- React Hook Form for forms
+- Zod for validation
+- React Router (if not using Next.js)
+
+ALTERNATIVE STACKS:
+- Vue.js 3 + TypeScript + Pinia
+- Angular 17+ with TypeScript
+- SvelteKit with TypeScript
+
+================================================================================
+API INTEGRATION REQUIREMENTS
+================================================================================
+
+BASE CONFIGURATION:
+- Base URL: http://localhost:3000/api/v1
+- Authentication: JWT Bearer Token
+- All responses follow standard format: { success, message, data, timestamp }
+- Error handling for: 400, 401, 403, 404, 409, 429, 500
+
+AUTHENTICATION FLOW:
+1. Login → Store JWT token → Redirect to dashboard
+2. Token refresh on app load
+3. Automatic logout on 401 errors
+4. Role-based UI rendering
+
+================================================================================
+CORE FEATURES TO IMPLEMENT
+================================================================================
+
+1. AUTHENTICATION SYSTEM
+   - Login page with form validation
+   - Protected route wrapper
+   - Token management (localStorage/sessionStorage)
+   - Auto-logout on token expiration
+   - Password change functionality
+
+2. USER MANAGEMENT
+   - User list with search/filter
+   - Add new user form
+   - Edit user profile
+   - User activation/deactivation
+   - Bulk user operations
+   - User detail view
+
+3. ROLE MANAGEMENT
+   - Role list with permissions display
+   - Create custom roles
+   - Edit role permissions
+   - Role assignment to users
+   - Permission matrix UI
+
+4. DASHBOARD
+   - Overview cards (users, roles, activity)
+   - Recent activity feed
+   - Quick action buttons
+   - Role-based content display
+
+================================================================================
+DETAILED UX FLOWS TO IMPLEMENT
+================================================================================
+
+FLOW 1: INITIAL SETUP (First Time Users)
+┌─────────────────────────────────────────────────────────────┐
+│  🌾 Welcome to Rice Soft Trading Platform                  │
+│                                                             │
+│  This appears to be your first time setting up the         │
+│  platform. Let's get you started!                         │
+│                                                             │
+│  [Continue Setup]                                          │
+└─────────────────────────────────────────────────────────────┘
+
+→ Admin Account Setup Form
+→ Success confirmation
+→ Redirect to dashboard
+
+FLOW 2: LOGIN SYSTEM
+┌─────────────────────────────────────────────────────────────┐
+│  🌾 Rice Soft Trading Platform                             │
+│                                                             │
+│  Username: [________________]                              │
+│  Password: [________________]                              │
+│                                                             │
+│  [Login] [Forgot Password?]                                │
+│                                                             │
+│  Remember me: ☐                                            │
+└─────────────────────────────────────────────────────────────┘
+
+→ Form validation
+→ API call to /auth/login
+→ Store token and user data
+→ Redirect based on role
+
+FLOW 3: DASHBOARD LAYOUT
+┌─────────────────────────────────────────────────────────────┐
+│  🌾 Rice Soft Platform    👤 Admin    🔔    ⚙️    🚪 Logout │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  📊 Dashboard                                               │
+│  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐          │
+│  │ 👥 Users    │ │ 🏢 Roles    │ │ 📋 Reports  │          │
+│  │ 5 Active    │ │ 6 Roles     │ │ View All    │          │
+│  └─────────────┘ └─────────────┘ └─────────────┘          │
+│                                                             │
+│  📈 Recent Activity                                         │
+│  • John Sales logged in 2 hours ago                        │
+│  • New contract created yesterday                          │
+│  • 3 new lots added to inventory                           │
+│                                                             │
+│  🚀 Quick Actions                                           │
+│  [Add User] [Create Role] [View Contracts] [Manage Stock]  │
+└─────────────────────────────────────────────────────────────┘
+
+FLOW 4: USER MANAGEMENT
+┌─────────────────────────────────────────────────────────────┐
+│  👥 User Management                    [+ Add New User]     │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  Search: [________________] [🔍]  Filter: [All ▼]         │
+│                                                             │
+│  ┌─────────────────────────────────────────────────────────┐ │
+│  │ ☐ Username    │ Role      │ Status  │ Last Login │ ⚙️  │ │
+│  ├─────────────────────────────────────────────────────────┤ │
+│  │ ☐ admin       │ Admin     │ Active  │ 2h ago     │ ⚙️  │ │
+│  │ ☐ john_sales  │ Salesman  │ Active  │ 1d ago     │ ⚙️  │ │
+│  │ ☐ mary_acct   │ Accountant│ Inactive│ 3d ago     │ ⚙️  │ │
+│  └─────────────────────────────────────────────────────────┘ │
+│                                                             │
+│  [Bulk Actions ▼] [Export] [Refresh]                       │
+└─────────────────────────────────────────────────────────────┘
+
+FLOW 5: ADD/EDIT USER FORM
+┌─────────────────────────────────────────────────────────────┐
+│  ➕ Add New User                           [Cancel] [Save]  │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  Personal Information                                       │
+│  Username: [________________] (3-50 characters)           │
+│  Email: [________________] (valid email required)         │
+│  Full Name: [________________] (2-100 characters)          │
+│  Phone: [________________] (optional)                      │
+│                                                             │
+│  Account Settings                                           │
+│  Role: [Salesman ▼] (select from dropdown)                │
+│  Status: ○ Active  ○ Inactive                             │
+│                                                             │
+│  Password Settings                                          │
+│  Password: [________________] (min 8 characters)           │
+│  Confirm: [________________]                               │
+│                                                             │
+│  ⚠️  User will be notified via email with login details    │
+└─────────────────────────────────────────────────────────────┘
+
+FLOW 6: ROLE MANAGEMENT
+┌─────────────────────────────────────────────────────────────┐
+│  🏢 Role Management                    [+ Create Role]      │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  ┌─────────────────────────────────────────────────────────┐ │
+│  │ Role Name      │ Description        │ Users │ Actions │ │
+│  ├─────────────────────────────────────────────────────────┤ │
+│  │ admin          │ Full system access │ 1     │ ⚙️      │ │
+│  │ salesman       │ Sales operations   │ 2     │ ⚙️      │ │
+│  │ accountant     │ Financial ops     │ 1     │ ⚙️      │ │
+│  │ warehouse_ops  │ Inventory mgmt     │ 0     │ ⚙️      │ │
+│  └─────────────────────────────────────────────────────────┘ │
+│                                                             │
+│  [Create Custom Role] [Import Roles] [Export]               │
+└─────────────────────────────────────────────────────────────┘
+
+FLOW 7: PERMISSION MATRIX
+┌─────────────────────────────────────────────────────────────┐
+│  🔐 Set Permissions for: Salesman                          │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  📋 Contracts                                               │
+│  ☑ Read  ☑ Create  ☑ Update  ☐ Delete                     │
+│                                                             │
+│  📦 Lots/Inventory                                          │
+│  ☑ Read  ☑ Create  ☑ Update  ☐ Delete                 │
+│                                                             │
+│  💰 Purchases                                               │
+│  ☑ Read  ☐ Create  ☐ Update  ☐ Delete                     │
+│                                                             │
+│  👥 Users                                                   │
+│  ☐ Read  ☐ Create  ☐ Update  ☐ Delete                     │
+│                                                             │
+│  📊 Reports                                                 │
+│  ☑ Read  ☐ Create  ☐ Update  ☐ Delete                     │
+│                                                             │
+│  [Save Permissions] [Reset to Default] [Cancel]            │
+└─────────────────────────────────────────────────────────────┘
+
+================================================================================
+COMPONENT ARCHITECTURE
+================================================================================
+
+RECOMMENDED COMPONENT STRUCTURE:
+
+src/
+├── components/
+│   ├── auth/
+│   │   ├── LoginForm.tsx
+│   │   ├── ProtectedRoute.tsx
+│   │   └── AuthProvider.tsx
+│   ├── users/
+│   │   ├── UserList.tsx
+│   │   ├── UserForm.tsx
+│   │   ├── UserCard.tsx
+│   │   └── UserFilters.tsx
+│   ├── roles/
+│   │   ├── RoleList.tsx
+│   │   ├── RoleForm.tsx
+│   │   ├── PermissionMatrix.tsx
+│   │   └── RoleCard.tsx
+│   ├── dashboard/
+│   │   ├── DashboardStats.tsx
+│   │   ├── RecentActivity.tsx
+│   │   └── QuickActions.tsx
+│   ├── common/
+│   │   ├── Layout.tsx
+│   │   ├── Header.tsx
+│   │   ├── Sidebar.tsx
+│   │   ├── LoadingSpinner.tsx
+│   │   ├── ErrorBoundary.tsx
+│   │   └── ConfirmDialog.tsx
+│   └── forms/
+│       ├── FormField.tsx
+│       ├── SelectField.tsx
+│       └── ValidationMessage.tsx
+├── hooks/
+│   ├── useAuth.ts
+│   ├── useUsers.ts
+│   ├── useRoles.ts
+│   └── useApi.ts
+├── services/
+│   ├── api.ts
+│   ├── auth.service.ts
+│   ├── user.service.ts
+│   └── role.service.ts
+├── types/
+│   ├── auth.types.ts
+│   ├── user.types.ts
+│   └── role.types.ts
+├── utils/
+│   ├── validation.ts
+│   ├── constants.ts
+│   └── helpers.ts
+└── pages/ (or app/ for Next.js)
+    ├── login/
+    ├── dashboard/
+    ├── users/
+    └── roles/
+
+================================================================================
+STATE MANAGEMENT REQUIREMENTS
+================================================================================
+
+AUTHENTICATION STATE:
+```typescript
+interface AuthState {
+  user: User | null;
+  token: string | null;
+  isAuthenticated: boolean;
+  isLoading: boolean;
+  role: string | null;
+}
+```
+
+USER MANAGEMENT STATE:
+```typescript
+interface UserState {
+  users: User[];
+  selectedUser: User | null;
+  filters: UserFilters;
+  isLoading: boolean;
+  error: string | null;
+}
+```
+
+ROLE MANAGEMENT STATE:
+```typescript
+interface RoleState {
+  roles: Role[];
+  selectedRole: Role | null;
+  permissions: Permission[];
+  isLoading: boolean;
+  error: string | null;
+}
+```
+
+================================================================================
+API INTEGRATION PATTERNS
+================================================================================
+
+AUTHENTICATION SERVICE:
+```typescript
+class AuthService {
+  async login(credentials: LoginRequest): Promise<LoginResponse>
+  async logout(): Promise<void>
+  async getProfile(): Promise<User>
+  async refreshToken(): Promise<string>
+}
+```
+
+USER SERVICE:
+```typescript
+class UserService {
+  async getUsers(filters?: UserFilters): Promise<User[]>
+  async getUserById(id: string): Promise<User>
+  async createUser(userData: CreateUserRequest): Promise<User>
+  async updateUser(id: string, userData: UpdateUserRequest): Promise<User>
+  async deleteUser(id: string): Promise<void>
+}
+```
+
+ROLE SERVICE:
+```typescript
+class RoleService {
+  async getRoles(): Promise<Role[]>
+  async getRoleById(id: string): Promise<Role>
+  async createRole(roleData: CreateRoleRequest): Promise<Role>
+  async updateRole(id: string, roleData: UpdateRoleRequest): Promise<Role>
+  async deleteRole(id: string): Promise<void>
+}
+```
+
+================================================================================
+FORM VALIDATION REQUIREMENTS
+================================================================================
+
+LOGIN FORM:
+- Username: required, 3-50 characters
+- Password: required, min 8 characters
+
+USER FORM:
+- Username: required, 3-50 characters, alphanumeric + underscore
+- Email: required, valid email format
+- Full Name: required, 2-100 characters
+- Phone: optional, valid phone format
+- Password: required for new users, optional for updates
+- Role: required, must exist in system
+
+ROLE FORM:
+- Name: required, 2-50 characters, unique
+- Description: optional, max 200 characters
+- Permissions: required, at least one permission
+
+================================================================================
+ROLE-BASED UI REQUIREMENTS
+================================================================================
+
+ADMIN ROLE (Full Access):
+- All user management features
+- All role management features
+- System settings access
+- Audit log access
+- Bulk operations
+
+SALESMAN ROLE:
+- View own profile
+- Update own profile
+- View contracts (when implemented)
+- Create contracts (when implemented)
+- View lots (when implemented)
+
+ACCOUNTANT ROLE:
+- View own profile
+- Update own profile
+- View financial reports (when implemented)
+- Manage payments (when implemented)
+
+WAREHOUSE_OPERATOR ROLE:
+- View own profile
+- Update own profile
+- Manage inventory (when implemented)
+- View lots (when implemented)
+
+BROKER ROLE:
+- View own profile
+- Update own profile
+- View contracts (when implemented)
+- View lots (when implemented)
+
+VIEWER ROLE:
+- View own profile
+- Update own profile
+- Read-only access to all data
+
+================================================================================
+RESPONSIVE DESIGN REQUIREMENTS
+================================================================================
+
+MOBILE (< 768px):
+- Collapsible sidebar
+- Touch-friendly buttons (min 44px)
+- Stacked form layouts
+- Simplified navigation
+- Swipe gestures for tables
+
+TABLET (768px - 1024px):
+- Sidebar can be toggled
+- Two-column layouts
+- Medium-sized buttons
+- Optimized table views
+
+DESKTOP (> 1024px):
+- Full sidebar always visible
+- Multi-column layouts
+- Hover effects
+- Keyboard shortcuts
+- Advanced filtering options
+
+================================================================================
+ERROR HANDLING REQUIREMENTS
+================================================================================
+
+NETWORK ERRORS:
+- Show: "Unable to connect to server. Please check your connection."
+- Action: Retry button, check network status
+
+AUTHENTICATION ERRORS (401):
+- Clear auth state
+- Redirect to login
+- Show: "Session expired. Please login again."
+
+PERMISSION ERRORS (403):
+- Show: "You don't have permission to perform this action."
+- Hide unavailable features
+- Disable action buttons
+
+VALIDATION ERRORS (400):
+- Show field-specific error messages
+- Highlight invalid fields
+- Prevent form submission
+
+CONFLICT ERRORS (409):
+- Show: "Username/Email already exists"
+- Highlight conflicting fields
+- Suggest alternatives
+
+RATE LIMIT ERRORS (429):
+- Show: "Too many attempts. Please try again in X minutes."
+- Disable submit button with countdown
+- Implement exponential backoff
+
+================================================================================
+PERFORMANCE REQUIREMENTS
+================================================================================
+
+LOADING STATES:
+- Show skeleton loaders for data fetching
+- Disable buttons during API calls
+- Show progress indicators for long operations
+- Implement optimistic UI updates
+
+CACHING STRATEGY:
+- Cache user data for 5 minutes
+- Cache roles data for 30 minutes
+- Implement query invalidation after mutations
+- Use React Query for smart caching
+
+OPTIMIZATION:
+- Lazy load non-critical components
+- Implement virtual scrolling for large lists
+- Debounce search inputs
+- Optimize bundle size with code splitting
+
+================================================================================
+TESTING REQUIREMENTS
+================================================================================
+
+UNIT TESTS:
+- Component rendering
+- Form validation
+- API service methods
+- Utility functions
+- Custom hooks
+
+INTEGRATION TESTS:
+- Authentication flow
+- User CRUD operations
+- Role management
+- Permission checks
+- Error handling
+
+E2E TESTS:
+- Complete user journey
+- Role-based access
+- Form submissions
+- Navigation flow
+- Error scenarios
+
+================================================================================
+DEPLOYMENT REQUIREMENTS
+================================================================================
+
+BUILD CONFIGURATION:
+- Environment variables for API URLs
+- Production optimizations
+- Asset optimization
+- Security headers
+
+DEPLOYMENT OPTIONS:
+- Vercel (recommended for Next.js)
+- Netlify
+- AWS S3 + CloudFront
+- Docker containerization
+
+ENVIRONMENT VARIABLES:
+- REACT_APP_API_BASE_URL
+- REACT_APP_ENVIRONMENT
+- REACT_APP_VERSION
+
+================================================================================
+SECURITY REQUIREMENTS
+================================================================================
+
+TOKEN SECURITY:
+- Store JWT in httpOnly cookies (preferred) or secure storage
+- Implement token refresh mechanism
+- Clear tokens on logout
+- Handle token expiration gracefully
+
+INPUT SECURITY:
+- Sanitize all user inputs
+- Validate data on both client and server
+- Prevent XSS attacks
+- Use parameterized queries (handled by backend)
+
+UI SECURITY:
+- Hide sensitive information based on roles
+- Disable features user can't access
+- Show appropriate error messages
+- Implement proper logout functionality
+
+================================================================================
+ACCESSIBILITY REQUIREMENTS
+================================================================================
+
+WCAG 2.1 COMPLIANCE:
+- Keyboard navigation support
+- Screen reader compatibility
+- Color contrast ratios (4.5:1 minimum)
+- Focus indicators
+- Alt text for images
+
+IMPLEMENTATION:
+- Semantic HTML elements
+- ARIA labels and roles
+- Skip navigation links
+- Error announcements
+- Loading state announcements
+
+================================================================================
+IMPLEMENTATION PHASES
+================================================================================
+
+PHASE 1: FOUNDATION (Week 1)
+- Project setup and configuration
+- Authentication system
+- Basic routing
+- Layout components
+- API service layer
+
+PHASE 2: USER MANAGEMENT (Week 2)
+- User list and filtering
+- Add/edit user forms
+- User detail views
+- Role assignment
+- Basic error handling
+
+PHASE 3: ROLE MANAGEMENT (Week 3)
+- Role list and management
+- Permission matrix
+- Custom role creation
+- Role assignment UI
+- Advanced error handling
+
+PHASE 4: POLISH & OPTIMIZATION (Week 4)
+- Responsive design
+- Performance optimization
+- Accessibility improvements
+- Testing implementation
+- Documentation
+
+================================================================================
+SUCCESS CRITERIA
+================================================================================
+
+FUNCTIONAL REQUIREMENTS:
+✅ Users can login with valid credentials
+✅ Users can logout and clear session
+✅ Admin can view all users
+✅ Admin can create new users
+✅ Admin can edit user details
+✅ Admin can assign roles to users
+✅ Admin can create custom roles
+✅ Admin can set role permissions
+✅ Role-based UI rendering works
+✅ All forms have proper validation
+✅ Error handling works for all scenarios
+
+NON-FUNCTIONAL REQUIREMENTS:
+✅ Application loads in < 3 seconds
+✅ Responsive design works on all devices
+✅ Accessibility standards met
+✅ Code is maintainable and well-documented
+✅ Security best practices implemented
+
+================================================================================
+DELIVERABLES
+================================================================================
+
+CODE DELIVERABLES:
+- Complete React/Next.js application
+- TypeScript interfaces and types
+- Component library with documentation
+- API integration layer
+- Test suite with good coverage
+
+DOCUMENTATION:
+- README with setup instructions
+- Component documentation
+- API integration guide
+- Deployment guide
+- User manual (optional)
+
+================================================================================
+GETTING STARTED
+================================================================================
+
+1. Review the backend API documentation in FRONTEND_API_INTEGRATION_GUIDE.txt
+2. Set up your development environment
+3. Create the project structure
+4. Implement authentication first
+5. Build user management features
+6. Add role management
+7. Implement responsive design
+8. Add testing
+9. Optimize and deploy
+
+================================================================================
+BACKEND API REFERENCE
+================================================================================
+
+All API endpoints are documented in: FRONTEND_API_INTEGRATION_GUIDE.txt
+Base URL: http://localhost:3000/api/v1
+Authentication: JWT Bearer Token
+Response Format: { success, message, data, timestamp }
+
+Key Endpoints:
+- POST /auth/login - User authentication
+- GET /auth/profile - Get current user
+- POST /auth/logout - User logout
+- GET /users - List all users (admin only)
+- POST /users - Create user (admin only)
+- PUT /users/:id - Update user
+- DELETE /users/:id - Delete user (admin only)
+- GET /roles - List all roles
+- POST /roles - Create role (admin only)
+- PUT /roles/:id - Update role (admin only)
+- DELETE /roles/:id - Delete role (admin only)
+
+================================================================================
+END OF DEVELOPMENT PROMPT
+================================================================================
+
+This prompt provides everything needed to build a complete frontend for the Rice Soft Trading Platform. The backend is ready and tested, so focus on creating an intuitive, responsive, and secure user interface that leverages the existing API infrastructure.
+
+Remember: Start with authentication, then user management, then role management. Build incrementally and test each feature thoroughly.
+
+Good luck with your frontend development! 🚀
