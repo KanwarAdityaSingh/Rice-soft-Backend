@@ -1,0 +1,794 @@
+
+================================================================================
+SECTION 1: LEADERBOARD OVERVIEW
+================================================================================
+
+The leaderboard tracks and ranks salespeople based on their performance metrics.
+It provides insights into sales team performance, individual achievements, and
+team-wide statistics.
+
+KEY METRICS:
+1. Total Leads - Number of leads assigned to a salesperson
+2. Converted Leads - Number of leads successfully converted
+3. Conversion Rate - Percentage of leads converted (converted/total * 100)
+4. Total Revenue - Sum of all conversion values
+5. Average Deal Size - Average value of converted deals (revenue/conversions)
+6. Performance Score - Weighted score combining all metrics
+
+PERFORMANCE SCORE CALCULATION:
+The performance score is a weighted combination:
+- Conversion Rate: 40% weight
+- Total Revenue: 30% weight (normalized to 100)
+- Total Leads: 20% weight (normalized to 100)
+- Average Deal Size: 10% weight (normalized to 100)
+
+SCORE RANGE: 0-100 (higher is better)
+
+USE CASES:
+- Track individual salesperson performance
+- Team performance overview
+- Identify top performers
+- Monitor conversion metrics
+- Generate performance reports
+
+
+================================================================================
+SECTION 2: GET LEADERBOARD
+================================================================================
+
+API ENDPOINT:
+GET http://localhost:3000/api/v1/leaderboard/getLeaderboard
+
+HEADERS:
+Authorization: Bearer {token}
+
+QUERY PARAMETERS (all optional):
+- start_date=2025-01-01 (YYYY-MM-DD format, filter by date range start)
+- end_date=2025-12-31 (YYYY-MM-DD format, filter by date range end)
+- sort_by=performance_score (sort column: total_leads, conversion_rate, total_revenue, performance_score)
+- sort_order=desc (asc or desc)
+- limit=10 (pagination limit)
+- offset=0 (pagination offset)
+
+SUCCESS RESPONSE (200):
+{
+  "success": true,
+  "data": {
+    "entries": [
+      {
+        "rank": 1,
+        "salesperson_id": "uuid",
+        "salesperson_name": "John Sales",
+        "salesperson_email": "john@example.com",
+        "total_leads": 50,
+        "converted_leads": 15,
+        "conversion_rate": 30.00,
+        "total_revenue": 1500000,
+        "avg_deal_size": 100000,
+        "performance_score": 85.50
+      },
+      {
+        "rank": 2,
+        "salesperson_id": "uuid",
+        "salesperson_name": "Jane Sales",
+        "salesperson_email": "jane@example.com",
+        "total_leads": 45,
+        "converted_leads": 12,
+        "conversion_rate": 26.67,
+        "total_revenue": 1200000,
+        "avg_deal_size": 100000,
+        "performance_score": 72.30
+      }
+    ],
+    "total_count": 10,
+    "filters_applied": {
+      "time_range": {
+        "start_date": "2025-01-01",
+        "end_date": "2025-12-31"
+      },
+      "sort_by": "performance_score",
+      "sort_order": "desc",
+      "limit": 10,
+      "offset": 0
+    },
+    "generated_at": "2025-10-27T10:46:20.930Z"
+  },
+  "timestamp": "2025-10-27T10:46:20.930Z"
+}
+
+USE CASES:
+- Display leaderboard table with rankings
+- Sort by different metrics (conversion rate, revenue, etc.)
+- Filter by date range (this month, this quarter, this year)
+- Pagination for large teams
+- Export leaderboard data
+
+IMPLEMENTATION LOGIC:
+1. Fetch leaderboard on page load
+2. Display in table with rank, name, and all metrics
+3. Provide sort dropdown (total_leads, conversion_rate, total_revenue, performance_score)
+4. Provide date range filter (start_date and end_date)
+5. Implement pagination if total_count > limit
+
+DEFAULT BEHAVIOR:
+- No filters = all time data
+- sort_by = "performance_score" (if not specified)
+- sort_order = "desc" (if not specified)
+- Only shows salespeople with at least 1 lead
+
+
+================================================================================
+SECTION 3: GET TEAM STATS
+================================================================================
+
+API ENDPOINT:
+GET http://localhost:3000/api/v1/leaderboard/getTeamStats
+
+HEADERS:
+Authorization: Bearer {token}
+
+SUCCESS RESPONSE (200):
+{
+  "success": true,
+  "data": {
+    "total_salespeople": 15,
+    "total_leads": 500,
+    "total_conversions": 125,
+    "overall_conversion_rate": 25.00,
+    "total_revenue": 12500000,
+    "avg_deal_size": 100000,
+    "top_performer": {
+      "name": "John Sales",
+      "conversion_rate": 35.50,
+      "revenue": 2500000
+    }
+  },
+  "timestamp": "2025-10-27T10:46:20.930Z"
+}
+
+USE CASES:
+- Dashboard summary statistics
+- Team overview metrics
+- Display on main dashboard
+- Compare individual vs team averages
+- Highlight top performer achievement
+
+IMPLEMENTATION LOGIC:
+1. Fetch team stats on page load
+2. Display as cards or metrics grid
+3. Show top performer prominently
+4. Compare individual metrics against team averages
+
+
+================================================================================
+SECTION 4: GET SALESPERSON STATS
+================================================================================
+
+API ENDPOINT:
+GET http://localhost:3000/api/v1/leaderboard/getSalespersonStats/:id
+
+HEADERS:
+Authorization: Bearer {token}
+
+QUERY PARAMETERS (optional):
+- start_date=2025-01-01 (filter by date range start)
+- end_date=2025-12-31 (filter by date range end)
+
+SUCCESS RESPONSE (200):
+{
+  "success": true,
+  "data": {
+    "salesperson_id": "uuid",
+    "salesperson_name": "John Sales",
+    "salesperson_email": "john@example.com",
+    "total_leads": 50,
+    "new_leads": 10,
+    "contacted_leads": 15,
+    "engaged_leads": 10,
+    "converted_leads": 15,
+    "rejected_leads": 0,
+    "conversion_rate": 30.00,
+    "total_revenue": 1500000,
+    "avg_deal_size": 100000,
+    "avg_conversion_time_days": 45.5,
+    "high_priority_leads": 5,
+    "urgent_leads": 2
+  },
+  "timestamp": "..."
+}
+
+USE CASES:
+- Salesperson profile page
+- Individual performance dashboard
+- Performance review data
+- Personal statistics tracking
+
+METRICS EXPLAINED:
+- new_leads: Leads with status "new"
+- contacted_leads: Leads with status "contacted"
+- engaged_leads: Leads with status "engaged"
+- converted_leads: Leads with status "converted"
+- rejected_leads: Leads with status "rejected"
+- conversion_rate: (converted_leads / total_leads) * 100
+- avg_conversion_time_days: Average days from lead creation to conversion
+- high_priority_leads: Number of leads with priority "high"
+- urgent_leads: Number of leads with priority "urgent"
+
+ERROR RESPONSES:
+- 404: Salesperson not found or has no leads
+
+IMPLEMENTATION LOGIC:
+1. Fetch salesperson stats when viewing profile
+2. Display all metrics in organized sections
+3. Provide optional date range filter
+4. Show pipeline distribution (new, contacted, engaged, converted)
+
+
+================================================================================
+SECTION 5: GET SALESPERSON DETAIL STATS
+================================================================================
+
+API ENDPOINT:
+GET http://localhost:3000/api/v1/leaderboard/getSalespersonDetailStats/:id
+
+HEADERS:
+Authorization: Bearer {token}
+
+SUCCESS RESPONSE (200):
+{
+  "success": true,
+  "data": {
+    "salesperson_id": "uuid",
+    "salesperson_name": "John Sales",
+    "salesperson_email": "john@example.com",
+    "stats": {
+      // Same as getSalespersonStats response
+    },
+    "monthly_trends": [
+      {
+        "month": "2025-10",
+        "leads": 10,
+        "conversions": 3,
+        "revenue": 300000,
+        "conversion_rate": 30.00
+      },
+      {
+        "month": "2025-09",
+        "leads": 8,
+        "conversions": 2,
+        "revenue": 200000,
+        "conversion_rate": 25.00
+      }
+    ],
+    "recent_activities": [
+      {
+        "activity_type": "lead_converted",
+        "description": "Lead converted for ABC Corp",
+        "timestamp": "2025-10-27T10:30:00.000Z",
+        "lead_id": "uuid",
+        "lead_company": "ABC Corp"
+      },
+      {
+        "activity_type": "lead_created",
+        "description": "Lead created for XYZ Ltd",
+        "timestamp": "2025-10-27T09:00:00.000Z",
+        "lead_id": "uuid",
+        "lead_company": "XYZ Ltd"
+      }
+    ]
+  },
+  "timestamp": "..."
+}
+
+USE CASES:
+- Comprehensive salesperson dashboard
+- Performance analytics page
+- Trend visualization
+- Activity timeline
+
+DATA COMPONENTS:
+1. stats - Basic statistics (same as getSalespersonStats)
+2. monthly_trends - Last 12 months of data
+3. recent_activities - Recent lead created/converted activities
+
+IMPLEMENTATION LOGIC:
+1. Fetch detail stats on salesperson profile page
+2. Display stats in metrics section
+3. Show monthly trends as line/bar chart
+4. Display recent activities as timeline
+5. Provide "View Details" button to drill down
+
+
+================================================================================
+SECTION 6: GET SALESPERSON MONTHLY TRENDS
+================================================================================
+
+API ENDPOINT:
+GET http://localhost:3000/api/v1/leaderboard/getSalespersonMonthlyTrends/:id
+
+HEADERS:
+Authorization: Bearer {token}
+
+SUCCESS RESPONSE (200):
+{
+  "success": true,
+  "data": [
+    {
+      "month": "2025-10",
+      "leads": 10,
+      "conversions": 3,
+      "revenue": 300000,
+      "conversion_rate": 30.00
+    },
+    {
+      "month": "2025-09",
+      "leads": 8,
+      "conversions": 2,
+      "revenue": 200000,
+      "conversion_rate": 25.00
+    }
+  ],
+  "timestamp": "..."
+}
+
+USE CASES:
+- Trend visualization (line charts)
+- Performance over time analysis
+- Month-over-month comparison
+- Identify growth trends
+
+DATA EXPLANATION:
+- month: Format "YYYY-MM" (e.g., "2025-10")
+- leads: Total leads in that month
+- conversions: Converted leads in that month
+- revenue: Total revenue from conversions in that month
+- conversion_rate: (conversions / leads) * 100
+
+TIME RANGE:
+Returns last 12 months of data
+
+IMPLEMENTATION LOGIC:
+1. Fetch trends for chart visualization
+2. Display as line chart showing:
+   - Number of leads over time
+   - Number of conversions over time
+   - Revenue over time
+   - Conversion rate over time
+3. Use for trend analysis and forecasting
+
+
+================================================================================
+SECTION 7: GET SALESPERSON RECENT ACTIVITIES
+================================================================================
+
+API ENDPOINT:
+GET http://localhost:3000/api/v1/leaderboard/getSalespersonRecentActivities/:id
+
+HEADERS:
+Authorization: Bearer {token}
+
+QUERY PARAMETERS (optional):
+- limit=10 (default: 10, max number of activities to return)
+
+SUCCESS RESPONSE (200):
+{
+  "success": true,
+  "data": [
+    {
+      "activity_type": "lead_converted",
+      "description": "Lead converted for ABC Corp",
+      "timestamp": "2025-10-27T10:30:00.000Z",
+      "lead_id": "uuid",
+      "lead_company": "ABC Corp"
+    },
+    {
+      "activity_type": "lead_created",
+      "description": "Lead created for XYZ Ltd",
+      "timestamp": "2025-10-27T09:00:00.000Z",
+      "lead_id": "uuid",
+      "lead_company": "XYZ Ltd"
+    },
+    {
+      "activity_type": "status_changed",
+      "description": "Lead status changed for DEF Inc",
+      "timestamp": "2025-10-27T08:00:00.000Z",
+      "lead_id": "uuid",
+      "lead_company": "DEF Inc"
+    }
+  ],
+  "timestamp": "..."
+}
+
+ACTIVITY TYPES:
+- lead_created: New lead was created
+- lead_converted: Lead was converted to vendor
+- status_changed: Lead status was updated
+
+USE CASES:
+- Activity timeline on profile page
+- Recent achievements display
+- Performance tracking
+- Quick access to recent work
+
+IMPLEMENTATION LOGIC:
+1. Fetch recent activities on profile page
+2. Display as timeline or activity feed
+3. Link each activity to lead detail page
+4. Show activity type icon
+5. Display timestamp and description
+
+
+================================================================================
+SECTION 8: FRONTEND IMPLEMENTATION PATTERNS
+================================================================================
+
+8.1 API SERVICE STRUCTURE
+================================================================================
+
+// api/leaderboard.js
+export const leaderboardAPI = {
+  getLeaderboard: (filters) => {
+    let url = `${API_BASE_URL}/leaderboard/getLeaderboard`;
+    const params = new URLSearchParams();
+    if (filters.start_date) params.append('start_date', filters.start_date);
+    if (filters.end_date) params.append('end_date', filters.end_date);
+    if (filters.sort_by) params.append('sort_by', filters.sort_by);
+    if (filters.sort_order) params.append('sort_order', filters.sort_order);
+    if (filters.limit) params.append('limit', filters.limit);
+    if (filters.offset) params.append('offset', filters.offset);
+    if (params.toString()) url += `?${params.toString()}`;
+    return axios.get(url);
+  },
+  
+  getTeamStats: () => 
+    axios.get(`${API_BASE_URL}/leaderboard/getTeamStats`),
+  
+  getSalespersonStats: (id, timeRange) => {
+    let url = `${API_BASE_URL}/leaderboard/getSalespersonStats/${id}`;
+    const params = new URLSearchParams();
+    if (timeRange?.start_date) params.append('start_date', timeRange.start_date);
+    if (timeRange?.end_date) params.append('end_date', timeRange.end_date);
+    if (params.toString()) url += `?${params.toString()}`;
+    return axios.get(url);
+  },
+  
+  getSalespersonDetailStats: (id) => 
+    axios.get(`${API_BASE_URL}/leaderboard/getSalespersonDetailStats/${id}`),
+  
+  getMonthlyTrends: (id) => 
+    axios.get(`${API_BASE_URL}/leaderboard/getSalespersonMonthlyTrends/${id}`),
+  
+  getRecentActivities: (id, limit) => {
+    let url = `${API_BASE_URL}/leaderboard/getSalespersonRecentActivities/${id}`;
+    if (limit) url += `?limit=${limit}`;
+    return axios.get(url);
+  }
+};
+
+
+8.2 LEADERBOARD TABLE PATTERN
+================================================================================
+
+const [leaderboardData, setLeaderboardData] = useState([]);
+const [sortBy, setSortBy] = useState('performance_score');
+const [sortOrder, setSortOrder] = useState('desc');
+const [dateRange, setDateRange] = useState({
+  start_date: null,
+  end_date: null
+});
+
+async function fetchLeaderboard() {
+  try {
+    const response = await leaderboardAPI.getLeaderboard({
+      sort_by: sortBy,
+      sort_order: sortOrder,
+      start_date: dateRange.start_date,
+      end_date: dateRange.end_date
+    });
+    setLeaderboardData(response.data.data.entries);
+  } catch (error) {
+    showError('Failed to load leaderboard');
+  }
+}
+
+TABLE COLUMNS:
+- Rank (1, 2, 3...)
+- Name (salesperson_name)
+- Total Leads
+- Converted Leads
+- Conversion Rate (%)
+- Total Revenue (formatted currency)
+- Avg Deal Size (formatted currency)
+- Performance Score
+
+SORTING:
+- Click column headers to change sort_by
+- Toggle sort_order between asc/desc
+- Default sort by performance_score desc
+
+
+8.3 TEAM STATS DASHBOARD PATTERN
+================================================================================
+
+const [teamStats, setTeamStats] = useState(null);
+
+async function fetchTeamStats() {
+  try {
+    const response = await leaderboardAPI.getTeamStats();
+    setTeamStats(response.data.data);
+  } catch (error) {
+    showError('Failed to load team stats');
+  }
+}
+
+DISPLAY METRICS AS CARDS:
+- Total Salespeople
+- Total Leads
+- Total Conversions
+- Overall Conversion Rate (%)
+- Total Revenue (formatted)
+- Average Deal Size (formatted)
+- Top Performer (name + conversion rate + revenue)
+
+
+8.4 SALESPERSON PROFILE PATTERN
+================================================================================
+
+const [salespersonStats, setSalespersonStats] = useState(null);
+const [monthlyTrends, setMonthlyTrends] = useState([]);
+const [recentActivities, setRecentActivities] = useState([]);
+
+async function fetchSalespersonProfile(salespersonId) {
+  try {
+    const [statsResponse, trendsResponse, activitiesResponse] = await Promise.all([
+      leaderboardAPI.getSalespersonStats(salespersonId),
+      leaderboardAPI.getMonthlyTrends(salespersonId),
+      leaderboardAPI.getRecentActivities(salespersonId, 10)
+    ]);
+    
+    setSalespersonStats(statsResponse.data.data);
+    setMonthlyTrends(trendsResponse.data.data);
+    setRecentActivities(activitiesResponse.data.data);
+  } catch (error) {
+    showError('Failed to load salesperson profile');
+  }
+}
+
+DISPLAY SECTIONS:
+1. Header: Name, email, performance summary
+2. Key Metrics: conversion_rate, total_revenue, avg_deal_size
+3. Pipeline Status: Leads by status (new, contacted, engaged, converted)
+4. Monthly Trends: Line chart
+5. Recent Activities: Timeline feed
+
+
+8.5 DATE RANGE FILTER PATTERN
+================================================================================
+
+const [dateRange, setDateRange] = useState({
+  start_date: null,
+  end_date: null
+});
+
+PRESET OPTIONS:
+- Today
+- This Week
+- This Month
+- This Quarter
+- This Year
+- Last 7 Days
+- Last 30 Days
+- Last 90 Days
+- Custom Range
+
+function applyDateRange(rangeType) {
+  const today = new Date();
+  let start, end;
+  
+  switch(rangeType) {
+    case 'this_month':
+      start = new Date(today.getFullYear(), today.getMonth(), 1);
+      end = today;
+      break;
+    case 'this_quarter':
+      const quarter = Math.floor(today.getMonth() / 3);
+      start = new Date(today.getFullYear(), quarter * 3, 1);
+      end = today;
+      break;
+    case 'this_year':
+      start = new Date(today.getFullYear(), 0, 1);
+      end = today;
+      break;
+  }
+  
+  setDateRange({
+    start_date: formatDate(start),
+    end_date: formatDate(end)
+  });
+}
+
+function formatDate(date) {
+  return date.toISOString().split('T')[0]; // YYYY-MM-DD
+}
+
+
+8.6 CHART VISUALIZATION PATTERN
+================================================================================
+
+For monthly trends data:
+
+import { Line } from 'react-chartjs-2';
+
+const chartData = {
+  labels: monthlyTrends.map(t => t.month),
+  datasets: [
+    {
+      label: 'Leads',
+      data: monthlyTrends.map(t => t.leads),
+      borderColor: 'blue',
+      yAxisID: 'y'
+    },
+    {
+      label: 'Conversions',
+      data: monthlyTrends.map(t => t.conversions),
+      borderColor: 'green',
+      yAxisID: 'y'
+    },
+    {
+      label: 'Revenue',
+      data: monthlyTrends.map(t => t.revenue),
+      borderColor: 'orange',
+      yAxisID: 'y1'
+    },
+    {
+      label: 'Conversion Rate',
+      data: monthlyTrends.map(t => t.conversion_rate),
+      borderColor: 'purple',
+      yAxisID: 'y2'
+    }
+  ]
+};
+
+CHART OPTIONS:
+- Show 4 lines: Leads, Conversions, Revenue, Conversion Rate
+- Dual Y-axes (count on left, revenue/percentage on right)
+- Tooltips showing exact values
+- Time series on X-axis
+
+
+8.7 PERFORMANCE SCORE VISUALIZATION
+================================================================================
+
+const getPerformanceColor = (score) => {
+  if (score >= 80) return 'green';
+  if (score >= 60) return 'yellow';
+  if (score >= 40) return 'orange';
+  return 'red';
+};
+
+const getPerformanceLabel = (score) => {
+  if (score >= 80) return 'Excellent';
+  if (score >= 60) return 'Good';
+  if (score >= 40) return 'Average';
+  return 'Needs Improvement';
+};
+
+DISPLAY AS:
+- Circular progress indicator showing score out of 100
+- Color-coded badges
+- Comparison with team average
+- Trend indicator (increasing/decreasing)
+
+
+8.8 RANK DISPLAY PATTERN
+================================================================================
+
+const getRankIcon = (rank) => {
+  switch(rank) {
+    case 1: return '🥇'; // Gold medal
+    case 2: return '🥈'; // Silver medal
+    case 3: return '🥉'; // Bronze medal
+    default: return rank;
+  }
+};
+
+DISPLAY:
+- Top 3 with emojis
+- Rest with numbers
+- Highlight current user's rank
+- Show rank change from previous period
+
+
+================================================================================
+SECTION 9: ERROR HANDLING
+================================================================================
+
+Common Leaderboard API Errors:
+
+404 Not Found:
+- "Salesperson not found or has no leads"
+  → Show message that salesperson has no data yet
+  → Display empty state with message
+  → Suggest assigning leads to this salesperson
+
+400 Bad Request:
+- Invalid date format
+- Invalid sort_by or sort_order values
+  → Show validation error message
+  → Reset to default values
+
+401 Unauthorized:
+- Handle token expiration
+- Redirect to login
+
+EMPTY STATES:
+When no salespeople have leads:
+- Show message: "No leaderboard data available yet"
+- Suggest: "Assign leads to salespeople to see performance metrics"
+
+When salesperson has no activity:
+- Show message: "No activity recorded for this period"
+- Suggest: "Try selecting a different date range"
+
+
+================================================================================
+SECTION 10: IMPORTANT NOTES
+================================================================================
+
+1. PERFORMANCE SCORE:
+   - Calculated server-side using weighted formula
+   - Normalizes each metric to 0-100 range
+   - Higher score indicates better overall performance
+   - Considers conversion rate most heavily (40%)
+
+2. DATE RANGE FILTERING:
+   - Filters based on lead creation date
+   - End date should be inclusive
+   - Use ISO format (YYYY-MM-DD)
+   - Always validate date range (start <= end)
+
+3. PAGINATION:
+   - Use limit and offset for large teams
+   - Show total_count for total pages calculation
+   - Default limit can be set on frontend (e.g., 20 per page)
+
+4. SORTING:
+   - Can sort by: total_leads, conversion_rate, total_revenue, performance_score
+   - Default sort by performance_score descending
+   - Toggle between asc/desc on frontend
+
+5. LEADERBOARD ENTRIES:
+   - Only shows salespeople with at least 1 lead
+   - Users with user_type = 'salesman' are eligible
+   - Inactive salesmen included if they have leads
+
+6. TREND DATA:
+   - Monthly trends show last 12 months
+   - Data grouped by month (YYYY-MM format)
+   - Shows all months in range, even with 0 leads
+   - Sort descending (newest first)
+
+7. RECENT ACTIVITIES:
+   - Shows both lead creation and conversion
+   - Limited to recent 10 activities by default
+   - Can customize limit via query parameter
+   - Sort by timestamp descending
+
+8. TEAM STATS:
+   - Aggregates data from all salespeople
+   - Top performer calculated separately
+   - Shows overall team performance
+   - Useful for management dashboards
+
+9. CONVERSION METRICS:
+   - Conversion rate = (converted_leads / total_leads) * 100
+   - Revenue comes from conversions table (conversion_value)
+   - Average deal size = total_revenue / converted_leads
+   - Only calculated when there are conversions
+
+10. SALESPERSON SELECTION:
+    - Need to get salesperson IDs from /salesmen/getAllSalesmen
+    - Or from /users/getAllUsers with user_type=salesman
+    - Store salesperson mapping for display names
+    - Link leaderboard to salesperson profile pages
+

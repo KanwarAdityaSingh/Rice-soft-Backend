@@ -1,0 +1,944 @@
+
+================================================================================
+SECTION 1: LEAD MANAGEMENT OVERVIEW
+================================================================================
+
+Lead Flow:
+1. Create Lead → 2. Manage Lead → 3. Track Events → 4. Convert to Vendor
+
+Lead Statuses:
+- new: Just created, not yet contacted
+- contacted: Initial contact made
+- engaged: Active discussions
+- converted: Successfully converted to vendor
+- rejected: Not interested/qualified
+
+Lead Priorities:
+- low, medium, high, urgent
+
+IMPORTANT:
+- Each lead can be assigned to a salesman
+- Events track all interactions with the lead
+- Converting a lead automatically creates a vendor account
+- Conversion records track commission and value
+
+
+================================================================================
+SECTION 2: GET ALL LEADS
+================================================================================
+
+API ENDPOINT:
+GET http://localhost:3000/api/v1/leads/getAllLeads
+
+HEADERS:
+Authorization: Bearer {token}
+
+QUERY PARAMETERS (all optional):
+- lead_status=new (filter by: new, contacted, engaged, converted, rejected)
+- assigned_to={salesman_id} (filter by assigned salesman)
+- priority=high (filter by: low, medium, high, urgent)
+- is_existing_customer=true (filter by existing customers)
+
+SUCCESS RESPONSE (200):
+{
+  "success": true,
+  "data": [
+    {
+      "id": "uuid",
+      "company_name": "ABC Corporation",
+      "contact_person": "John Doe",
+      "email": "john@abccorp.com",
+      "phone": "9876543210",
+      "address": {
+        "street": "123 Business St",
+        "city": "Mumbai",
+        "state": "Maharashtra",
+        "pincode": "400001",
+        "country": "India"
+      },
+      "business_details": {
+        "pan_number": "ABCDE1234F",
+        "gst_number": "27ABCDE1234F1Z5",
+        "industry": "Manufacturing",
+        "company_size": "500+",
+        "annual_revenue": 50000000
+      },
+      "is_existing_customer": false,
+      "lead_status": "engaged",
+      "customer_status": null,
+      "assigned_to": "salesman-uuid",
+      "created_by": "admin-uuid",
+      "updated_by": null,
+      "created_at": "2025-10-27T10:15:59.923Z",
+      "updated_at": "2025-10-27T10:15:59.923Z",
+      "notes": "Interested in bulk rice orders",
+      "priority": "high",
+      "source": "website",
+      "estimated_value": 500000,
+      "expected_close_date": "2025-12-15T00:00:00.000Z",
+      "revenue": 0
+    }
+  ],
+  "timestamp": "2025-10-27T10:46:20.930Z"
+}
+
+USE CASES:
+- Display leads table with filters
+- Show leads by status (new/contacted/engaged/converted/rejected)
+- Filter by assigned salesman
+- Filter by priority level
+- Search by company name or email (client-side)
+- Track conversion pipeline
+
+
+================================================================================
+SECTION 3: CREATE LEAD
+================================================================================
+
+API ENDPOINT:
+POST http://localhost:3000/api/v1/leads/createLead
+
+HEADERS:
+Authorization: Bearer {token}
+Content-Type: application/json
+
+REQUEST BODY:
+{
+  "company_name": "ABC Corporation",
+  "contact_person": "John Doe",
+  "email": "john@abccorp.com",
+  "phone": "9876543210",
+  "address": {
+    "street": "123 Business St",
+    "city": "Mumbai",
+    "state": "Maharashtra",
+    "pincode": "400001",
+    "country": "India"
+  },
+  "business_details": {
+    "pan_number": "ABCDE1234F",
+    "gst_number": "27ABCDE1234F1Z5",
+    "industry": "Manufacturing",
+    "company_size": "500+",
+    "annual_revenue": 50000000
+  },
+  "is_existing_customer": false,
+  "lead_status": "new",
+  "customer_status": null,
+  "assigned_to": null,
+  "notes": "Interested in bulk rice orders",
+  "priority": "medium",
+  "source": "website",
+  "estimated_value": 500000,
+  "expected_close_date": "2025-12-15T00:00:00.000Z"
+}
+
+REQUIRED FIELDS:
+- company_name (string)
+- contact_person (string)
+- email (string, valid email format)
+
+OPTIONAL FIELDS:
+- phone (string)
+- address (object with street, city, state, pincode, country)
+- business_details (object with pan_number, gst_number, industry, company_size, annual_revenue)
+- is_existing_customer (boolean, default: false)
+- lead_status (enum: new, contacted, engaged, converted, rejected, default: "new")
+- assigned_to (salesman user id)
+- notes (string)
+- priority (enum: low, medium, high, urgent, default: "medium")
+- source (string)
+- estimated_value (number)
+- expected_close_date (ISO date string)
+
+SUCCESS RESPONSE (201):
+Returns same lead object with id, timestamps, and created_by
+
+ERROR RESPONSES:
+- 409: Email already exists
+- 400: Validation error
+- 401: Unauthorized
+
+AUTOMATIC ACTIONS:
+On creation, the system automatically:
+1. Creates a "created" lead event
+2. Stores initial status and source in event metadata
+
+IMPLEMENTATION:
+1. Show create lead form (modal or separate page)
+2. Validate client-side:
+   - Required fields
+   - Email format
+   - If provided: PAN/GST format
+3. On submit: Call API
+4. On success: Close form, refresh leads list, show success message
+
+
+================================================================================
+SECTION 4: GET LEAD BY ID
+================================================================================
+
+API ENDPOINT:
+GET http://localhost:3000/api/v1/leads/getLeadById/:id
+
+HEADERS:
+Authorization: Bearer {token}
+
+RESPONSE (200):
+Same format as single lead object in getAllLeads response
+
+USE CASES:
+- View lead details page
+- Pre-fill edit form
+- Display lead history
+
+
+================================================================================
+SECTION 5: UPDATE LEAD
+================================================================================
+
+API ENDPOINT:
+POST http://localhost:3000/api/v1/leads/updateLead/:id
+
+HEADERS:
+Authorization: Bearer {token}
+Content-Type: application/json
+
+REQUEST BODY (all fields optional):
+{
+  "company_name": "Updated Corp",
+  "contact_person": "Jane Doe",
+  "email": "jane@updated.com",
+  "phone": "1234567890",
+  "lead_status": "engaged",
+  "assigned_to": "salesman-uuid",
+  "priority": "high",
+  "notes": "Updated notes",
+  "estimated_value": 750000,
+  "expected_close_date": "2025-12-20T00:00:00.000Z",
+  "address": { ... },
+  "business_details": { ... }
+}
+
+SUCCESS RESPONSE (200):
+Returns updated lead object
+
+ERROR RESPONSES:
+- 404: Lead not found
+- 409: Email already exists (if changing email)
+- 400: Validation error
+
+AUTOMATIC ACTIONS:
+The system automatically creates lead events when:
+1. Status changes → Creates "status_changed" event with old/new status
+2. Assignment changes → Creates "assigned" event with old/new assignee
+
+IMPLEMENTATION:
+1. Fetch lead by id
+2. Pre-fill form with existing data
+3. User modifies fields
+4. Submit only changed fields (partial update)
+5. On success: Refresh data, show success message
+
+
+================================================================================
+SECTION 6: DELETE LEAD
+================================================================================
+
+API ENDPOINT:
+POST http://localhost:3000/api/v1/leads/deleteLead/:id
+
+HEADERS:
+Authorization: Bearer {token}
+
+SUCCESS RESPONSE (200):
+{
+  "success": true,
+  "message": "Lead deleted successfully",
+  "data": null,
+  "timestamp": "..."
+}
+
+ERROR RESPONSES:
+- 404: Lead not found
+- 401: Unauthorized
+
+IMPLEMENTATION:
+1. Show confirmation dialog with lead company name
+2. On confirm: Call delete API
+3. On success: Refresh list, show success message
+4. On error: Display error message
+
+
+================================================================================
+SECTION 7: LEAD EVENTS MANAGEMENT
+================================================================================
+
+Lead events track all interactions and changes with a lead.
+
+7.1 GET LEAD EVENTS
+================================================================================
+
+API ENDPOINT:
+GET http://localhost:3000/api/v1/leads/getLeadEvents/:id
+
+HEADERS:
+Authorization: Bearer {token}
+
+SUCCESS RESPONSE (200):
+{
+  "success": true,
+  "data": [
+    {
+      "id": "uuid",
+      "lead_id": "lead-uuid",
+      "event_type": "call_made",
+      "event_description": "Called customer to discuss requirements",
+      "created_by": "salesman-uuid",
+      "created_at": "2025-10-27T11:30:00.000Z",
+      "metadata": {
+        "duration": "15 minutes",
+        "follow_up_date": "2025-11-01"
+      }
+    },
+    {
+      "id": "uuid",
+      "lead_id": "lead-uuid",
+      "event_type": "status_changed",
+      "event_description": "Status changed from contacted to engaged",
+      "created_by": "admin-uuid",
+      "created_at": "2025-10-27T11:00:00.000Z",
+      "metadata": {
+        "old_status": "contacted",
+        "new_status": "engaged"
+      }
+    }
+  ],
+  "timestamp": "..."
+}
+
+EVENT TYPES:
+- created
+- status_changed
+- assigned
+- note_added
+- call_made
+- email_sent
+- meeting_scheduled
+- meeting_completed highest
+- quote_sent
+- converted
+- rejected
+- follow_up
+- priority_changed
+- value_updated
+- close_date_updated
+
+USE CASES:
+- Display lead activity timeline
+- Show history of interactions
+- Track status changes
+- View conversion events
+
+
+7.2 ADD LEAD EVENT
+================================================================================
+
+API ENDPOINT:
+POST http://localhost:3000/api/v1/leads/addLeadEvent
+
+HEADERS:
+Authorization: Bearer {token}
+Content-Type: application/json
+
+REQUEST BODY:
+{
+  "lead_id": "lead-uuid",
+  "event_type": "call_made",
+  "event_description": "Called customer to discuss requirements",
+  "metadata": {
+    "duration": "15 minutes",
+    "follow_up_date": "2025-11-01",
+    "call_outcome": "interested"
+  }
+}
+
+REQUIRED FIELDS:
+- lead_id (uuid)
+- event_type (string, one of the event types listed above)
+
+OPTIONAL FIELDS:
+- event_description (string)
+- metadata (any object for additional data)
+
+SUCCESS RESPONSE (201):
+Returns created event object
+
+ERROR RESPONSES:
+- 404: Lead not found
+- 400: Validation error
+
+IMPLEMENTATION:
+1. Show "Add Event" dialog on lead detail page
+2. Provide dropdown for event_type
+3. Text area for event_description
+4. Optional metadata fields based on event type
+5. On submit: Call API
+6. On success: Refresh events list
+
+
+================================================================================
+SECTION 8: LEAD CONVERSION
+================================================================================
+
+Converting a lead means turning it into an actual customer (vendor). There are two
+approaches:
+
+8.1 CONVERT LEAD TO VENDOR (Automatic Creation)
+================================================================================
+
+API ENDPOINT:
+POST http://localhost:3000/api/v1/leads/convertLeadToVendor
+
+HEADERS:
+Authorization: Bearer {token}
+Content-Type: application/json
+
+REQUEST BODY:
+{
+  "lead_id": "lead-uuid",
+  "broker_id": "broker-uuid",  // optional
+  "conversion_value": 500000,  // optional
+  "commission_rate": 2.5,      // optional (percentage)
+  "notes": "Converted after successful negotiation"  // optional
+}
+
+REQUIRED FIELDS:
+- lead_id (uuid)
+
+OPTIONAL FIELDS:
+- broker_id (uuid, if broker was involved)
+- conversion_value (number, deal value)
+- commission_rate (number, percentage for commission calculation)
+- notes (string, conversion notes)
+
+WHAT THIS ENDPOINT DOES:
+1. Creates a new user account for the vendor
+   - username = email prefix (before @)
+   - email = lead's email
+   - password = "defaultPassword123" (should be changed)
+   - full_name = lead's contact_person
+   - phone = lead's phone
+   - user_type = "vendor"
+   - is_active = true
+
+2. Creates a new vendor record
+   - business_name = lead's company_name
+   - contact_person = lead's contact_person
+   - email = lead's email
+   - phone = lead's phone
+   - address = lead's address
+   - business_details = lead's business_details
+   - type = "both" (can purchase and sell)
+   - is_active = true
+   - user_id = newly created user's id
+   - lead_id = original lead's id
+
+3. Creates a conversion record
+   - Links lead to the new vendor
+   - Stores conversion_value and commission_rate
+   - Calculates commission_amount = (conversion_value * commission_rate) / 100
+   - Stores notes and broker_id
+
+4. Updates lead status
+   - lead_status = "converted"
+   - customer_status = "active"
+   - is_existing_customer = true
+
+5. Creates a conversion event
+   - event_type = "converted"
+   - Stores vendor_id and conversion_id in metadata
+
+SUCCESS RESPONSE (201):
+{
+  "success": true,
+  "message": "Lead converted to vendor successfully",
+  "data": {
+    "conversion": {
+      "id": "uuid",
+      "lead_id": "lead-uuid",
+      "vendor_id": "vendor-uuid",
+      "broker_id": "broker-uuid",
+      "conversion_date": "2025-10-27T12:00:00.000Z",
+      "conversion_value": 500000,
+      "commission_rate": 2.5,
+      "commission_amount": 12500,
+      "created_by": "admin-uuid",
+      "notes": "Converted after successful negotiation"
+    },
+    "vendor": {
+      "id": "vendor-uuid",
+      "business_name": "ABC Corporation",
+      ...
+    }
+  },
+  "timestamp": "..."
+}
+
+ERROR RESPONSES:
+- 404: Lead not found
+- 409: Lead is already converted
+- 400: Validation error
+
+EXISTING CUSTOMER HANDLING:
+If lead.is_existing_customer = true and a vendor with the same email exists:
+- Links to existing vendor instead of creating new one
+- Creates conversion record to link the lead to existing vendor
+- Does not create duplicate user
+
+IMPLEMENTATION:
+1. Show "Convert to Vendor" button on lead detail page
+2. Open conversion dialog with fields:
+   - Conversion Value (number input)
+   - Commission Rate % (number input)
+   - Broker Selection (dropdown from /brokers/getAllBrokers)
+   - Notes (text area)
+3. On submit: Call API
+4. On success: Show success message, redirect to vendor detail page
+5. Update lead status in UI to "converted"
+
+
+8.2 CONVERT LEAD (Manual Vendor Link)
+================================================================================
+
+API ENDPOINT:
+POST http://localhost:3000/api/v1/leads/convertLead
+
+HEADERS:
+Authorization: Bearer {token}
+Content-Type: application/json
+
+REQUEST BODY:
+{
+  "lead_id": "lead-uuid",
+  "vendor_id": "existing-vendor-uuid",  // REQUIRED
+  "broker_id": "broker-uuid",  // optional
+  "conversion_value": 500000,  // optional
+  "commission_rate": 2.5,      // optional
+  "notes": "Linked to existing vendor"  // optional
+}
+
+REQUIRED FIELDS:
+- lead_id (uuid)
+- vendor_id (uuid of EXISTING vendor)
+
+USE THIS ENDPOINT WHEN:
+- You want to link a lead to an existing vendor
+- The vendor was created separately (not through lead conversion)
+- You have a vendor ID ready
+
+SUCCESS RESPONSE (201):
+Returns conversion object with id, conversion_date, etc.
+
+ERROR RESPONSES:
+- 404: Lead or vendor not found
+- 409: Lead is already converted
+- 400: Validation error
+
+WHAT THIS ENDPOINT DOES:
+1. Creates conversion record linking lead to existing vendor
+2. Updates lead status to "converted"
+3. Creates "converted" event
+
+
+================================================================================
+SECTION 9: LEAD ANALYTICS
+================================================================================
+
+API ENDPOINT:
+GET http://localhost:3000/api/v1/leads/getLeadAnalytics
+
+HEADERS:
+Authorization: Bearer {token}
+
+SUCCESS RESPONSE (200):
+{
+  "success": true,
+  "data": {
+    "analytics": [
+      {
+        "id": "lead-uuid",
+        "company_name": "ABC Corp",
+        "contact_person": "John Doe",
+        "email": "john@abc.com",
+        "lead_status": "engaged",
+        "priority": "high",
+        "estimated_value": 500000,
+        "created_at": "2025-10-27T10:00:00.000Z",
+        "assigned_salesman": "Salesperson Name",
+        "created_by_user": "Admin Name",
+        "event_count": 5,
+        "actual_status": "engaged"
+      }
+    ],
+    "stats": {
+      "total_leads": 150,
+      "new_leads": 35,
+      "contacted_leads": 45,
+      "engaged_leads": 30,
+      "converted_leads": 25,
+      "rejected_leads": 15,
+      "high_priority_leads": 20,
+      "urgent_leads": 10,
+      "avg_estimated_value": 250000,
+      "total_estimated_value": 37500000
+    }
+  },
+  "timestamp": "..."
+}
+
+USE CASES:
+- Dashboard KPIs
+- Pipeline visualization
+- Conversion metrics
+- Team performance overview
+
+ANALYTICS DATA:
+- Each lead with detailed metrics
+- Event counts per lead
+- Assigned salesman names
+- Priority distribution
+
+STATS DATA:
+- Total leads by status
+- Priority counts
+- Average and total estimated values
+- Conversion metrics
+
+
+================================================================================
+SECTION 10: SALESMEN MANAGEMENT FOR LEAD ASSIGNMENT
+================================================================================
+
+Before assigning leads to salesmen, you need to fetch available salesmen.
+
+10.1 GET ALL SALESMEN
+================================================================================
+
+API ENDPOINT:
+GET http://localhost:3000/api/v1/salesmen/getAllSalesmen
+
+HEADERS:
+Authorization: Bearer {token}
+
+QUERY PARAMETERS:
+- include_inactive=true (default: false)
+
+SUCCESS RESPONSE (200):
+{
+  "success": true,
+  "data": [
+    {
+      "id": "uuid",
+      "name": "John Salesman",
+      "phone": "9876543210",
+      "email": "john@example.com",
+      "is_active": true,
+      "created_at": "2025-10-27T10:15:59.923Z",
+      "updated_at": "2025-10-27T10:15:59.923Z"
+    }
+  ],
+  "timestamp": "..."
+}
+
+USE CASES:
+- Populate salesman dropdown when assigning leads
+- Display assigned salesman name in leads table
+- Filter leads by assigned salesman
+
+
+================================================================================
+SECTION 11: FRONTEND IMPLEMENTATION PATTERNS
+================================================================================
+
+11.1 API SERVICE STRUCTURE
+================================================================================
+
+// api/leads.js
+export const leadsAPI = {
+  getAll: (filters) => {
+    let url = `${API_BASE_URL}/leads/getAllLeads`;
+    const params = new URLSearchParams();
+    if (filters.lead_status) params.append('lead_status', filters.lead_status);
+    if (filters.assigned_to) params.append('assigned_to', filters.assigned_to);
+    if (filters.priority) params.append('priority', filters.priority);
+    if (filters.is_existing_customer !== undefined) params.append('is_existing_customer', filters.is_existing_customer);
+    if (params.toString()) url += `?${params.toString()}`;
+    return axios.get(url);
+  },
+  
+  getById: (id) => 
+    axios.get(`${API_BASE_URL}/leads/getLeadById/${id}`),
+  
+  create: (data) => 
+    axios.post(`${API_BASE_URL}/leads/createLead`, data),
+  
+  update: (id, data) => 
+    axios.post(`${API_BASE_URL}/leads/updateLead/${id}`, data),
+  
+  delete: (id) => 
+    axios.post(`${API_BASE_URL}/leads/deleteLead/${id}`),
+  
+  getEvents: (id) => 
+    axios.get(`${API_BASE_URL}/leads/getLeadEvents/${id}`),
+  
+  addEvent: (data) => 
+    axios.post(`${API_BASE_URL}/leads/addLeadEvent`, data),
+  
+  convertToVendor: (data) => 
+    axios.post(`${API_BASE_URL}/leads/convertLeadToVendor`, data),
+  
+  convert: (data) => 
+    axios.post(`${API_BASE_URL}/leads/convertLead`, data),
+  
+  getAnalytics: () => 
+    axios.get(`${API_BASE_URL}/leads/getLeadAnalytics`)
+};
+
+
+11.2 LEAD FORM STATE MANAGEMENT
+================================================================================
+
+const [leadForm, setLeadForm] = useState({
+  company_name: '',
+  contact_person: '',
+  email: '',
+  phone: '',
+  address: {
+    street: '',
+    city: '',
+    state: '',
+    pincode: '',
+    country: 'India'
+  },
+  business_details: {
+    pan_number: '',
+    gst_number: '',
+    industry: '',
+    company_size: '',
+    annual_revenue: 0
+  },
+  lead_status: 'new',
+  assigned_to: null,
+  priority: 'medium',
+  source: '',
+  estimated_value: 0,
+  expected_close_date: null,
+  notes: '',
+  is_existing_customer: false
+});
+
+
+11.3 LEAD STATUS FLOW PATTERN
+================================================================================
+
+Status progression should follow the pipeline:
+new → contacted → engaged → converted
+
+Buttons for status changes:
+- "Contact Lead" → Change to "contacted"
+- "Mark as Engaged" → Change to "engaged"
+- "Convert to Vendor" → Uses convertLeadToVendor endpoint
+- "Reject Lead" → Change to "rejected"
+
+Each status change should:
+1. Call updateLead API
+2. Optionally add an event explaining the status change
+3. Refresh the lead data
+
+
+11.4 LEAD ASSIGNMENT FLOW
+================================================================================
+
+1. Fetch salesmen list on page load: /salesmen/getAllSalesmen
+2. Show salesman dropdown in lead form
+3. On assignment change:
+   - Call updateLead with new assigned_to field
+   - System automatically creates "assigned" event
+4. Display assigned salesman name in leads table
+
+
+11.5 CONVERSION DIALOG IMPLEMENTATION
+================================================================================
+
+const [conversionData, setConversionData] = useState({
+  conversion_value: 0,
+  commission_rate: 0,
+  broker_id: null,
+  notes: ''
+});
+
+async function handleConvertToVendor() {
+  try {
+    const response = await leadsAPI.convertToVendor({
+      lead_id: lead.id,
+      ...conversionData
+    });
+    
+    showSuccess('Lead converted to vendor successfully');
+    navigate(`/vendors/${response.data.data.vendor.id}`);
+  } catch (error) {
+    if (error.response?.status === 409) {
+      showError('Lead is already converted');
+    } else {
+      showError('Failed to convert lead');
+    }
+  }
+}
+
+
+11.6 LEAD EVENTS TIMELINE PATTERN
+================================================================================
+
+Display events as timeline on lead detail page:
+- Sort by created_at DESC (newest first)
+- Show event icon based on event_type
+- Display event_description
+- Show metadata in expandable section
+- Show created_by username and timestamp
+
+Common event actions:
+- "Add Call" → event_type: "call_made"
+- "Add Note" → event_type: "note_added"
+- "Schedule Meeting" → event_type: "meeting_scheduled"
+- "Send Quote" → event_type: "quote_sent"
+
+
+11.7 LEAD FILTERS UI PATTERN
+================================================================================
+
+Filters should be clearly visible:
+- Status Filter: Multi-select (new, contacted, engaged, converted, rejected)
+- Priority Filter: Multi-select (low, medium, high, urgent)
+- Assigned To Filter: Dropdown populated with salesmen
+- Existing Customer Toggle: Boolean toggle
+
+Apply filters in real-time or with "Apply" button:
+const applyFilters = () => {
+  fetchLeads({
+    lead_status: selectedStatus,
+    assigned_to: selectedSalesman,
+    priority: selectedPriority,
+    is_existing_customer: isExistingCustomer
+  });
+};
+
+
+11.8 LEAD PIPELINE VIEW PATTERN
+================================================================================
+
+Implement Kanban board for pipeline visualization:
+
+Columns:
+1. New Leads (lead_status = new)
+2. Contacted (lead_status = contacted)
+3. Engaged (lead_status = engaged)
+4. Converted (lead_status = converted)
+
+Each card shows:
+- Company name
+- Contact person
+- Priority badge
+- Estimated value
+- Assigned salesman
+- Last event date
+
+Drag and drop between columns updates lead_status:
+- On drop, call updateLead API
+- System creates "status_changed" event automatically
+
+
+11.9 ANALYTICS DASHBOARD PATTERN
+================================================================================
+
+Display key metrics:
+1. Total Leads (from stats.total_leads)
+2. New Leads (from stats.new_leads)
+3. Conversion Rate (converted_leads / total_leads * 100)
+4. Total Estimated Value (from stats.total_estimated_value)
+5. Average Deal Size (total_estimated_value / converted_leads)
+6. Active Pipeline Value (sum of estimated_value for non-converted leads)
+
+Chart visualizations:
+- Leads by status (pie chart)
+- Leads by priority (bar chart)
+- Conversion timeline (line chart from analytics data)
+- Top salesmen by conversion (leaderboard data)
+
+
+================================================================================
+SECTION 12: ERROR HANDLING
+================================================================================
+
+Common Lead API Errors:
+
+409 Conflict:
+- "Email already exists" → Show message, suggest editing existing lead
+- "Lead is already converted" → Disable convert button, show message
+
+404 Not Found:
+- "Lead not found" → Show error, redirect to leads list
+- "Salesman not found" → When assigning, refresh salesmen list
+
+400 Bad Request:
+- Show validation errors from API response
+- Common: Invalid email format, invalid date format, missing required fields
+
+401 Unauthorized:
+- Handle token expiration
+- Redirect to login
+
+
+================================================================================
+SECTION 13: IMPORTANT NOTES
+================================================================================
+
+1. Lead Events are automatically created when:
+   - Lead is created (created event)
+   - Status changes (status_changed event)
+   - Assignment changes (assigned event)
+   - Lead is converted (converted event)
+
+2. Converting a lead to vendor:
+   - Automatically creates user account with default password
+   - Creates vendor record with lead data
+   - Updates lead status to "converted"
+   - Creates conversion record for tracking
+   - Cannot be undone
+
+3. Lead assignment:
+   - Only assign to users with user_type = "salesman"
+   - Use /salesmen/getAllSalesmen to get valid salesmen
+   - Assignment can be changed multiple times
+
+4. Revenue tracking:
+   - revenue field is separate from estimated_value
+   - revenue is actual amount after conversion
+   - estimated_value is the predicted deal size before conversion
+
+5. Lead vs Vendor relationship:
+   - One lead can convert to one vendor
+   - Vendor created from lead links back via lead_id
+   - Conversion record tracks the relationship
+   - Multiple leads can convert to same existing vendor (if email generated matches)
+
+6. Commission calculation:
+   - Commission is calculated as: (conversion_value * commission_rate) / 100
+   - Should be set only when converting
+   - Stored in conversions table for reporting
+
+7. Priority updates:
+   - Can be changed at any time
+   - Consider adding "priority_changed" event when updated
+   - High priority leads should be prominently displayed
+

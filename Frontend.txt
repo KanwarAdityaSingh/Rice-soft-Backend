@@ -1,0 +1,959 @@
+
+4.1 GET ALL USERS
+================================================================================
+
+API ENDPOINT:
+GET http://localhost:3000/api/v1/users/getAllUsers
+
+HEADERS:
+Authorization: Bearer {token}
+
+QUERY PARAMETERS (optional):
+- include_inactive=true (default: false) - Show inactive users
+- user_type=admin (filter by specific user type)
+
+SUCCESS RESPONSE (200):
+{
+  "success": true,
+  "data": [
+    {
+      "id": "uuid",
+      "username": "john_sales",
+      "email": "john@example.com",
+      "full_name": "John Salesman",
+      "phone": "9876543210",
+      "user_type": "salesman",
+      "is_active": true,
+      "last_login": "2025-10-27T10:15:59.923Z",
+      "created_at": "2025-10-27T10:15:59.923Z",
+      "updated_at": "2025-10-27T10:15:59.923Z"
+    },
+    ...
+  ],
+  "timestamp": "2025-10-27T10:46:20.930Z"
+}
+
+USE CASES:
+- Display in users table
+- Filter by user_type (admin/salesman/vendor/broker)
+- Toggle active/inactive users
+- Search by username or email (client-side filtering)
+- Show last_login for each user
+- Pagination (client-side or implement backend pagination)
+
+TABLE COLUMNS:
+- Username
+- Full Name
+- Email
+- Phone
+- User Type
+- Status (Active/Inactive)
+- Last Login
+- Created At
+- Actions (Edit, Delete, Toggle Status)
+
+
+================================================================================
+4.2 CREATE USER 
+================================================================================
+
+API ENDPOINT:
+POST http://localhost:3000/api/v1/users/createUser
+
+HEADERS:
+Authorization: Bearer {token}
+Content-Type: application/json
+
+REQUEST BODY:
+{
+  "username": "john_sales",
+  "email": "john@example.com",
+  "password": "password123",
+  "full_name": "John Salesman",
+  "phone": "9876543210",
+  "user_type": "salesman"
+}
+
+REQUIRED FIELDS:
+- username (string, unique)
+- email (string, valid email, unique)
+- password (string, min 6 characters)
+- full_name (string)
+- user_type (enum: admin, salesman, vendor, broker, custom)
+
+OPTIONAL FIELDS:
+- phone (string)
+
+SUCCESS RESPONSE (201):
+{
+  "success": true,
+  "message": "User created successfully",
+  "data": {
+    "id": "uuid",
+    "username": "john_sales",
+    "email": "john@example.com",
+    "full_name": "John Salesman",
+    "phone": "9876543210",
+    "user_type": "salesman",
+    "is_active": true,
+    "last_login": null,
+    "created_at": "2025-10-27T10:49:03.240Z",
+    "updated_at": "2025-10-27T10:49:03.240Z"
+  },
+  "timestamp": "2025-10-27T10:49:03.249Z"
+}
+
+ERROR RESPONSES:
+- 409: Username or email already exists
+- 400: Validation error (e.g., password too short, invalid email)
+- 401: Unauthorized (invalid or missing token)
+
+FORM VALIDATION:
+Client-side validation before API call:
+- Username: required, alphanumeric
+- Email: required, valid email format
+- Password: required, minimum 6 characters
+- Full Name: required
+- User Type: required, must be valid enum value
+- Phone: optional, if provided validate format
+
+IMPLEMENTATION:
+1. Show create user form (modal or separate page)
+2. On submit, validate client-side
+3. Call API with form data
+4. On success: Show success message, close form, refresh users list
+5. On error: Display error message from API response
+
+IMPORTANT - VENDOR/SALESMAN/BROKER USERS:
+When creating users with user_type = "vendor", "salesman", or "broker", you need to collect
+additional entity-specific information. You have two implementation options:
+
+OPTION 1: Two-Step Process (Recommended for better UX)
+1. Create user via /api/v1/users/createUser
+2. After successful user creation, collect entity-specific details:
+   
+   - For VENDOR users:
+     Use POST /api/v1/vendors/create with vendor details (business_name, address,
+     business_details, bank_details, vendor type, etc.)
+   
+   - For SALESMAN users:
+     Use POST /api/v1/salesmen/create with salesman details (name, phone, email)
+     Note: Salesman creation is simple, only needs name/phone/email
+   
+   - For BROKER users:
+     Use POST /api/v1/brokers/create with broker details (business_name, address,
+     business_details, broker_details, broker type, etc.)
+
+OPTION 2: Direct Entity Creation (One-Step Process)
+Instead of creating user first, use the dedicated entity endpoints directly:
+- POST /api/v1/vendors/create
+- POST /api/v1/salesmen/create  
+- POST /api/v1/brokers/create
+
+These endpoints automatically create BOTH the user record AND entity-specific data in one call.
+
+RECOMMENDATION:
+- For Admin users: Use /users/createUser (simple, no additional data needed)
+- For Vendor/Broker users: Use Option 2 (direct entity endpoints) for cleaner workflow
+- For Salesman users: Either approach works (salesman data is minimal)
+
+
+================================================================================
+4.3 GET USER BY ID
+================================================================================
+
+API ENDPOINT:
+GET http://localhost:3000/api/v1/users/getUserById/:id
+
+HEADERS:
+Authorization: Bearer {token}
+
+RESPONSE (200):
+Same format as single user object in getAllUsers response
+
+USE CASES:
+- View user details
+- Pre-fill edit form
+
+
+================================================================================
+4.4 UPDATE USER
+================================================================================
+
+API ENDPOINT:
+POST http://localhost:3000/api/v1/users/updateUser/:id
+
+HEADERS:
+Authorization: Bearer {token}
+Content-Type: application/json
+
+REQUEST BODY (all fields optional):
+{
+  "username": "updated_username",
+  "email": "newemail@example.com",
+  "full_name": "Updated Name",
+  "phone": "1234567890",
+  "user_type": "admin",
+  "is_active": true
+}
+
+SUCCESS RESPONSE (200):
+Same as create user response
+
+ERROR RESPONSES:
+- 404: User not found
+- 409: Username or email already exists (if changing)
+- 400: Validation error
+
+USE CASES:
+- Edit user profile
+- Change user_type
+- Activate/deactivate user
+- Update phone number
+
+IMPORTANT - UPDATING VENDOR/SALESMAN/BROKER USERS:
+When updating vendor/salesman/broker users, you need to use the specific entity update endpoints
+for entity-specific fields:
+
+- For VENDOR users: Use POST /api/v1/vendors/update/:id
+  This endpoint updates vendor business details, address, bank details, etc.
+  
+- For SALESMAN users: Use POST /api/v1/salesmen/update/:id
+  This endpoint updates salesman name, phone, email
+  
+- For BROKER users: Use POST /api/v1/brokers/update/:id
+  This endpoint updates broker business details, broker-specific details, etc.
+
+NOTE: The /users/updateUser endpoint is primarily for updating basic user account info.
+For entity-specific details, always use the dedicated entity update endpoints.
+
+
+================================================================================
+4.5 DELETE USER
+================================================================================
+
+API ENDPOINT:
+POST http://localhost:3000/api/v1/users/deleteUser/:id
+
+HEADERS:
+Authorization: Bearer {token}
+
+SUCCESS RESPONSE (200):
+{
+  "success": true,
+  "message": "User deleted successfully",
+  "data": null,
+  "timestamp": "..."
+}
+
+ERROR RESPONSES:
+- 404: User not found
+- 401: Unauthorized
+
+IMPLEMENTATION:
+1. Show confirmation dialog
+2. Call delete API
+3. On success: Refresh users list, show success message
+4. On error: Display error message
+
+
+================================================================================
+SECTION 6: VENDOR MANAGEMENT
+================================================================================
+
+Vendors are business entities that can buy or sell products. They have extensive business details
+including GST, PAN, bank details, and addresses.
+
+6.1 GET ALL VENDORS
+================================================================================
+
+API ENDPOINT:
+GET http://localhost:3000/api/v1/vendors/getAllVendors
+
+HEADERS:
+Authorization: Bearer {token}
+
+QUERY PARAMETERS (optional):
+- include_inactive=true (default: false) - Show inactive vendors
+- type=purchaser (filter by type: purchaser, seller, both)
+
+SUCCESS RESPONSE (200):
+{
+  "success": true,
+  "data": [
+    {
+      "id": "uuid",
+      "business_name": "ABC Traders Ltd",
+      "contact_person": "John Doe",
+      "email": "contact@abctraders.com",
+      "phone": "9876543210",
+      "address": {
+        "street": "123 Business Street",
+        "city": "Mumbai",
+        "state": "Maharashtra",
+        "pincode": "400001",
+        "country": "India"
+      },
+      "business_details": {
+        "pan_number": "ABCDE1234F",
+        "gst_number": "27ABCDE1234F1Z5",
+        "registration_number": "COM123456",
+        "business_type": "company"
+      },
+      "bank_details": {
+        "account_holder_name": "ABC Traders Ltd",
+        "account_number": "1234567890",
+        "ifsc_code": "ABC0001234",
+        "bank_name": "Bank Name",
+        "branch": "Mumbai Branch"
+      },
+      "type": "both",
+      "is_active": true,
+      "created_at": "2025-10-27T10:15:59.923Z",
+      "updated_at": "2025-10-27T10:15:59.923Z",
+      "last_enquiry_date": "2025-10-26T10:15:59.923Z"
+    }
+  ],
+  "timestamp": "2025-10-27T10:46:20.930Z"
+}
+
+IMPLEMENTATION LOGIC:
+1. Fetch all vendors on page load
+2. Display in table with filters (type, active/inactive)
+3. Show business details modal on row click
+4. Implement search by business name or email
+
+
+6.2 CREATE VENDOR
+================================================================================
+
+API ENDPOINT:
+POST http://localhost:3000/api/v1/vendors/createVendor
+
+HEADERS:
+Authorization: Bearer {token}
+Content-Type: application/json
+
+REQUEST BODY:
+{
+  "business_name": "ABC Traders Ltd",
+  "contact_person": "John Doe",
+  "email": "contact@abctraders.com",
+  "phone": "9876543210",
+  "address": {
+    "street": "123 Business Street",
+    "city": "Mumbai",
+    "state": "Maharashtra",
+    "pincode": "400001",
+    "country": "India"
+  },
+  "business_details": {
+    "pan_number": "ABCDE1234F",
+    "gst_number": "27ABCDE1234F1Z5",
+    "registration_number": "COM123456",
+    "business_type": "company"
+  },
+  "bank_details": {
+    "account_holder_name": "ABC Traders Ltd",
+    "account_number": "1234567890",
+    "ifsc_code": "ABC0001234",
+    "bank_name": "Bank Name",
+    "branch": "Mumbai Branch"
+  },
+  "type": "both",
+  "is_active": true
+}
+
+REQUIRED FIELDS:
+- business_name, contact_person, email, phone
+- address (with all sub-fields)
+- business_details (at least one of pan_number or gst_number)
+- type (purchaser, seller, or both)
+
+OPTIONAL FIELDS:
+- bank_details
+- business_type
+- registration_number
+- is_active (default: true)
+
+SUCCESS RESPONSE (201):
+Returns vendor object with id and timestamps
+
+ERROR RESPONSES:
+- 409: Email, GST, or PAN already exists
+- 400: Validation error
+
+IMPLEMENTATION LOGIC:
+1. Show multi-step form or single form with sections
+2. Validate:
+   - Email format
+   - GST format: 15 characters alphanumeric (e.g., 27ABCDE1234F1Z5)
+   - PAN format: 10 characters (e.g., ABCDE1234F)
+   - Phone format
+3. On submit:
+   - Call API
+   - On success: Show message, refresh list, close form
+   - On error: Display validation errors
+
+FORM SECTIONS:
+- Basic Info (name, contact, email, phone)
+- Address (street, city, state, pincode, country)
+- Business Details (GST, PAN, registration, business type)
+- Bank Details (optional)
+- Type Selection (purchaser/seller/both)
+
+
+6.3 QUICK CREATE VENDOR FROM GST
+================================================================================
+
+API ENDPOINT:
+POST http://localhost:3000/api/v1/vendors/quickCreateFromGST
+
+HEADERS:
+Authorization: Bearer {token}
+Content-Type: application/json
+
+REQUEST BODY:
+{
+  "gst_number": "27ABCDE1234F1Z5",
+  "contact_person": "John Doe",
+  "email": "contact@abctraders.com",
+  "phone": "9876543210",
+  "type": "both",
+  "bank_details": { ... } // optional
+}
+
+IMPLEMENTATION LOGIC:
+1. User enters GST number
+2. Click "Lookup GST" button
+3. Call GET /api/v1/vendors/lookupGST?gst_number=...
+4. Auto-fill form with fetched data:
+   - business_name
+   - address
+   - business_details
+5. User fills remaining required fields (contact, email, phone, type)
+6. Submit to createVendor endpoint
+
+BENEFIT: Reduces manual data entry for vendors with GST
+
+
+6.4 LOOKUP GST NUMBER
+================================================================================
+
+API ENDPOINT:
+GET http://localhost:3000/api/v1/vendors/lookupGST?gst_number=27ABCDE1234F1Z5
+
+HEADERS:
+Authorization: Bearer {token}
+
+SUCCESS RESPONSE (200):
+{
+  "success": true,
+  "data": {
+    "gst_data": { ... }, // Raw GST API response
+    "mapped_data": {
+      "business_name": "ABC Traders Ltd",
+      "address": { ... },
+      "business_details": { ... }
+    }
+  }
+}
+
+IMPLEMENTATION LOGIC:
+1. User enters GST in input field
+2. Add "Verify" or "Lookup" button next to field
+3. On click: Call lookup endpoint
+4. Show loading state
+5. On success: Populate form fields with mapped_data
+6. Handle errors (invalid GST format, GST not found)
+
+
+6.5 UPDATE VENDOR
+================================================================================
+
+API ENDPOINT:
+POST http://localhost:3000/api/v1/vendors/updateVendor/:id
+
+HEADERS:
+Authorization: Bearer {token}
+Content-Type: application/json
+
+REQUEST BODY (all fields optional):
+Same structure as create, but all fields optional
+
+IMPLEMENTATION LOGIC:
+1. Fetch vendor by id (getVendorById)
+2. Pre-fill form with existing data
+3. User modifies fields
+4. Submit only changed fields (partial update)
+5. On success: Refresh list, show success message
+
+
+6.6 DELETE VENDOR
+================================================================================
+
+API ENDPOINT:
+POST http://localhost:3000/api/v1/vendors/deleteVendor/:id
+
+HEADERS:
+Authorization: Bearer {token}
+
+IMPLEMENTATION LOGIC:
+1. Show confirmation dialog
+2. On confirm: Call delete API
+3. On success: Remove from list, show success message
+
+
+================================================================================
+SECTION 7: SALESMAN MANAGEMENT
+================================================================================
+
+7.1 GET ALL SALESMEN
+================================================================================
+
+API ENDPOINT:
+GET http://localhost:3000/api/v1/salesmen/getAllSalesmen
+
+HEADERS:
+Authorization: Bearer {token}
+
+QUERY PARAMETERS:
+- include_inactive=true (default: false)
+
+SUCCESS RESPONSE (200):
+{
+  "success": true,
+  "data": [
+    {
+      "id": "uuid",
+      "name": "John Salesman",
+      "phone": "9876543210",
+      "email": "john@example.com",
+      "is_active": true,
+      "created_at": "2025-10-27T10:15:59.923Z",
+      "updated_at": "2025-10-27T10:15:59.923Z"
+    }
+  ]
+}
+
+IMPLEMENTATION LOGIC:
+1. Display in table
+2. Filter by active/inactive
+3. Search by name, email, or phone
+
+
+7.2 CREATE SALESMAN
+================================================================================
+
+API ENDPOINT:
+POST http://localhost:3000/api/v1/salesmen/createSalesman
+
+HEADERS:
+Authorization: Bearer {token}
+Content-Type: application/json
+
+REQUEST BODY:
+{
+  "name": "John Salesman",
+  "phone": "9876543210",
+  "email": "john@example.com",
+  "is_active": true
+}
+
+REQUIRED FIELDS:
+- name, phone, email
+
+SUCCESS RESPONSE (201):
+Returns salesman object with id and timestamps
+
+IMPLEMENTATION LOGIC:
+1. Simple form with 3 fields (name, phone, email)
+2. Validate email format and phone
+3. On submit: Call API
+4. This endpoint automatically creates user account with:
+   - username = email prefix (before @)
+   - password = defaultPassword123
+   - user_type = "salesman"
+5. On success: Show message, refresh list
+
+
+7.3 UPDATE SALESMAN
+================================================================================
+
+API ENDPOINT:
+POST http://localhost:3000/api/v1/salesmen/updateSalesman/:id
+
+REQUEST BODY (all fields optional):
+{
+  "name": "Updated Name",
+  "phone": "1234567890",
+  "email": "newemail@example.com",
+  "is_active": false
+}
+
+IMPLEMENTATION LOGIC:
+Similar to vendor update
+
+
+7.4 DELETE SALESMAN
+================================================================================
+
+API ENDPOINT:
+POST http://localhost:3000/api/v1/salesmen/deleteSalesman/:id
+
+IMPLEMENTATION LOGIC:
+Similar to vendor delete
+
+
+================================================================================
+SECTION 8: BROKER MANAGEMENT
+================================================================================
+
+Brokers are intermediaries who facilitate trades. They have similar structure to vendors.
+
+8.1 GET ALL BROKERS
+================================================================================
+
+API ENDPOINT:
+GET http://localhost:3000/api/v1/brokers/getAllBrokers
+
+HEADERS:
+Authorization: Bearer {token}
+
+QUERY PARAMETERS:
+- include_inactive=true (default: false)
+- type=purchase (filter by: purchase, sale, both)
+
+SUCCESS RESPONSE (200):
+{
+  "success": true,
+  "data": [
+    {
+      "id": "uuid",
+      "business_name": "XYZ Brokerage",
+      "contact_person": "Jane Broker",
+      "email": "contact@xyzbrokerage.com",
+      "phone": "9876543210",
+      "address": { ... },
+      "business_details": { ... },
+      "broker_details": {
+        "commission_rate": 2.5,
+        "specialization": "rice, wheat",
+        "experience_years": 5
+      },
+      "type": "both",
+      "is_active": true,
+      "created_at": "2025-10-27T10:15:59.923Z",
+      "updated_at": "2025-10-27T10:15:59.923Z"
+    }
+  ]
+}
+
+
+8.2 CREATE BROKER
+================================================================================
+
+API ENDPOINT:
+POST http://localhost:3000/api/v1/brokers/createBroker
+
+REQUEST BODY:
+{
+  "business_name": "XYZ Brokerage",
+  "contact_person": "Jane Broker",
+  "email": "contact@xyzbrokerage.com",
+  "phone": "9876543210",
+  "address": { ... },
+  "business_details": { ... },
+  "broker_details": {
+    "commission_rate": 2.5,
+    "specialization": "rice, wheat",
+    "experience_years": 5
+  },
+  "type": "both",
+  "is_active": true
+}
+
+REQUIRED FIELDS:
+- business_name, contact_person, email, phone
+- address (all sub-fields)
+- business_details (at least GST or PAN)
+- type (purchase, sale, or both)
+
+OPTIONAL FIELDS:
+- broker_details (commission_rate, specialization, experience_years)
+
+IMPLEMENTATION LOGIC:
+Similar to vendor creation. Includes additional broker-specific fields:
+- Commission Rate: Number input (percentage)
+- Specialization: Text input (e.g., "rice, wheat, pulses")
+- Experience Years: Number input
+
+
+8.3 QUICK CREATE FROM GST/PAN
+================================================================================
+
+Endpoints:
+- POST /api/v1/brokers/quickCreateFromGST
+- POST /api/v1/brokers/quickCreateFromPAN
+- GET /api/v1/brokers/lookupGST
+- GET /api/v1/brokers/lookupPAN
+
+IMPLEMENTATION LOGIC:
+Same as vendor quick create workflow
+
+
+8.4 UPDATE/DELETE BROKER
+================================================================================
+
+Endpoints:
+- POST /api/v1/brokers/updateBroker/:id
+- POST /api/v1/brokers/deleteBroker/:id
+
+IMPLEMENTATION LOGIC:
+Similar to vendor update/delete
+
+
+================================================================================
+SECTION 9: RECOMMENDED FRONTEND IMPLEMENTATION PATTERNS
+================================================================================
+
+9.1 API SERVICE STRUCTURE
+================================================================================
+
+Create API service modules:
+
+// api/vendors.js
+export const vendorsAPI = {
+  getAll: (includeInactive, type) => {
+    let url = `${API_BASE_URL}/vendors/getAllVendors`;
+    const params = new URLSearchParams();
+    if (includeInactive) params.append('include_inactive', 'true');
+    if (type) params.append('type', type);
+    if (params.toString()) url += `?${params.toString()}`;
+    return axios.get(url);
+  },
+  
+  getById: (id) => 
+    axios.get(`${API_BASE_URL}/vendors/getVendorById/${id}`),
+  
+  create: (data) => 
+    axios.post(`${API_BASE_URL}/vendors/createVendor`, data),
+  
+  update: (id, data) => 
+    axios.post(`${API_BASE_URL}/vendors/updateVendor/${id}`, data),
+  
+  delete: (id) => 
+    axios.post(`${API_BASE_URL}/vendors/deleteVendor/${id}`),
+  
+  lookupGST: (gstNumber) => 
+    axios.get(`${API_BASE_URL}/vendors/lookupGST?gst_number=${gstNumber}`),
+  
+  lookupPAN: (panNumber) => 
+    axios.get(`${API_BASE_URL}/vendors/lookupPAN?pan_number=${panNumber}`),
+  
+  quickCreateFromGST: (data) => 
+    axios.post(`${API_BASE_URL}/vendors/quickCreateFromGST`, data),
+  
+  quickCreateFromPAN: (data) => 
+    axios.post(`${API_BASE_URL}/vendors/quickCreateFromPAN`, data)
+};
+
+Create similar modules for salesmen and brokers.
+
+
+9.2 FORM STATE MANAGEMENT
+================================================================================
+
+For vendor/broker creation forms:
+
+const [formData, setFormData] = useState({
+  business_name: '',
+  contact_person: '',
+  email: '',
+  phone: '',
+  address: {
+    street: '',
+    city: '',
+    state: '',
+    pincode: '',
+    country: 'India'
+  },
+  business_details: {
+    pan_number: '',
+    gst_number: '',
+    registration_number: '',
+    business_type: ''
+  },
+  bank_details: {
+    account_holder_name: '',
+    account_number: '',
+    ifsc_code: '',
+    bank_name: '',
+    branch: ''
+  },
+  type: 'both',
+  is_active: true
+});
+
+// For broker only, add:
+broker_details: {
+  commission_rate: '',
+  specialization: '',
+  experience_years: ''
+}
+
+
+9.3 GST LOOKUP FLOW
+================================================================================
+
+async function handleGSTLookup(gstNumber) {
+  try {
+    setLoading(true);
+    const response = await vendorsAPI.lookupGST(gstNumber);
+    const mappedData = response.data.data.mapped_data;
+    
+    // Auto-fill form fields
+    setFormData(prev => ({
+      ...prev,
+      business_name: mappedData.business_name,
+      address: mappedData.address,
+      business_details: {
+        ...prev.business_details,
+        gst_number: gstNumber,
+        ...mappedData.business_details
+      }
+    }));
+    
+    showSuccess('GST details fetched successfully');
+  } catch (error) {
+    showError('Failed to fetch GST details');
+  } finally {
+    setLoading(false);
+  }
+}
+
+
+9.4 FORM VALIDATION PATTERNS
+================================================================================
+
+// GST Validation
+const validateGST = (gst) => {
+  const gstRegex = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
+  return gstRegex.test(gst);
+};
+
+// PAN Validation
+const validatePAN = (pan) => {
+  const panRegex = /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/;
+  return panRegex.test(pan);
+};
+
+// Email Validation
+const validateEmail = (email) => {
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return emailRegex.test(email);
+};
+
+
+9.5 ERROR HANDLING PATTERNS
+================================================================================
+
+const handleCreateVendor = async (formData) => {
+  try {
+    const response = await vendorsAPI.create(formData);
+    showSuccess('Vendor created successfully');
+    onClose(); // Close form modal
+    refreshList(); // Refresh vendors table
+  } catch (error) {
+    if (error.response?.status === 409) {
+      showError('Email, GST, or PAN already exists');
+    } else if (error.response?.status === 400) {
+      showError(error.response.data.message || 'Validation error');
+    } else {
+      showError('Failed to create vendor');
+    }
+  }
+};
+
+
+9.6 MASTER-DETAIL VIEW PATTERN
+================================================================================
+
+For vendor/broker management pages:
+
+1. Left Panel (List View):
+   - Table with business_name, email, type, status
+   - Search and filter controls
+   
+2. Right Panel (Detail View):
+   - Show full details when row is selected
+   - Edit/Delete buttons
+   
+3. Actions:
+   - Floating "Add New" button
+   - Opens modal/form for creation
+
+
+9.7 USAGE IN USER CREATION FLOW
+================================================================================
+
+When creating a user with type "vendor", "salesman", or "broker":
+
+FLOW 1: Use dedicated entity endpoint (Recommended)
+1. Don't use /users/createUser
+2. Use POST /vendors/createVendor instead
+3. This automatically creates user account + entity details
+
+FLOW 2: Two-step process
+1. Create user via /users/createUser
+2. Collect entity-specific details
+3. Use appropriate entity creation endpoint
+4. Link using returned entity ID
+
+PREFERRED FLOW: FLOW 1 (one-step, cleaner)
+
+
+================================================================================
+SECTION 5: ERROR HANDLING & AUTHENTICATION
+================================================================================
+
+TOKEN EXPIRATION:
+JWT tokens expire in 24 hours. Implement:
+
+1. Token validation on app load:
+   - Check if token exists in localStorage
+   - If no token → redirect to /login
+   - If token exists → verify it's still valid (optional)
+
+2. Token refresh logic:
+   - On 401 error, redirect to /login
+   - Clear localStorage
+   - Show "Session expired" message
+
+3. Auto logout on token expiry:
+   - Check token expiration before making API calls
+   - Or handle 401 errors globally
+
+API ERROR HANDLING:
+
+Standard Error Response Format:
+{
+  "success": false,
+  "error": "Error message",
+  "message": "Optional detailed message",
+  "timestamp": "..."
+}
+
+Error Status Codes:
+- 400: Bad Request (validation errors)
+- 401: Unauthorized (invalid/missing token)
+- 403: Forbidden (insufficient permissions)
+- 404: Not Found (resource doesn't exist)
+- 409: Conflict (duplicate username/email)
+- 500: Internal Server Error
+
+Handle errors by showing user-friendly messages:
+- 401 → "Session expired. Please login again." → Redirect to /login
+- 409 → "Username already exists. Please choose another."
+- 400 → Show validation errors from response
+- 500 → "Something went wrong. Please try again later."

@@ -3,7 +3,6 @@ import cors from 'cors';
 import helmet from 'helmet';
 import { appConfig } from './config/app.config';
 import { errorHandler, notFoundHandler } from './middleware/error.middleware';
-import { generalLimiter } from './middleware/rate-limit.middleware';
 import routes from './routes';
 import { logger } from './utils/logger';
 
@@ -22,9 +21,6 @@ export function createApp(): Application {
   // Body parsing middleware
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-
-  // Rate limiting
-  app.use(generalLimiter);
 
   // Request logging middleware
   app.use((req, _res, next) => {

@@ -1,7 +1,12 @@
 import { Router } from 'express';
 import authRoutes from './auth.routes';
 import userRoutes from './user.routes';
-import roleRoutes from './role.routes';
+import salesmanRoutes from './salesman.routes';
+import vendorRoutes from './vendor.routes';
+import brokerRoutes from './broker.routes';
+import leadRoutes from './lead.routes';
+import leaderboardRoutes from './leaderboard.routes';
+import documentRoutes from './document.routes';
 
 const router = Router();
 
@@ -17,7 +22,12 @@ router.get('/health', (_req, res) => {
 // API routes
 router.use('/auth', authRoutes);
 router.use('/users', userRoutes);
-router.use('/roles', roleRoutes);
+router.use('/salesmen', salesmanRoutes);
+router.use('/vendors', vendorRoutes);
+router.use('/brokers', brokerRoutes);
+router.use('/leads', leadRoutes);
+router.use('/leaderboard', leaderboardRoutes);
+router.use('/documents', documentRoutes);
 
 export default router;
 

@@ -1,11 +1,13 @@
+export type UserType = 'admin' | 'vendor' | 'salesman' | 'broker' | 'custom';
+
 export interface User {
   id: string;
   username: string;
   email: string;
   password_hash: string;
-  role_id: string;
   full_name: string;
   phone: string | null;
+  user_type: UserType;
   is_active: boolean;
   last_login: Date | null;
   created_at: Date;
@@ -14,18 +16,13 @@ export interface User {
   updated_by: string | null;
 }
 
-export interface UserWithRole extends Omit<User, 'password_hash'> {
-  role_name: string;
-  role_permissions: Record<string, any>;
-}
-
 export interface CreateUserDTO {
   username: string;
   email: string;
   password: string;
-  role_id: string;
   full_name: string;
   phone?: string;
+  user_type?: UserType;
   is_active?: boolean;
   created_by?: string;
 }
@@ -34,9 +31,9 @@ export interface UpdateUserDTO {
   username?: string;
   email?: string;
   password?: string;
-  role_id?: string;
   full_name?: string;
   phone?: string;
+  user_type?: UserType;
   is_active?: boolean;
   updated_by?: string;
 }
@@ -45,10 +42,9 @@ export interface UserResponse {
   id: string;
   username: string;
   email: string;
-  role_id: string;
-  role_name: string;
   full_name: string;
   phone: string | null;
+  user_type: UserType;
   is_active: boolean;
   last_login: string | null;
   created_at: string;
@@ -64,5 +60,18 @@ export interface LoginResponse {
   user: UserResponse;
   token: string;
   expires_in: string;
+}
+
+export interface UserWithEntityResponse {
+  user_id: string;
+  username: string;
+  email: string;
+  full_name: string;
+  user_type: UserType;
+  is_active: boolean;
+  entity_data: {
+    type: string;
+    data: any;
+  } | null;
 }
 

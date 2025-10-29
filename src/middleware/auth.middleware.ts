@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { JWTService, TokenPayload } from '../utils/jwt';
-import { UnauthorizedError, ForbiddenError } from '../utils/errors';
+import { UnauthorizedError } from '../utils/errors';
 import { userDAO } from '../dao/user.dao';
 
 export interface AuthRequest extends Request {
@@ -39,23 +39,7 @@ export const authenticate = async (
   }
 };
 
-export const authorize = (...allowedRoles: string[]) => {
-  return (req: AuthRequest, _res: Response, next: NextFunction): void => {
-    try {
-      if (!req.user) {
-        throw new UnauthorizedError('Authentication required');
-      }
-
-      if (!allowedRoles.includes(req.user.roleName)) {
-        throw new ForbiddenError('Insufficient permissions');
-      }
-
-      next();
-    } catch (error) {
-      next(error);
-    }
-  };
-};
+// Role-based authorization removed - will be implemented dynamically during development
 
 export const optionalAuth = async (
   req: AuthRequest,

@@ -1,0 +1,579 @@
+================================================================================
+RICE SOFT BACKEND - FRONTEND API IMPLEMENTATION GUIDE
+Phase 1 & 2: Login, Dashboard, User Management
+================================================================================
+
+================================================================================
+SECTION 1: AUTHENTICATION & LOGIN
+================================================================================
+
+API ENDPOINT:
+POST http://localhost:3000/api/v1/auth/loginUser
+
+REQUEST BODY:
+{
+  "username": "admin",
+  "password": "admin123"
+}
+
+SUCCESS RESPONSE (200):
+{
+  "success": true,
+  "message": "Login successful",
+  "data": {
+    "user": {
+      "id": "uuid",
+      "username": "admin",
+      "email": "admin@ricesoft.com",
+      "full_name": "System Administrator",
+      "phone": null,
+      "user_type": "admin",
+      "is_active": true,
+      "last_login": "2025-10-27T10:46:20.919Z",
+      "created_at": "2025-10-12T22:55:08.090Z",
+      "updated_at": "2025-10-27T10:46:20.919Z"
+    },
+    "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "expires_in": "24h"
+  },
+  "timestamp": "2025-10-27T10:46:20.930Z"
+}
+
+ERROR RESPONSES:
+- 401: Invalid credentials
+- 400: Validation error (missing fields, wrong format)
+
+USER TYPES:
+- "admin" - Full system access
+- "salesman" - Sales team member
+- "vendor" - Vendor/buyer releations
+- "broker" - Broker relations
+- "custom" - Custom role
+
+STORAGE:
+Store in localStorage:
+- token (JWT string)
+- user data (object with id, username, email, user_type, etc.)
+
+
+TOKEN USAGE:
+Include in all authenticated requests:
+Connect: header: { "Authorization": `Bearer ${token}` }
+
+
+================================================================================
+SECTION 2: MAIN LAYOUT & ROLE-BASED UI
+================================================================================
+
+NAVBAR COMPONENT:
+Display user info from stored user data:
+- username or full_name
+- user_type badge (Admin, Salesman, etc.)
+- Dropdown with:
+  - Profile
+  - Change Password → /change-password
+  - Logout → Clear localStorage + redirect to /login
+
+SIDEBAR MENU ITEMS BY ROLE:
+
+Admin Sidebar:
+- Dashboard (/admin/dashboard)
+- Users (/admin/users)
+- Leads (/admin/leads)
+- Vendors (/admin/vendors)
+- Brokers (/admin/brokers)
+- Salesmen (/admin/salesmen)
+- Documents (/admin/documents)
+- Analytics (/admin/analytics)
+- Settings (/admin/settings)
+
+Salesman Sidebar:
+- Dashboard (/salesman/dashboard)
+- My Leads (/salesman/leads)
+- Create Lead (/salesman/leads/create)
+- My Performance (/salesman/performance)
+- My Documents (/salesman/documents)
+- Profile (/salesman/profile)
+
+Vendor Sidebar:
+- Dashboard (/vendor/dashboard)
+- Enquiries (/vendor/enquiries)
+- My Profile (/vendor/profile)
+- Documents (/vendor/documents)
+- Quotes (/vendor/quotes)
+
+Broker Sidebar:
+- Dashboard (/broker/dashboard)
+- Leads (/broker/leads)
+- Connections (/broker/connections)
+- Profile (/broker/profile)
+
+CONDITIONAL RENDERING:
+Check user.user_type to show/hide menu items and features:
+if (user.user_type === 'admin') {
+  // Show admin menu items
+} else if (user.user_type === 'salesman') {
+  // Show salesman menu items
+}
+
+
+================================================================================
+SECTION 3: DASHBOARD
+================================================================================
+
+ADMIN DASHBOARD:
+Show overall system stats. Fetch data from multiple endpoints:
+
+Widget 1: Total Users
+API: GET /api/v1/users/getAllUsers
+Count total users in response data array
+
+Widget 2: Total Leads
+API: GET /api/v1/leads/getAllLeads
+Count total leads in response data array
+
+Widget 3: Team Performance
+API: GET /api/v1/leaderboard/getTeamStats
+Display: total_salespeople, total_conversions, overall_conversion_rate
+
+Widget 4: Recent Activity
+API: GET /api/v1/leads/getLeadAnalytics
+Show recent leads with status
+
+SALESMAN DASHBOARD:
+Show personal stats and actions:
+
+Widget 1: My Leads Stats
+API: GET /api/v1/leads/getAllLeads
+Filter by assigned_to = current user id
+Count by status: new, contacted, engaged, converted
+
+Widget 2: My Performance
+API: GET /api/v1/leaderboard/getSalespersonStats/:salesperson_id
+Display: total_leads, converted_leads, conversion_rate, total_revenue
+
+Widget 3: Recent Leads
+API: GET /api/v1/leads/getAllLeads
+Filter by assigned_to = current user id
+Sort by created_at DESC, limit 5
+
+Quick Actions:
+- Create Lead button → /leads/create
+
+
+================================================================================
+SECTION 4: USER MANAGEMENT
+================================================================================
+
+4.1 GET ALL USERS
+================================================================================
+
+API ENDPOINT:
+GET http://localhost:3000/api/v1/users/getAllUsers
+
+HEADERS:
+Authorization: Bearer {token}
+
+QUERY PARAMETERS (optional):
+- include_inactive=true (default: false) - Show inactive users
+- user_type=admin (filter by specific user type)
+
+SUCCESS RESPONSE (200):
+{
+  "success": true,
+  "data": [
+    {
+      "id": "uuid",
+      "username": "john_sales",
+      "email": "john@example.com",
+      "full_name": "John Salesman",
+      "phone": "9876543210",
+      "user_type": "salesman",
+      "is_active": true,
+      "last_login": "2025-10-27T10:15:59.923Z",
+      "created_at": "2025-10-27T10:15:59.923Z",
+      "updated_at": "2025-10-27T10:15:59.923Z"
+    },
+    ...
+  ],
+  "timestamp": "2025-10-27T10:46:20.930Z"
+}
+
+USE CASES:
+- Display in users table
+- Filter by user_type (admin/salesman/vendor/broker)
+- Toggle active/inactive users
+- Search by username or email (client-side filtering)
+- Show last_login for each user
+- Pagination (client-side or implement backend pagination)
+
+TABLE COLUMNS:
+- Username
+- Full Name
+- Email
+- Phone
+- User Type
+- Status (Active/Inactive)
+- Last Login
+- Created At
+- Actions (Edit, Delete, Toggle Status)
+
+
+================================================================================
+4.2 CREATE USER 
+================================================================================
+
+API ENDPOINT:
+POST http://localhost:3000/api/v1/users/createUser
+
+HEADERS:
+Authorization: Bearer {token}
+Content-Type: application/json
+
+REQUEST BODY:
+{
+  "username": "john_sales",
+  "email": "john@example.com",
+  "password": "password123",
+  "full_name": "John Salesman",
+  "phone": "9876543210",
+  "user_type": "salesman"
+}
+
+REQUIRED FIELDS:
+- username (string, unique)
+- email (string, valid email, unique)
+- password (string, min 6 characters)
+- full_name (string)
+- user_type (enum: admin, salesman, vendor, broker, custom)
+
+OPTIONAL FIELDS:
+- phone (string)
+
+SUCCESS RESPONSE (201):
+{
+  "success": true,
+  "message": "User created successfully",
+  "data": {
+    "id": "uuid",
+    "username": "john_sales",
+    "email": "john@example.com",
+    "full_name": "John Salesman",
+    "phone": "9876543210",
+    "user_type": "salesman",
+    "is_active": true,
+    "last_login": null,
+    "created_at": "2025-10-27T10:49:03.240Z",
+    "updated_at": "2025-10-27T10:49:03.240Z"
+  },
+  "timestamp": "2025-10-27T10:49:03.249Z"
+}
+
+ERROR RESPONSES:
+- 409: Username or email already exists
+- 400: Validation error (e.g., password too short, invalid email)
+- 401: Unauthorized (invalid or missing token)
+
+FORM VALIDATION:
+Client-side validation before API call:
+- Username: required, alphanumeric
+- Email: required, valid email format
+- Password: required, minimum 6 characters
+- Full Name: required
+- User Type: required, must be valid enum value
+- Phone: optional, if provided validate format
+
+IMPLEMENTATION:
+1. Show create user form (modal or separate page)
+2. On submit, validate client-side
+3. Call API with form data
+4. On success: Show success message, close form, refresh users list
+5. On error: Display error message from API response
+
+
+================================================================================
+4.3 GET USER BY ID
+================================================================================
+
+API ENDPOINT:
+GET http://localhost:3000/api/v1/users/getUserById/:id
+
+HEADERS:
+Authorization: Bearer {token}
+
+RESPONSE (200):
+Same format as single user object in getAllUsers response
+
+USE CASES:
+- View user details
+- Pre-fill edit form
+
+
+================================================================================
+4.4 UPDATE USER
+================================================================================
+
+API ENDPOINT:
+POST http://localhost:3000/api/v1/users/updateUser/:id
+
+HEADERS:
+Authorization: Bearer {token}
+Content-Type: application/json
+
+REQUEST BODY (all fields optional):
+{
+  "username": "updated_username",
+  "email": "newemail@example.com",
+  "full_name": "Updated Name",
+  "phone": "1234567890",
+  "user_type": "admin",
+  "is_active": true
+}
+
+SUCCESS RESPONSE (200):
+Same as create user response
+
+ERROR RESPONSES:
+- 404: User not found
+- 409: Username or email already exists (if changing)
+- 400: Validation error
+
+USE CASES:
+- Edit user profile
+- Change user_type
+- Activate/deactivate user
+- Update phone number
+
+
+================================================================================
+4.5 DELETE USER
+================================================================================
+
+API ENDPOINT:
+POST http://localhost:3000/api/v1/users/deleteUser/:id
+
+HEADERS:
+Authorization: Bearer {token}
+
+SUCCESS RESPONSE (200):
+{
+  "success": true,
+  "message": "User deleted successfully",
+  "data": null,
+  "timestamp": "..."
+}
+
+ERROR RESPONSES:
+- 404: User not found
+- 401: Unauthorized
+
+IMPLEMENTATION:
+1. Show confirmation dialog
+2. Call delete API
+3. On success: Refresh users list, show success message
+4. On error: Display error message
+
+
+================================================================================
+SECTION 5: ERROR HANDLING & AUTHENTICATION
+================================================================================
+
+TOKEN EXPIRATION:
+JWT tokens expire in 24 hours. Implement:
+
+1. Token validation on app load:
+   - Check if token exists in localStorage
+   - If no token → redirect to /login
+   - If token exists → verify it's still valid (optional)
+
+2. Token refresh logic:
+   - On 401 error, redirect to /login
+   - Clear localStorage
+   - Show "Session expired" message
+
+3. Auto logout on token expiry:
+   - Check token expiration before making API calls
+   - Or handle 401 errors globally
+
+API ERROR HANDLING:
+
+Standard Error Response Format:
+{
+  "success": false,
+  "error": "Error message",
+  "message": "Optional detailed message",
+  "timestamp": "..."
+}
+
+Error Status Codes:
+- 400: Bad Request (validation errors)
+- 401: Unauthorized (invalid/missing token)
+- 403: Forbidden (insufficient permissions)
+- 404: Not Found (resource doesn't exist)
+- 409: Conflict (duplicate username/email)
+- 500: Internal Server Error
+
+Handle errors by showing user-friendly messages:
+- 401 → "Session expired. Please login again." → Redirect to /login
+- 409 → "Username already exists. Please choose another."
+- 400 → Show validation errors from response
+- 500 → "Something went wrong. Please try again later."
+
+
+================================================================================
+SECTION 6: API SERVICE IMPLEMENTATION
+================================================================================
+
+Suggested API service structure:
+
+// api.js
+const API_BASE_URL = 'http://localhost:3000/api/v1';
+
+// Get token from localStorage
+const getToken = () => localStorage.getItem('token');
+
+// Axios interceptor to add token to all requests
+axios.interceptors.request.use(config => {
+  const token = getToken();
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
+// Handle 401 errors globally
+axios.interceptors.response.use(
+  response => response,
+  error => {
+    if (error.response?.status === 401) {
+      // Clear storage and redirect to login
+      localStorage.clear();
+      window.location.href = '/login';
+    }
+    return Promise.reject(error);
+  }
+);
+
+// API methods
+export const authAPI = {
+  login: (username, password) => 
+    axios.post(`${API_BASE_URL}/auth/loginUser`, { username, password })
+};
+
+export const usersAPI = {
+  getAll: (includeInactive = false, userType = null) => {
+    let url = `${API_BASE_URL}/users/getAllUsers`;
+    const params = new URLSearchParams();
+    if (includeInactive) params.append('include_inactive', 'true');
+    if (userType) params.append('user_type', userType);
+    if (params.toString()) url += `?${params.toString()}`;
+    return axios.get(url);
+  },
+  
+  getById: (id) => 
+    axios.get(`${API_BASE_URL}/users/getUserById/${id}`),
+  
+  create: (userData) => 
+    axios.post(`${API_BASE_URL}/users/createUser`, userData),
+  
+  update: (id, userData) => 
+    axios.post(`${API_BASE_URL}/users/updateUser/${id}`, userData),
+  
+  delete: (id) => 
+    axios.post(`${API_BASE_URL}/users/deleteUser/${id}`)
+};
+
+// Usage in components
+const response = await usersAPI.getAll();
+const users = response.data.data;
+
+
+================================================================================
+SECTION 7: DATA FLOW SUMMARY
+================================================================================
+
+LOGIN FLOW:
+1. User enters username/password
+2. Call POST /auth/loginUser
+3. Store response.data.token and response.data.user in localStorage
+4. Check user.user_type
+5. Redirect to appropriate dashboard
+6. Load dashboard with token in header
+
+DASHBOARD FLOW:
+1. Check if token exists → if not, redirect to login
+2. Load user data from localStorage
+3. Fetch dashboard data based on user_type:
+   - Admin: GetAllUsers, GetAllLeads, GetTeamStats
+   - Salesman: GetAllLeads (filtered by assigned_to), GetSalespersonStats
+4. Display widgets with data
+5. Show role-based menu items
+
+USER MANAGEMENT FLOW (Admin):
+1. Navigate to /admin/users
+2. Call GetAllUsers API on page load
+3. Display users in table
+4. Implement filters (user_type, active/inactive)
+5. Search functionality (client-side filtering)
+6. Create user:
+   - Show form
+   - Validate client-side
+   - Call CreateUser API
+   - Refresh users list
+   - Show success/error message
+7. Edit user:
+   - Open form with user data
+   - Call UpdateUser API
+   - Refresh users list
+8. Delete user:
+   - Show confirmation
+   - Call DeleteUser API
+   - Refresh users list
+
+
+================================================================================
+SECTION 8: STATE MANAGEMENT STRUCTURE
+================================================================================
+
+Suggested state structure:
+
+// Auth State
+{
+  user: {
+    id: "uuid",
+    username: "admin",
+    email: "admin@ricesoft.com",
+    user_type: "admin",
+    full_name: "Admin User",
+    is_active: true
+  },
+  token: "eyJhbGci...",
+  isAuthenticated: true
+}
+
+// Users State (Admin)
+{
+  users: [/* array of user objects */],
+  loading: false,
+  error: null,
+  filters: {
+    user_type: null,
+    include_inactive: false
+  }
+}
+
+// Dashboard State
+{
+  stats: {
+    totalUsers: 0,
+    totalLeads: 0,
+    conversions: 0
+  },
+  loading: false
+}
+
+
+================================================================================
+END OF DOCUMENT
+================================================================================
+

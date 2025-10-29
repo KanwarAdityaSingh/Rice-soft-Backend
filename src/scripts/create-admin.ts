@@ -1,5 +1,4 @@
 import { userDAO } from '../dao/user.dao';
-import { roleDAO } from '../dao/role.dao';
 import { logger } from '../utils/logger';
 import { db } from '../database/connection';
 
@@ -11,12 +10,6 @@ async function createAdminUser() {
     const dbConnected = await db.testConnection();
     if (!dbConnected) {
       throw new Error('Database connection failed');
-    }
-
-    // Get admin role
-    const adminRole = await roleDAO.findByName('admin');
-    if (!adminRole) {
-      throw new Error('Admin role not found. Please run migrations first.');
     }
 
     // Check if admin user already exists
@@ -31,8 +24,8 @@ async function createAdminUser() {
       username: 'admin',
       email: 'admin@ricesoft.com',
       password: 'admin123',
-      role_id: adminRole.id,
       full_name: 'System Administrator',
+      user_type: 'admin',
       is_active: true,
     });
 

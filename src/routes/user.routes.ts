@@ -1,58 +1,56 @@
 import { Router } from 'express';
 import { userController } from '../controllers/user.controller';
-import { authenticate, authorize } from '../middleware/auth.middleware';
+import { authenticate } from '../middleware/auth.middleware';
 import { auditLog } from '../middleware/audit.middleware';
 
 const router = Router();
 
 /**
- * @route   GET /api/v1/users
+ * @route   GET /api/v1/users/getAllUsers
  * @desc    Get all users
- * @access  Private (Admin only)
+ * @access  Private (All authenticated users)
  */
-router.get('/', authenticate, authorize('admin'), userController.getAll.bind(userController));
+router.get('/getAllUsers', authenticate, userController.getAll.bind(userController));
 
 /**
- * @route   GET /api/v1/users/:id
+ * @route   GET /api/v1/users/getUserById/:id
  * @desc    Get user by ID
- * @access  Private (Admin or self)
+ * @access  Private (All authenticated users)
  */
-router.get('/:id', authenticate, userController.getById.bind(userController));
+router.get('/getUserById/:id', authenticate, userController.getById.bind(userController));
 
 /**
- * @route   POST /api/v1/users
+ * @route   POST /api/v1/users/createUser
  * @desc    Create new user
- * @access  Private (Admin only)
+ * @access  Private (All authenticated users)
  */
 router.post(
-  '/',
+  '/createUser',
   authenticate,
-  authorize('admin'),
   auditLog('CREATE', 'users'),
   userController.create.bind(userController)
 );
 
 /**
- * @route   PUT /api/v1/users/:id
+ * @route   POST /api/v1/users/updateUser/:id
  * @desc    Update user
- * @access  Private (Admin or self)
+ * @access  Private (All authenticated users)
  */
-router.put(
-  '/:id',
+router.post(
+  '/updateUser/:id',
   authenticate,
   auditLog('UPDATE', 'users'),
   userController.update.bind(userController)
 );
 
 /**
- * @route   DELETE /api/v1/users/:id
+ * @route   POST /api/v1/users/deleteUser/:id
  * @desc    Delete user
- * @access  Private (Admin only)
+ * @access  Private (All authenticated users)
  */
-router.delete(
-  '/:id',
+router.post(
+  '/deleteUser/:id',
   authenticate,
-  authorize('admin'),
   auditLog('DELETE', 'users'),
   userController.delete.bind(userController)
 );
