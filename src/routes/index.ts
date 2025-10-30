@@ -7,6 +7,7 @@ import brokerRoutes from './broker.routes';
 import leadRoutes from './lead.routes';
 import leaderboardRoutes from './leaderboard.routes';
 import documentRoutes from './document.routes';
+import riceCodeRoutes from './rice-code.routes';
 
 const router = Router();
 
@@ -28,6 +29,7 @@ router.use('/brokers', brokerRoutes);
 router.use('/leads', leadRoutes);
 router.use('/leaderboard', leaderboardRoutes);
 router.use('/documents', documentRoutes);
+router.use('/rice-codes', riceCodeRoutes);
 
 export default router;
 

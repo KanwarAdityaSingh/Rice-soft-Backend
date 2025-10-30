@@ -67,6 +67,8 @@ SUCCESS RESPONSE (200):
       "lead_status": "engaged",
       "customer_status": null,
       "assigned_to": "salesman-uuid",
+      "rice_code_id": "rice-code-uuid",
+      "rice_type": "basmati",
       "created_by": "admin-uuid",
       "updated_by": null,
       "created_at": "2025-10-27T10:15:59.923Z",
@@ -126,6 +128,8 @@ REQUEST BODY:
   "lead_status": "new",
   "customer_status": null,
   "assigned_to": null,
+  "rice_code_id": "rice-code-uuid",
+  "rice_type": "basmati",
   "notes": "Interested in bulk rice orders",
   "priority": "medium",
   "source": "website",
@@ -137,6 +141,8 @@ REQUIRED FIELDS:
 - company_name (string)
 - contact_person (string)
 - email (string, valid email format)
+- rice_code_id (uuid, must reference existing rice code)
+- rice_type (enum: basmati, non_basmati, parboiled, raw)
 
 OPTIONAL FIELDS:
 - phone (string)
@@ -165,13 +171,17 @@ On creation, the system automatically:
 2. Stores initial status and source in event metadata
 
 IMPLEMENTATION:
-1. Show create lead form (modal or separate page)
-2. Validate client-side:
-   - Required fields
+1. Fetch rice codes list before showing form (if rice code API exists)
+2. Show create lead form (modal or separate page)
+3. Include rice_code_id dropdown (required) and rice_type dropdown (required)
+4. Validate client-side:
+   - Required fields (including rice_code_id and rice_type)
    - Email format
    - If provided: PAN/GST format
-3. On submit: Call API
-4. On success: Close form, refresh leads list, show success message
+5. On submit: Call API
+6. On success: Close form, refresh leads list, show success message
+
+NOTE: Before creating a lead, ensure you have fetched the list of available rice codes to populate the rice_code_id dropdown.
 
 
 ================================================================================
@@ -212,6 +222,8 @@ REQUEST BODY (all fields optional):
   "phone": "1234567890",
   "lead_status": "engaged",
   "assigned_to": "salesman-uuid",
+  "rice_code_id": "rice-code-uuid",
+  "rice_type": "non_basmati",
   "priority": "high",
   "notes": "Updated notes",
   "estimated_value": 750000,
@@ -730,6 +742,8 @@ const [leadForm, setLeadForm] = useState({
   },
   lead_status: 'new',
   assigned_to: null,
+  rice_code_id: '',
+  rice_type: 'basmati',
   priority: 'medium',
   source: '',
   estimated_value: 0,
@@ -761,11 +775,13 @@ Each status change should:
 ================================================================================
 
 1. Fetch salesmen list on page load: /salesmen/getAllSalesmen
-2. Show salesman dropdown in lead form
-3. On assignment change:
+2. Fetch rice codes list on page load (if rice code API exists)
+3. Show salesman dropdown in lead form
+4. Show rice_code_id and rice_type dropdowns in lead form (both required)
+5. On assignment change:
    - Call updateLead with new assigned_to field
    - System automatically creates "assigned" event
-4. Display assigned salesman name in leads table
+6. Display assigned salesman name in leads table
 
 
 11.5 CONVERSION DIALOG IMPLEMENTATION
@@ -919,6 +935,8 @@ SECTION 13: IMPORTANT NOTES
 3. Lead assignment:
    - Only assign to users with user_type = "salesman"
    - Use /salesmen/getAllSalesmen to get valid salesmen
+   - Use rice codes API (if exists) to get valid rice codes for rice_code_id dropdown
+   - rice_type options: 'basmati', 'non_basmati', 'parboiled', 'raw'
    - Assignment can be changed multiple times
 
 4. Revenue tracking:

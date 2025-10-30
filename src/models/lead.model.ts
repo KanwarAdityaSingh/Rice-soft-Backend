@@ -17,6 +17,7 @@ export interface BusinessDetails {
 
 export type LeadStatus = 'new' | 'contacted' | 'engaged' | 'converted' | 'rejected';
 export type Priority = 'low' | 'medium' | 'high' | 'urgent';
+export type RiceType = 'basmati' | 'non_basmati' | 'parboiled' | 'raw';
 
 export interface Lead {
   id: string;
@@ -30,6 +31,8 @@ export interface Lead {
   lead_status: LeadStatus;
   customer_status: string | null;
   assigned_to: string | null;
+  rice_code_id: string;
+  rice_type: RiceType;
   created_by: string | null;
   updated_by: string | null;
   created_at: Date;
@@ -54,6 +57,8 @@ export interface CreateLeadDTO {
   lead_status?: LeadStatus;
   customer_status?: string;
   assigned_to?: string;
+  rice_code_id: string;
+  rice_type: RiceType;
   created_by?: string;
   notes?: string;
   priority?: Priority;
@@ -74,6 +79,8 @@ export interface UpdateLeadDTO {
   lead_status?: LeadStatus;
   customer_status?: string;
   assigned_to?: string;
+  rice_code_id?: string;
+  rice_type?: RiceType;
   updated_by?: string;
   notes?: string;
   priority?: Priority;
@@ -95,6 +102,8 @@ export interface LeadResponse {
   lead_status: LeadStatus;
   customer_status: string | null;
   assigned_to: string | null;
+  rice_code_id: string;
+  rice_type: RiceType;
   created_by: string | null;
   updated_by: string | null;
   created_at: string;

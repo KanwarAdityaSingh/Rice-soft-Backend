@@ -16,6 +16,13 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 -- CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- =====================================================
+-- 1.1. ENUMS
+-- =====================================================
+
+-- Rice type enum
+CREATE TYPE rice_type_enum AS ENUM ('basmati', 'non_basmati', 'parboiled', 'raw');
+
+-- =====================================================
 -- 2. FUNCTIONS
 -- =====================================================
 
@@ -212,6 +219,16 @@ CREATE TABLE IF NOT EXISTS brokers (
     CONSTRAINT unique_broker_user UNIQUE (user_id)
 );
 
+-- Rice codes table
+CREATE TABLE IF NOT EXISTS rice_codes (
+    rice_code_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    rice_code_name VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    updated_by UUID REFERENCES users(id) ON DELETE SET NULL
+);
+
 -- Leads table
 CREATE TABLE IF NOT EXISTS leads (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -225,6 +242,8 @@ CREATE TABLE IF NOT EXISTS leads (
     lead_status VARCHAR(20) NOT NULL DEFAULT 'new' CHECK (lead_status IN ('new', 'contacted', 'engaged', 'converted', 'rejected')),
     customer_status VARCHAR(50),
     assigned_to UUID REFERENCES users(id) ON DELETE SET NULL,
+    rice_code_id UUID NOT NULL REFERENCES rice_codes(rice_code_id) ON DELETE RESTRICT,
+    rice_type rice_type_enum NOT NULL,
     created_by UUID REFERENCES users(id) ON DELETE SET NULL,
     updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -320,6 +339,9 @@ CREATE TABLE IF NOT EXISTS documents (
 ALTER TABLE vendors ADD CONSTRAINT IF NOT EXISTS vendors_lead_id_fkey 
     FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE SET NULL;
 
+-- Add foreign key constraint for leads.rice_code_id (already added in table definition, but ensuring it exists)
+-- Note: Foreign key is already defined in the CREATE TABLE statement above
+
 -- =====================================================
 -- 4. INDEXES
 -- =====================================================
@@ -361,6 +383,9 @@ CREATE INDEX IF NOT EXISTS idx_brokers_gst ON brokers((business_details->>'gst_n
 CREATE INDEX IF NOT EXISTS idx_brokers_pan ON brokers((business_details->>'pan_number'));
 CREATE INDEX IF NOT EXISTS idx_brokers_user_id ON brokers(user_id);
 
+-- Rice codes indexes
+CREATE INDEX IF NOT EXISTS idx_rice_codes_name ON rice_codes(rice_code_name);
+
 -- Leads indexes
 CREATE INDEX IF NOT EXISTS idx_leads_assigned_to ON leads(assigned_to);
 CREATE INDEX IF NOT EXISTS idx_leads_created_by ON leads(created_by);
@@ -368,6 +393,8 @@ CREATE INDEX IF NOT EXISTS idx_leads_lead_status ON leads(lead_status);
 CREATE INDEX IF NOT EXISTS idx_leads_is_existing_customer ON leads(is_existing_customer);
 CREATE INDEX IF NOT EXISTS idx_leads_created_at ON leads(created_at);
 CREATE INDEX IF NOT EXISTS idx_leads_priority ON leads(priority);
+CREATE INDEX IF NOT EXISTS idx_leads_rice_code_id ON leads(rice_code_id);
+CREATE INDEX IF NOT EXISTS idx_leads_rice_type ON leads(rice_type);
 
 -- Lead events indexes
 CREATE INDEX IF NOT EXISTS idx_lead_events_lead_id ON lead_events(lead_id);
@@ -420,6 +447,11 @@ CREATE TRIGGER update_vendors_updated_at
 
 CREATE TRIGGER update_brokers_updated_at 
     BEFORE UPDATE ON brokers
+    FOR EACH ROW 
+    EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_rice_codes_updated_at 
+    BEFORE UPDATE ON rice_codes
     FOR EACH ROW 
     EXECUTE FUNCTION update_updated_at_column();
 
@@ -502,6 +534,7 @@ GROUP BY l.id, u.username, u2.username, c.id;
 COMMENT ON TABLE salesmen IS 'Stores information about salesmen with basic contact details';
 COMMENT ON TABLE vendors IS 'Stores comprehensive vendor information including business and bank details';
 COMMENT ON TABLE brokers IS 'Stores comprehensive broker information including commission and specialization';
+COMMENT ON TABLE rice_codes IS 'Stores rice code information with unique identifiers';
 COMMENT ON TABLE leads IS 'Stores potential customer leads for sales tracking';
 COMMENT ON TABLE lead_events IS 'Audit trail for all lead activities and status changes';
 COMMENT ON TABLE conversions IS 'Tracks successful lead-to-vendor conversions';
@@ -525,10 +558,14 @@ COMMENT ON COLUMN brokers.user_id IS 'Reference to users table - one-to-one rela
 COMMENT ON COLUMN leads.is_existing_customer IS 'True if this lead is already a customer in the system';
 COMMENT ON COLUMN leads.lead_status IS 'Current status of the lead in the sales pipeline';
 COMMENT ON COLUMN leads.assigned_to IS 'Salesman assigned to handle this lead';
+COMMENT ON COLUMN leads.rice_code_id IS 'Reference to the rice code for this lead';
+COMMENT ON COLUMN leads.rice_type IS 'Type of rice: basmati, non_basmati, parboiled, or raw';
 COMMENT ON COLUMN leads.priority IS 'Priority level of the lead';
 COMMENT ON COLUMN leads.estimated_value IS 'Estimated deal value';
 COMMENT ON COLUMN leads.expected_close_date IS 'Expected date to close the deal';
 COMMENT ON COLUMN leads.revenue IS 'Actual revenue generated from this lead after conversion';
+COMMENT ON COLUMN rice_codes.rice_code_id IS 'Primary key identifier for the rice code';
+COMMENT ON COLUMN rice_codes.rice_code_name IS 'Name of the rice code';
 COMMENT ON COLUMN lead_events.event_type IS 'Type of event (status_change, note_added, call_made, etc.)';
 COMMENT ON COLUMN lead_events.metadata IS 'Additional event data in JSON format';
 COMMENT ON COLUMN conversions.lead_id IS 'Reference to the original lead';

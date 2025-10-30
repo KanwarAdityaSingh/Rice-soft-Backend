@@ -162,6 +162,8 @@ export const createLeadSchema = Joi.object({
   lead_status: Joi.string().optional().valid('new', 'contacted', 'engaged', 'converted', 'rejected'),
   customer_status: Joi.string().optional().max(100),
   assigned_to: Joi.string().optional().uuid(),
+  rice_code_id: Joi.string().required().uuid(),
+  rice_type: Joi.string().required().valid('basmati', 'non_basmati', 'parboiled', 'raw'),
   notes: Joi.string().optional().max(1000),
   priority: Joi.string().optional().valid('low', 'medium', 'high', 'urgent'),
   source: Joi.string().optional().max(100),
@@ -186,6 +188,8 @@ export const updateLeadSchema = Joi.object({
   lead_status: Joi.string().optional().valid('new', 'contacted', 'engaged', 'converted', 'rejected'),
   customer_status: Joi.string().optional().max(100),
   assigned_to: Joi.string().optional().uuid(),
+  rice_code_id: Joi.string().optional().uuid(),
+  rice_type: Joi.string().optional().valid('basmati', 'non_basmati', 'parboiled', 'raw'),
   notes: Joi.string().optional().max(1000),
   priority: Joi.string().optional().valid('low', 'medium', 'high', 'urgent'),
   source: Joi.string().optional().max(100),
@@ -226,4 +230,15 @@ export const convertLeadToVendorSchema = Joi.object({
   commission_rate: Joi.number().optional().min(0).max(100),
   notes: Joi.string().optional().allow(null, '').max(1000),
 });
+
+// Rice code validation schemas
+export const createRiceCodeSchema = Joi.object({
+  rice_code_name: Joi.string().required().min(1).max(255),
+  created_by: Joi.string().optional().uuid(),
+});
+
+export const updateRiceCodeSchema = Joi.object({
+  rice_code_name: Joi.string().optional().min(1).max(255),
+  updated_by: Joi.string().optional().uuid(),
+}).min(1);
 
