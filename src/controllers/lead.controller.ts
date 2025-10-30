@@ -70,6 +70,8 @@ export class LeadController {
         estimated_value: lead.estimated_value,
         expected_close_date: lead.expected_close_date?.toISOString() || null,
         revenue: lead.revenue,
+        salesman_latitude: lead.salesman_latitude,
+        salesman_longitude: lead.salesman_longitude,
       }));
 
       return ResponseHandler.success(res, leadResponses);
@@ -111,6 +113,8 @@ export class LeadController {
         estimated_value: lead.estimated_value,
         expected_close_date: lead.expected_close_date?.toISOString() || null,
         revenue: lead.revenue,
+        salesman_latitude: lead.salesman_latitude,
+        salesman_longitude: lead.salesman_longitude,
       };
 
       return ResponseHandler.success(res, leadResponse);
@@ -173,6 +177,8 @@ export class LeadController {
         estimated_value: lead.estimated_value,
         expected_close_date: lead.expected_close_date?.toISOString() || null,
         revenue: lead.revenue,
+        salesman_latitude: lead.salesman_latitude,
+        salesman_longitude: lead.salesman_longitude,
       };
 
       return ResponseHandler.created(res, leadResponse, 'Lead created successfully');
@@ -262,6 +268,8 @@ export class LeadController {
         estimated_value: lead.estimated_value,
         expected_close_date: lead.expected_close_date?.toISOString() || null,
         revenue: lead.revenue,
+        salesman_latitude: lead.salesman_latitude,
+        salesman_longitude: lead.salesman_longitude,
       };
 
       return ResponseHandler.success(res, leadResponse, 'Lead updated successfully');

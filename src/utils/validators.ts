@@ -169,6 +169,8 @@ export const createLeadSchema = Joi.object({
   source: Joi.string().optional().max(100),
   estimated_value: Joi.number().optional().min(0),
   expected_close_date: Joi.date().optional(),
+  salesman_latitude: Joi.number().optional().precision(8),
+  salesman_longitude: Joi.number().optional().precision(8),
 });
 
 export const updateLeadSchema = Joi.object({
@@ -195,6 +197,8 @@ export const updateLeadSchema = Joi.object({
   source: Joi.string().optional().max(100),
   estimated_value: Joi.number().optional().min(0),
   expected_close_date: Joi.date().optional(),
+  salesman_latitude: Joi.number().optional().precision(8),
+  salesman_longitude: Joi.number().optional().precision(8),
 }).min(1);
 
 // Lead Event validation schemas

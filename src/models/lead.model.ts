@@ -43,6 +43,8 @@ export interface Lead {
   estimated_value: number | null;
   expected_close_date: Date | null;
   revenue: number | null;
+  salesman_latitude: number | null;
+  salesman_longitude: number | null;
 }
 //next follow up key and value pair -epoch`
 
@@ -66,6 +68,8 @@ export interface CreateLeadDTO {
   estimated_value?: number;
   expected_close_date?: Date;
   revenue?: number;
+  salesman_latitude?: number;
+  salesman_longitude?: number;
 }
 
 export interface UpdateLeadDTO {
@@ -88,6 +92,8 @@ export interface UpdateLeadDTO {
   estimated_value?: number;
   expected_close_date?: Date;
   revenue?: number;
+  salesman_latitude?: number;
+  salesman_longitude?: number;
 }
 
 export interface LeadResponse {
@@ -114,6 +120,8 @@ export interface LeadResponse {
   estimated_value: number | null;
   expected_close_date: string | null;
   revenue: number | null;
+  salesman_latitude: number | null;
+  salesman_longitude: number | null;
 }
 
 export interface LeadAnalytics {
