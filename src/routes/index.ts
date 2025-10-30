@@ -29,7 +29,7 @@ router.use('/brokers', brokerRoutes);
 router.use('/leads', leadRoutes);
 router.use('/leaderboard', leaderboardRoutes);
 router.use('/documents', documentRoutes);
-router.use('/rice-codes', riceCodeRoutes);
+router.use('/riceCodes', riceCodeRoutes);
 
 export default router;
 

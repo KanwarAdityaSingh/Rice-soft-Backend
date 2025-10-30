@@ -138,5 +138,20 @@ export class RiceCodeController {
       next(error);
     }
   }
+
+  async getRiceTypes(_req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const riceTypes = [
+        { value: 'basmati', label: 'Basmati' },
+        { value: 'non_basmati', label: 'Non Basmati' },
+        { value: 'parboiled', label: 'Parboiled' },
+        { value: 'raw', label: 'Raw' }
+      ];
+
+      return ResponseHandler.success(res, riceTypes);
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 

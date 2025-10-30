@@ -31,6 +31,3 @@ export interface LoginHistoryFilters {
   limit?: number;
   offset?: number;
 }
-
- Numerable;
-}
