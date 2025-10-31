@@ -93,19 +93,19 @@ export class BrokerController {
         throw new ConflictError('Email already exists in users');
       }
 
-      // Check if GST already exists (if provided)
-      if (brokerData.business_details.gst_number) {
-        const gstExists = await brokerDAO.gstExists(brokerData.business_details.gst_number);
-        if (gstExists) {
-          throw new ConflictError('GST number already exists');
-        }
-      }
-
       // Check if PAN already exists (if provided)
       if (brokerData.business_details.pan_number) {
         const panExists = await brokerDAO.panExists(brokerData.business_details.pan_number);
         if (panExists) {
           throw new ConflictError('PAN number already exists');
+        }
+      }
+
+      // Check if Aadhaar already exists (if provided)
+      if (brokerData.business_details.aadhaar_number) {
+        const aadhaarExists = await brokerDAO.aadhaarExists(brokerData.business_details.aadhaar_number);
+        if (aadhaarExists) {
+          throw new ConflictError('Aadhaar number already exists');
         }
       }
 
@@ -178,19 +178,19 @@ export class BrokerController {
         }
       }
 
-      // Check if GST already exists (if being updated)
-      if (brokerData.business_details?.gst_number) {
-        const gstExists = await brokerDAO.gstExists(brokerData.business_details.gst_number, id);
-        if (gstExists) {
-          throw new ConflictError('GST number already exists');
-        }
-      }
-
       // Check if PAN already exists (if being updated)
       if (brokerData.business_details?.pan_number) {
         const panExists = await brokerDAO.panExists(brokerData.business_details.pan_number, id);
         if (panExists) {
           throw new ConflictError('PAN number already exists');
+        }
+      }
+
+      // Check if Aadhaar already exists (if being updated)
+      if (brokerData.business_details?.aadhaar_number) {
+        const aadhaarExists = await brokerDAO.aadhaarExists(brokerData.business_details.aadhaar_number, id);
+        if (aadhaarExists) {
+          throw new ConflictError('Aadhaar number already exists');
         }
       }
 
@@ -306,82 +306,37 @@ export class BrokerController {
   }
 
   /**
-   * Quick create broker from GST number
-   * Fetches GST details and creates broker with minimal additional input
+   * Lookup Aadhaar Number and validate format
+   * NOTE: Aadhaar lookup APIs are not publicly available, so this only validates format
    */
-  async createFromGST(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+  async lookupAadhaar(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const { gst_number, contact_person, email, phone, type, broker_details } = req.body;
+      const aadhaarNumber = req.query.aadhaar_number as string;
 
-      // Validate required fields
-      const quickCreateSchema = Joi.object({
-        gst_number: Joi.string().required().length(15),
-        contact_person: Joi.string().required().min(2).max(255),
-        email: Joi.string().required().email(),
-        phone: Joi.string().required().max(20),
-        type: Joi.string().required().valid('purchase', 'sale', 'both'),
-        broker_details: Joi.object({
-          commission_rate: Joi.number().optional().min(0).max(100),
-          specialization: Joi.string().optional().allow(null, '').max(255),
-          experience_years: Joi.number().optional().min(0).max(100),
-        }).optional(),
-      });
-
-      validate(quickCreateSchema, req.body);
-
-      // Validate GST format
-      if (!gstLookupService.validateGSTFormat(gst_number)) {
-        throw new ValidationError('Invalid GST number format');
+      if (!aadhaarNumber) {
+        throw new ValidationError('Aadhaar number is required');
       }
 
-      // Check if GST already exists
-      const gstExists = await brokerDAO.gstExists(gst_number);
-      if (gstExists) {
-        throw new ConflictError('GST number already exists');
+      // Validate Aadhaar format
+      if (!gstLookupService.validateAadhaarFormat(aadhaarNumber)) {
+        throw new ValidationError('Invalid Aadhaar number format. Expected format: 12 digits (not starting with 0 or 1)');
       }
 
-      // Check if email already exists
-      const emailExists = await brokerDAO.emailExists(email);
-      if (emailExists) {
-        throw new ConflictError('Email already exists');
+      // Check if Aadhaar already exists
+      const aadhaarExists = await brokerDAO.aadhaarExists(aadhaarNumber);
+      if (aadhaarExists) {
+        return ResponseHandler.success(res, {
+          is_valid: true,
+          already_exists: true,
+          message: 'Aadhaar number is valid but already exists in system'
+        }, 'Aadhaar number validation completed');
       }
 
-      // Fetch GST details
-      const gstData = await gstLookupService.lookupGST(gst_number);
-      const mappedData = gstLookupService.mapGSTToBusinessData(gstData);
-
-      // Create broker with fetched + provided data
-      const brokerData: CreateBrokerDTO = {
-        business_name: mappedData.business_name,
-        contact_person,
-        email,
-        phone,
-        address: mappedData.address,
-        business_details: mappedData.business_details,
-        broker_details: broker_details || null,
-        type,
-        is_active: true,
-        created_by: req.user?.userId,
-      };
-
-      const broker = await brokerDAO.create(brokerData);
-
-      const brokerResponse: BrokerResponse = {
-        id: broker.id,
-        business_name: broker.business_name,
-        contact_person: broker.contact_person,
-        email: broker.email,
-        phone: broker.phone,
-        address: broker.address,
-        business_details: broker.business_details,
-        broker_details: broker.broker_details,
-        type: broker.type,
-        is_active: broker.is_active,
-        created_at: broker.created_at.toISOString(),
-        updated_at: broker.updated_at.toISOString(),
-      };
-
-      return ResponseHandler.created(res, brokerResponse, 'Broker created from GST successfully');
+      return ResponseHandler.success(res, {
+        is_valid: true,
+        already_exists: false,
+        message: 'Aadhaar number is valid and available'
+      }, 'Aadhaar number validation completed');
     } catch (error) {
       next(error);
     }

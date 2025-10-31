@@ -22,16 +22,12 @@ router.get('/lookupGST', authenticate, brokerController.lookupGST.bind(brokerCon
 router.get('/lookupPAN', authenticate, brokerController.lookupPAN.bind(brokerController));
 
 /**
- * @route   POST /api/v1/brokers/quickCreateFromGST
- * @desc    Quick create broker from GST number
+ * @route   GET /api/v1/brokers/lookupAadhaar
+ * @desc    Validate Aadhaar number format and check availability
  * @access  Private
+ * @query   aadhaar_number: string (12 digits)
  */
-router.post(
-  '/quickCreateFromGST',
-  authenticate,
-  auditLog('CREATE', 'brokers'),
-  brokerController.createFromGST.bind(brokerController)
-);
+router.get('/lookupAadhaar', authenticate, brokerController.lookupAadhaar.bind(brokerController));
 
 /**
  * @route   POST /api/v1/brokers/quickCreateFromPAN

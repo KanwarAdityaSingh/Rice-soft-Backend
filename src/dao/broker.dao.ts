@@ -51,14 +51,16 @@ export class BrokerDAO {
     return result.rows[0] || null;
   }
 
-  async findByGST(gstNumber: string): Promise<Broker | null> {
+  async findByAadhaar(aadhaarNumber: string): Promise<Broker | null> {
+    // Remove spaces from Aadhaar number for comparison
+    const cleanedAadhaar = aadhaarNumber.replace(/\s/g, '');
     const query = `
       SELECT id, business_name, contact_person, email, phone, address, business_details,
              broker_details, type, is_active, created_at, updated_at, created_by, updated_by
       FROM brokers
-      WHERE business_details->>'gst_number' = $1
+      WHERE REPLACE(business_details->>'aadhaar_number', ' ', '') = $1
     `;
-    const result = await db.query<Broker>(query, [gstNumber]);
+    const result = await db.query<Broker>(query, [cleanedAadhaar]);
     return result.rows[0] || null;
   }
 
@@ -208,12 +210,14 @@ export class BrokerDAO {
     return result.rows.length > 0;
   }
 
-  async gstExists(gstNumber: string, excludeId?: string): Promise<boolean> {
+  async aadhaarExists(aadhaarNumber: string, excludeId?: string): Promise<boolean> {
+    // Remove spaces from Aadhaar number for comparison
+    const cleanedAadhaar = aadhaarNumber.replace(/\s/g, '');
     const query = excludeId 
-      ? `SELECT 1 FROM brokers WHERE business_details->>'gst_number' = $1 AND id != $2 LIMIT 1`
-      : `SELECT 1 FROM brokers WHERE business_details->>'gst_number' = $1 LIMIT 1`;
+      ? `SELECT 1 FROM brokers WHERE REPLACE(business_details->>'aadhaar_number', ' ', '') = $1 AND id != $2 LIMIT 1`
+      : `SELECT 1 FROM brokers WHERE REPLACE(business_details->>'aadhaar_number', ' ', '') = $1 LIMIT 1`;
     
-    const values = excludeId ? [gstNumber, excludeId] : [gstNumber];
+    const values = excludeId ? [cleanedAadhaar, excludeId] : [cleanedAadhaar];
     const result = await db.query(query, values);
     return result.rows.length > 0;
   }

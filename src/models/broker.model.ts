@@ -8,7 +8,7 @@ export interface Address {
 
 export interface BusinessDetails {
   pan_number?: string;
-  gst_number?: string;
+  aadhaar_number?: string;
   registration_number?: string;
   business_type?: 'individual' | 'partnership' | 'company' | 'llp';
 }

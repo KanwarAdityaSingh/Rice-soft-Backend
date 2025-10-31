@@ -70,12 +70,42 @@ const addressSchema = Joi.object({
   country: Joi.string().required().max(100),
 });
 
-// Business details validation schema (reusable)
+// Business details validation schema (reusable - for vendors, etc.)
 const businessDetailsSchema = Joi.object({
   pan_number: Joi.string().optional().allow(null, '').length(10),
   gst_number: Joi.string().optional().allow(null, '').length(15),
   registration_number: Joi.string().optional().allow(null, '').max(50),
   business_type: Joi.string().optional().valid('individual', 'partnership', 'company', 'llp'),
+});
+
+// Business details validation schema for brokers (PAN or Aadhaar required, no GST)
+const brokerBusinessDetailsSchema = Joi.object({
+  pan_number: Joi.string().optional().allow(null, '').length(10).uppercase(),
+  aadhaar_number: Joi.string().optional().allow(null, '').pattern(/^[2-9]{1}[0-9]{11}$/).custom((value, helpers) => {
+    // Remove spaces if present
+    if (value) {
+      const cleaned = value.replace(/\s/g, '');
+      if (cleaned.length !== 12) {
+        return helpers.error('string.length');
+      }
+      return cleaned;
+    }
+    return value;
+  }, 'Aadhaar number validation'),
+  registration_number: Joi.string().optional().allow(null, '').max(50),
+  business_type: Joi.string().optional().valid('individual', 'partnership', 'company', 'llp'),
+}).custom((value, helpers) => {
+  // Require either PAN or Aadhaar (at least one must be provided)
+  const hasPAN = value.pan_number && value.pan_number.trim() !== '';
+  const hasAadhaar = value.aadhaar_number && value.aadhaar_number.trim() !== '';
+  
+  if (!hasPAN && !hasAadhaar) {
+    return helpers.error('custom.panOrAadhaarRequired');
+  }
+  
+  return value;
+}).messages({
+  'custom.panOrAadhaarRequired': 'Either PAN number or Aadhaar number must be provided'
 });
 
 // Bank details validation schema (reusable)
@@ -126,7 +156,7 @@ export const createBrokerSchema = Joi.object({
   email: Joi.string().required().email(),
   phone: Joi.string().required().max(20),
   address: addressSchema.required(),
-  business_details: businessDetailsSchema.required(),
+  business_details: brokerBusinessDetailsSchema.required(),
   broker_details: brokerDetailsSchema.optional(),
   type: Joi.string().required().valid('purchase', 'sale', 'both'),
   is_active: Joi.boolean().optional(),
@@ -138,7 +168,7 @@ export const updateBrokerSchema = Joi.object({
   email: Joi.string().optional().email(),
   phone: Joi.string().optional().max(20),
   address: addressSchema.optional(),
-  business_details: businessDetailsSchema.optional(),
+  business_details: brokerBusinessDetailsSchema.optional(),
   broker_details: brokerDetailsSchema.optional(),
   type: Joi.string().optional().valid('purchase', 'sale', 'both'),
   is_active: Joi.boolean().optional(),

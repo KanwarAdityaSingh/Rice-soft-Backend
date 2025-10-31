@@ -92,6 +92,18 @@ export class GSTLookupService {
   }
 
   /**
+   * Validate Aadhaar Number Format
+   * Format: 12 digits (with or without spaces)
+   */
+  static validateAadhaarFormat(aadhaarNumber: string): boolean {
+    // Remove spaces if present
+    const cleaned = aadhaarNumber.replace(/\s/g, '');
+    // Must be exactly 12 digits, not starting with 0 or 1
+    const aadhaarRegex = /^[2-9]{1}[0-9]{11}$/;
+    return aadhaarRegex.test(cleaned);
+  }
+
+  /**
    * Extract PAN from GST Number
    * PAN is characters 3-12 of GST number
    */
