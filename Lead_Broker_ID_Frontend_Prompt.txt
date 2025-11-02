@@ -1,0 +1,72 @@
+LEAD BROKER ID FIELD - FRONTEND INTEGRATION GUIDE
+
+API CHANGES:
+============
+
+1. Lead Model Update:
+   - All Lead API responses now include `broker_id` field (nullable string/UUID)
+   - Field position: after `assigned_to`, before `rice_code_id`
+
+2. Create Lead API:
+   POST /api/v1/leads/createLead
+   Request Body:
+   - Added optional field: `broker_id` (string, UUID format)
+   - Can be null or omitted if no broker is associated
+
+3. Update Lead API:
+   POST /api/v1/leads/updateLead/:id
+   Request Body:
+   - Added optional field: `broker_id` (string, UUID format)
+   - Can be set to null to remove broker association
+
+4. Get Lead APIs:
+   GET /api/v1/leads/getAllLeads
+   GET /api/v1/leads/getLeadById/:id
+   Response: All lead objects now include `broker_id` field
+
+RESPONSE STRUCTURE:
+===================
+Lead Response Object:
+{
+  ...existing fields,
+  assigned_to: string | null,
+  broker_id: string | null,  // NEW FIELD
+  rice_code_id: string,
+  ...other fields
+}
+
+FRONTEND LOGIC UPDATES:
+=======================
+
+1. Lead Form/Component:
+   - Add broker selection dropdown/autocomplete field
+   - Field should be optional (nullable)
+   - Fetch brokers list from GET /api/v1/brokers/getAllBrokers (if exists)
+   - Store selected broker UUID in `broker_id` field
+   - Allow clearing broker selection (set to null)
+
+2. Lead Display:
+   - Show broker name/info if `broker_id` is present
+   - Fetch broker details using broker_id if needed
+   - Display "No Broker Assigned" or similar when broker_id is null
+
+3. Lead Filtering (if applicable):
+   - Add filter option to filter leads by broker_id
+   - Query parameter: ?broker_id=<uuid>
+
+4. Lead List/Table:
+   - Add broker column to lead table/list view
+   - Show broker name or "N/A" if broker_id is null
+
+5. Data Validation:
+   - Validate broker_id is valid UUID format if provided
+   - Ensure broker_id exists in brokers table (backend validates)
+
+IMPLEMENTATION NOTES:
+====================
+- broker_id is optional, so existing leads will have null value
+- No breaking changes - field is nullable and optional
+- Ensure broker dropdown only shows active brokers
+- Consider caching brokers list for better performance
+- Update TypeScript interfaces to include broker_id: string | null
+

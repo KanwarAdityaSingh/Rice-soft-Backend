@@ -1,0 +1,180 @@
+================================================================================
+BROKER API CHANGES - FRONTEND UPDATE REQUIRED
+================================================================================
+
+IMPORTANT CHANGE: Broker Business Details Structure Updated
+
+================================================================================
+CHANGE SUMMARY
+================================================================================
+
+1. GST NUMBER REMOVED from broker business_details
+   - Brokers NO LONGER require or accept GST number
+
+2. AADHAAR NUMBER ADDED to broker business_details
+   - New field: aadhaar_number (12 digits)
+
+3. VALIDATION RULE: Either PAN or Aadhaar is REQUIRED
+   - At least one of: pan_number OR aadhaar_number must be provided
+   - Both can be provided, but at least one is mandatory
+
+================================================================================
+UPDATED REQUEST/RESPONSE FORMAT
+================================================================================
+
+BEFORE (OLD FORMAT - DO NOT USE):
+{
+  "business_details": {
+    "pan_number": "ABCDE1234F",
+    "gst_number": "27ABCDE1234F1Z5",  // ❌ REMOVED
+    "registration_number": "...",
+    "business_type": "individual"
+  }
+}
+
+AFTER (NEW FORMAT - USE THIS):
+{
+  "business_details": {
+    "pan_number": "ABCDE1234F",         // Optional, but at least one required
+    "aadhaar_number": "234567890123",    // Optional, but at least one required
+    "registration_number": "...",
+    "business_type": "individual"
+  }
+}
+
+VALIDATION:
+- Either pan_number OR aadhaar_number must be present (not empty)
+- Aadhaar format: 12 digits, cannot start with 0 or 1
+- PAN format: 10 characters (5 letters + 4 digits + 1 letter), uppercase
+- Spaces in Aadhaar are automatically removed
+
+================================================================================
+AFFECTED API ENDPOINTS
+================================================================================
+
+1. POST /api/v1/brokers/createBroker
+   - Remove gst_number from business_details
+   - Add aadhaar_number to business_details (optional but recommended)
+   - Ensure either pan_number or aadhaar_number is provided
+
+2. POST /api/v1/brokers/updateBroker/:id
+   - Same changes as createBroker
+
+3. POST /api/v1/brokers/quickCreateFromPAN
+   - Still works, returns business_details with pan_number (no gst_number)
+
+4. ❌ REMOVED: POST /api/v1/brokers/quickCreateFromGST
+   - This endpoint no longer exists for brokers
+   - DO NOT use this endpoint
+
+5. ✅ NEW: GET /api/v1/brokers/lookupAadhaar
+   - Query param: ?aadhaar_number=234567890123
+   - Validates Aadhaar format and checks if already exists
+   - Response: { is_valid: true, already_exists: false }
+
+================================================================================
+FRONTEND IMPLEMENTATION CHANGES
+================================================================================
+
+1. UPDATE CREATE BROKER FORM:
+   - Remove GST number input field
+   - Add Aadhaar number input field (12 digits)
+   - Add validation: Show error if both PAN and Aadhaar are empty
+   - Allow user to enter either PAN or Aadhaar (or both)
+
+2. UPDATE BROKER LIST/DETAIL VIEW:
+   - Remove GST number display
+   - Add Aadhaar number display (mask: XXXX XXXX XXXX)
+   - Show "PAN: ABCDE1234F" or "Aadhaar: 2345 6789 0123" or both
+
+3. UPDATE VALIDATION:
+   - Remove GST validation function for brokers
+   - Add Aadhaar validation:
+     * Must be 12 digits
+     * Cannot start with 0 or 1
+     * Spaces are automatically removed
+   - Add check: At least one of PAN or Aadhaar must be filled
+
+4. REMOVE GST LOOKUP BUTTON:
+   - Remove "Lookup GST" button from broker forms
+   - Keep "Lookup PAN" button if needed
+   - Optionally add "Validate Aadhaar" button using new lookupAadhaar endpoint
+
+================================================================================
+QUICK IMPLEMENTATION EXAMPLE
+================================================================================
+
+// Updated form validation
+const validateBrokerForm = (formData) => {
+  const errors = {};
+  
+  // Remove GST validation
+  
+  // PAN validation (if provided)
+  if (formData.business_details.pan_number) {
+    const panRegex = /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/;
+    if (!panRegex.test(formData.business_details.pan_number)) {
+      errors.pan_number = 'Invalid PAN format';
+    }
+  }
+  
+  // Aadhaar validation (if provided)
+  if (formData.business_details.aadhaar_number) {
+    const cleaned = formData.business_details.aadhaar_number.replace(/\s/g, '');
+    const aadhaarRegex = /^[2-9]{1}[0-9]{11}$/;
+    if (!aadhaarRegex.test(cleaned)) {
+      errors.aadhaar_number = 'Invalid Aadhaar format (12 digits, cannot start with 0 or 1)';
+    }
+  }
+  
+  // Ensure at least one is provided
+  if (!formData.business_details.pan_number && 
+      !formData.business_details.aadhaar_number) {
+    errors.business_details = 'Either PAN number or Aadhaar number must be provided';
+  }
+  
+  return errors;
+};
+
+// Updated form data structure
+const initialFormData = {
+  business_name: '',
+  contact_person: '',
+  email: '',
+  phone: '',
+  address: { street: '', city: '', state: '', pincode: '', country: 'India' },
+  business_details: {
+    pan_number: '',        // Optional
+    aadhaar_number: '',    // Optional (but at least one required)
+    registration_number: '',
+    business_type: 'individual'
+  },
+  type: 'both'
+};
+
+================================================================================
+ERROR MESSAGES TO EXPECT
+================================================================================
+
+400 Validation Error:
+- "Either PAN number or Aadhaar number must be provided"
+- "Invalid Aadhaar number format. Expected format: 12 digits (not starting with 0 or 1)"
+- "Invalid PAN number format. Expected format: ABCDE1234F"
+
+409 Conflict Error:
+- "Aadhaar number already exists"
+- "PAN number already exists"
+
+================================================================================
+MIGRATION NOTES
+================================================================================
+
+- Existing brokers with GST numbers will still have that data in database
+- Frontend should NOT display GST number for brokers anymore
+- When updating existing brokers, GST field will be ignored if sent
+- New brokers created MUST have either PAN or Aadhaar
+
+================================================================================
+END OF CHANGES
+================================================================================
+

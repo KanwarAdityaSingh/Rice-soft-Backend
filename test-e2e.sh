@@ -16,7 +16,7 @@ echo ""
 echo -e "${YELLOW}Step 1: Login as Admin${NC}"
 LOGIN_RESPONSE=$(curl -s -X POST http://localhost:3000/api/v1/auth/loginUser \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"admin123"}')
+  -d '{"username":"admin","password":"Xk9#mP2@nQ7!vR4$wT8&aL5"}')
 
 TOKEN=$(echo $LOGIN_RESPONSE | python3 -c "import sys, json; print(json.load(sys.stdin)['data']['token'])")
 

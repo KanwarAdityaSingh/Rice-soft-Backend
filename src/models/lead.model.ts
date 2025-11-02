@@ -31,6 +31,7 @@ export interface Lead {
   lead_status: LeadStatus;
   customer_status: string | null;
   assigned_to: string | null;
+  broker_id: string | null;
   rice_code_id: string;
   rice_type: RiceType;
   created_by: string | null;
@@ -59,6 +60,7 @@ export interface CreateLeadDTO {
   lead_status?: LeadStatus;
   customer_status?: string;
   assigned_to?: string;
+  broker_id?: string;
   rice_code_id: string;
   rice_type: RiceType;
   created_by?: string;
@@ -83,6 +85,7 @@ export interface UpdateLeadDTO {
   lead_status?: LeadStatus;
   customer_status?: string;
   assigned_to?: string;
+  broker_id?: string;
   rice_code_id?: string;
   rice_type?: RiceType;
   updated_by?: string;
@@ -108,6 +111,7 @@ export interface LeadResponse {
   lead_status: LeadStatus;
   customer_status: string | null;
   assigned_to: string | null;
+  broker_id: string | null;
   rice_code_id: string;
   rice_type: RiceType;
   created_by: string | null;

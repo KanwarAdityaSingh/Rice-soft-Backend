@@ -16,7 +16,7 @@ echo ""
 # Initialize variables
 LOGIN_RESPONSE=$(curl -s -X POST http://localhost:3000/api/v1/auth/loginUser \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"admin123"}')
+  -d '{"username":"admin","password":"Xk9#mP2@nQ7!vR4$wT8&aL5"}')
 
 TOKEN=$(echo $LOGIN_RESPONSE | python3 -c "import sys, json; data=json.load(sys.stdin); print(data['data']['token'] if data['success'] else '')")
 INVALID_TOKEN="invalid.jwt.token"
@@ -73,9 +73,9 @@ echo -e "${CYAN}SECTION 1: AUTHENTICATION${NC}"
 echo -e "${CYAN}════════════════════════════════════════${NC}"
 echo ""
 
-test_endpoint "1.1 Valid Login" POST "/api/v1/auth/loginUser" '{"username":"admin","password":"admin123"}' 200 ""
+test_endpoint "1.1 Valid Login" POST "/api/v1/auth/loginUser" '{"username":"admin","password":"Admin@2024!Secure"}' 200 ""
 test_endpoint "1.2 Invalid Password" POST "/api/v1/auth/loginUser" '{"username":"admin","password":"wrongpassword123"}' 401 ""
-test_endpoint "1.3 Invalid Username" POST "/api/v1/auth/loginUser" '{"username":"nonexistent","password":"admin123"}' 401 ""
+test_endpoint "1.3 Invalid Username" POST "/api/v1/auth/loginUser" '{"username":"nonexistent","password":"Admin@2024!Secure"}' 401 ""
 test_endpoint "1.4 Missing Credentials" POST "/api/v1/auth/loginUser" '{}' 400 ""
 
 # ========================================
@@ -177,7 +177,7 @@ rate_limited=0
 for i in {1..10}; do
     response=$(curl -s -w "\n%{http_code}" -X POST "http://localhost:3000/api/v1/auth/loginUser" \
         -H "Content-Type: application/json" \
-        -d '{"username":"admin","password":"admin123"}')
+        -d '{"username":"admin","password":"Xk9#mP2@nQ7!vR4$wT8&aL5"}')
     http_code=$(echo "$response" | tail -n1)
     if [ "$http_code" = "429" ]; then
         ((rate_limited++))

@@ -242,6 +242,7 @@ CREATE TABLE IF NOT EXISTS leads (
     lead_status VARCHAR(20) NOT NULL DEFAULT 'new' CHECK (lead_status IN ('new', 'contacted', 'engaged', 'converted', 'rejected')),
     customer_status VARCHAR(50),
     assigned_to UUID REFERENCES users(id) ON DELETE SET NULL,
+    broker_id UUID REFERENCES brokers(id) ON DELETE SET NULL,
     rice_code_id UUID NOT NULL REFERENCES rice_codes(rice_code_id) ON DELETE RESTRICT,
     rice_type rice_type_enum NOT NULL,
     created_by UUID REFERENCES users(id) ON DELETE SET NULL,

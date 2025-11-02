@@ -1,0 +1,623 @@
+================================================================================
+CUSTOM USER PERMISSIONS API - FRONTEND IMPLEMENTATION GUIDE
+================================================================================
+
+OVERVIEW:
+---------
+Custom users (user_type = 'custom') now have entity-based CRUD permissions that are 
+returned in the login response. The frontend should use these permissions to control 
+UI visibility and action availability. Permissions are stored and retrieved but NOT 
+validated on the backend - enforcement is frontend-only.
+
+================================================================================
+SECTION 1: LOGIN RESPONSE CHANGES
+================================================================================
+
+API ENDPOINT:
+POST http://localhost:3000/api/v1/auth/loginUser
+
+REQUEST BODY (unchanged):
+{
+  "username": "custom_user",
+  "password": "password123"
+}
+
+SUCCESS RESPONSE (200):
+{
+  "success": true,
+  "message": "Login successful",
+  "data": {
+    "user": {
+      "id": "uuid",
+      "username": "custom_user",
+      "email": "custom@example.com",
+      "full_name": "Custom User",
+      "phone": null,
+      "user_type": "custom",
+      "is_active": true,
+      "last_login": "2025-11-02T12:40:20.919Z",
+      "created_at": "2025-10-12T22:55:08.090Z",
+      "updated_at": "2025-11-02T12:40:20.919Z"
+    },
+    "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "expires_in": "24h",
+    "permissions": {
+      "salesman": {
+        "create": true,
+        "read": true,
+        "update": false,
+        "delete": false
+      },
+      "broker": {
+        "create": false,
+        "read": true,
+        "update": false,
+        "delete": false
+      },
+      "vendor": {
+        "create": false,
+        "read": true,
+        "update": false,
+        "delete": false
+      },
+      "leads": {
+        "create": true,
+        "read": true,
+        "update": true,
+        "delete": false
+      },
+      "riceCode": {
+        "create": false,
+        "read": true,
+        "update": false,
+        "delete": false
+      }
+    }
+  },
+  "timestamp": "2025-11-02T12:40:20.930Z"
+}
+
+IMPORTANT NOTES:
+- For custom users: "permissions" is an object with entity keys and CRUD permissions
+- For non-custom users (admin, salesman, vendor, broker): "permissions" is null
+- Permission object structure: Partial - only defined entities are included
+- Each entity has: create (boolean), read (boolean), update (boolean), delete (boolean)
+
+STORAGE:
+--------
+After successful login, store:
+- token: response.data.token (JWT string)
+- user: response.data.user (user object)
+- permissions: response.data.permissions (permissions object or null)
+
+Example localStorage structure:
+{
+  token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  user: { id: "...", username: "...", user_type: "custom", ... },
+  permissions: {
+    salesman: { create: true, read: true, update: false, delete: false },
+    leads: { create: true, read: true, update: true, delete: false },
+    ...
+  }
+}
+
+================================================================================
+SECTION 2: PERMISSION CHECKING UTILITIES
+================================================================================
+
+RECOMMENDED HELPER FUNCTIONS:
+
+// Get permissions from storage
+const getPermissions = () => {
+  const stored = localStorage.getItem('permissions');
+  return stored ? JSON.parse(stored) : null;
+};
+
+// Check if user can perform action on entity
+const can = (entity, action) => {
+  const permissions = getPermissions();
+  if (!permissions) {
+    // Non-custom users don't have permissions - use user_type for access control
+    return false;
+  }
+  return permissions[entity]?.[action] === true;
+};
+
+// Check if user can create entities of type
+const canCreate = (entity) => can(entity, 'create');
+
+// Check if user can read entities of type
+const canRead = (entity) => can(entity, 'read');
+
+// Check if user can update entities of type
+const canUpdate = (entity) => can(entity, 'update');
+
+// Check if user can delete entities of type
+const canDelete = (entity) => can(entity, 'delete');
+
+// Get all permissions for an entity
+const getEntityPermissions = (entity) => {
+  const permissions = getPermissions();
+  return permissions?.[entity] || null;
+};
+
+// Check if user is custom user with permissions
+const isCustomUser = () => {
+  const user = JSON.parse(localStorage.getItem('user') || '{}');
+  return user.user_type === 'custom';
+};
+
+USAGE EXAMPLES:
+
+// Conditional rendering of create button
+if (canCreate('leads')) {
+  // Show "Create Lead" button
+}
+
+// Conditional rendering of edit button
+if (canUpdate('leads')) {
+  // Show "Edit" button or enable edit mode
+}
+
+// Conditional rendering of delete button
+if (canDelete('salesman')) {
+  // Show "Delete" button
+}
+
+// Disable form submit if no create permission
+const handleSubmit = () => {
+  if (!canCreate('vendor')) {
+    alert('You do not have permission to create vendors');
+    return;
+  }
+  // Proceed with API call
+};
+
+// Hide entire section if no read permission
+if (!canRead('broker')) {
+  // Don't render broker section at all
+}
+
+ENTITY KEYS:
+------------
+Valid entity keys:
+- 'salesman' - Salesman entities
+- 'broker' - Broker entities
+- 'vendor' - Vendor entities
+- 'leads' - Lead entities
+- 'riceCode' - Rice Code entities
+
+ACTIONS:
+--------
+Valid actions:
+- 'create' - Can create new entities
+- 'read' - Can view/list entities
+- 'update' - Can modify existing entities
+- 'delete' - Can remove entities
+
+================================================================================
+SECTION 3: UPDATE USER PERMISSIONS API
+================================================================================
+
+API ENDPOINT:
+PATCH http://localhost:3000/api/v1/users/:id/permissions
+
+HEADERS:
+Authorization: Bearer {token}
+Content-Type: application/json
+
+REQUEST BODY:
+{
+  "salesman": {
+    "create": true,
+    "read": true,
+    "update": false,
+    "delete": false
+  },
+  "broker": {
+    "create": false,
+    "read": true,
+    "update": false,
+    "delete": false
+  },
+  "vendor": {
+    "create": false,
+    "read": true,
+    "update": false,
+    "delete": false
+  },
+  "leads": {
+    "create": true,
+    "read": true,
+    "update": true,
+    "delete": false
+  },
+  "riceCode": {
+    "create": false,
+    "read": true,
+    "update": false,
+    "delete": false
+  }
+}
+
+NOTES:
+- All entity keys are optional - only include entities you want to update
+- All CRUD actions (create, read, update, delete) are required for each entity
+- Must send at least one entity in the request body
+- Only applicable to users with user_type = 'custom'
+- Updating permissions does NOT require user to re-login - permissions are stored in DB
+
+SUCCESS RESPONSE (200):
+{
+  "success": true,
+  "message": "User permissions updated successfully",
+  "data": null,
+  "timestamp": "2025-11-02T12:40:20.930Z"
+}
+
+ERROR RESPONSES:
+- 400: Validation error (invalid structure, missing required fields)
+- 404: User not found or user is not a custom user
+- 401: Unauthorized (invalid or missing token)
+
+IMPLEMENTATION EXAMPLE:
+
+const updateUserPermissions = async (userId, permissions) => {
+  try {
+    const token = localStorage.getItem('token');
+    const response = await fetch(
+      `http://localhost:3000/api/v1/users/${userId}/permissions`,
+      {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(permissions)
+      }
+    );
+    
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || 'Failed to update permissions');
+    }
+    
+    const result = await response.json();
+    return result;
+  } catch (error) {
+    console.error('Error updating permissions:', error);
+    throw error;
+  }
+};
+
+// Usage
+const permissions = {
+  leads: { create: true, read: true, update: true, delete: false },
+  vendor: { create: false, read: true, update: false, delete: false }
+};
+await updateUserPermissions('user-uuid', permissions);
+
+================================================================================
+SECTION 4: INTEGRATION PATTERNS
+================================================================================
+
+PATTERN 1: MENU ITEM VISIBILITY
+--------------------------------
+Check read permission before showing menu items:
+
+const menuItems = [
+  { 
+    label: 'Salesmen', 
+    path: '/salesmen',
+    show: canRead('salesman') 
+  },
+  { 
+    label: 'Brokers', 
+    path: '/brokers',
+    show: canRead('broker') 
+  },
+  { 
+    label: 'Vendors', 
+    path: '/vendors',
+    show: canRead('vendor') 
+  },
+  { 
+    label: 'Leads', 
+    path: '/leads',
+    show: canRead('leads') 
+  },
+  { 
+    label: 'Rice Codes', 
+    path: '/rice-codes',
+    show: canRead('riceCode') 
+  }
+];
+
+// Filter and render only visible items
+menuItems.filter(item => item.show).map(item => ...)
+
+PATTERN 2: ACTION BUTTONS
+------------------------
+Show/hide action buttons based on permissions:
+
+// In entity list/table component
+<TableRow>
+  <TableCell>{entity.name}</TableCell>
+  <TableCell>
+    {canUpdate('leads') && (
+      <Button onClick={() => editEntity(entity.id)}>Edit</Button>
+    )}
+    {canDelete('leads') && (
+      <Button onClick={() => deleteEntity(entity.id)}>Delete</Button>
+    )}
+  </TableCell>
+</TableRow>
+
+// In entity detail view
+{canUpdate('vendor') ? (
+  <Button onClick={handleEdit}>Edit Vendor</Button>
+) : (
+  <Text>Edit permission required</Text>
+)}
+
+PATTERN 3: FORM SUBMISSION
+--------------------------
+Validate permissions before API calls:
+
+const handleCreate = async (formData) => {
+  if (!canCreate('leads')) {
+    showError('You do not have permission to create leads');
+    return;
+  }
+  
+  try {
+    await createLeadAPI(formData);
+    showSuccess('Lead created successfully');
+  } catch (error) {
+    showError('Failed to create lead');
+  }
+};
+
+PATTERN 4: CONDITIONAL ROUTES
+----------------------------
+Use permissions in route guards:
+
+const ProtectedRoute = ({ entity, action, children }) => {
+  const permissions = getPermissions();
+  
+  if (!permissions) {
+    // Non-custom user - use existing user_type checks
+    return <Navigate to="/unauthorized" />;
+  }
+  
+  if (!can(entity, action)) {
+    return <Navigate to="/unauthorized" />;
+  }
+  
+  return children;
+};
+
+// Usage
+<Route 
+  path="/leads/create" 
+  element={
+    <ProtectedRoute entity="leads" action="create">
+      <CreateLeadForm />
+    </ProtectedRoute>
+  } 
+/>
+
+PATTERN 5: PERMISSION MANAGEMENT UI
+-----------------------------------
+Admin interface to manage custom user permissions:
+
+const PermissionManager = ({ userId }) => {
+  const [permissions, setPermissions] = useState({});
+  
+  // Load current permissions
+  useEffect(() => {
+    // Fetch user data and extract permissions
+    // Or load from login response if managing self
+  }, [userId]);
+  
+  // Handle permission toggle
+  const togglePermission = (entity, action) => {
+    setPermissions(prev => ({
+      ...prev,
+      [entity]: {
+        ...prev[entity],
+        [action]: !prev[entity]?.[action]
+      }
+    }));
+  };
+  
+  // Save permissions
+  const handleSave = async () => {
+    await updateUserPermissions(userId, permissions);
+    showSuccess('Permissions updated');
+  };
+  
+  return (
+    <Form>
+      {['salesman', 'broker', 'vendor', 'leads', 'riceCode'].map(entity => (
+        <Section key={entity}>
+          <Heading>{entity}</Heading>
+          {['create', 'read', 'update', 'delete'].map(action => (
+            <Checkbox
+              key={action}
+              checked={permissions[entity]?.[action] || false}
+              onChange={() => togglePermission(entity, action)}
+              label={`${action} ${entity}`}
+            />
+          ))}
+        </Section>
+      ))}
+      <Button onClick={handleSave}>Save Permissions</Button>
+    </Form>
+  );
+};
+
+================================================================================
+SECTION 5: HANDLING NON-CUSTOM USERS
+================================================================================
+
+For non-custom users (admin, salesman, vendor, broker):
+- permissions field in login response will be null
+- Use existing user_type-based access control
+- Do not call permission checking functions - they will return false
+
+Example:
+const getUserAccess = () => {
+  const user = JSON.parse(localStorage.getItem('user') || '{}');
+  const permissions = getPermissions();
+  
+  if (permissions) {
+    // Custom user - use permissions
+    return { type: 'custom', permissions };
+  } else {
+    // Non-custom user - use user_type
+    return { type: user.user_type, permissions: null };
+  }
+};
+
+// Access control logic
+const hasAccess = (entity, action) => {
+  const access = getUserAccess();
+  
+  if (access.type === 'custom') {
+    return can(entity, action);
+  } else if (access.type === 'admin') {
+    return true; // Admin has full access
+  } else {
+    // Use existing role-based logic
+    return checkRoleAccess(access.type, entity, action);
+  }
+};
+
+================================================================================
+SECTION 6: API SERVICE INTEGRATION
+================================================================================
+
+Example API service structure:
+
+const API_BASE_URL = 'http://localhost:3000/api/v1';
+
+// Auth API
+export const authAPI = {
+  login: async (username, password) => {
+    const response = await fetch(`${API_BASE_URL}/auth/loginUser`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    });
+    
+    const data = await response.json();
+    
+    if (data.success) {
+      // Store token, user, and permissions
+      localStorage.setItem('token', data.data.token);
+      localStorage.setItem('user', JSON.stringify(data.data.user));
+      localStorage.setItem('permissions', JSON.stringify(data.data.permissions));
+      
+      return data.data;
+    }
+    
+    throw new Error(data.message || 'Login failed');
+  }
+};
+
+// User API
+export const usersAPI = {
+  updatePermissions: async (userId, permissions) => {
+    const token = localStorage.getItem('token');
+    const response = await fetch(`${API_BASE_URL}/users/${userId}/permissions`, {
+      method: 'PATCH',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(permissions)
+    });
+    
+    const data = await response.json();
+    
+    if (!data.success) {
+      throw new Error(data.message || 'Failed to update permissions');
+    }
+    
+    return data;
+  }
+};
+
+================================================================================
+SECTION 7: ERROR HANDLING
+================================================================================
+
+Permission-related errors should be handled gracefully:
+
+1. Missing permissions in storage:
+   - Check if permissions exist before calling can()
+   - Default to false if permissions are null/undefined
+
+2. Invalid entity/action:
+   - Return false for unknown entities/actions
+   - Don't throw errors - gracefully degrade
+
+3. Permission update failures:
+   - Show user-friendly error messages
+   - Don't update local storage on failure
+   - Allow retry
+
+Example error handling:
+const can = (entity, action) => {
+  try {
+    const permissions = getPermissions();
+    if (!permissions || typeof permissions !== 'object') {
+      return false;
+    }
+    
+    const entityPerms = permissions[entity];
+    if (!entityPerms || typeof entityPerms !== 'object') {
+      return false;
+    }
+    
+    return entityPerms[action] === true;
+  } catch (error) {
+    console.error('Error checking permissions:', error);
+    return false; // Fail-safe: deny access on error
+  }
+};
+
+================================================================================
+SECTION 8: BEST PRACTICES
+================================================================================
+
+1. STORAGE:
+   - Always store permissions alongside token and user data
+   - Refresh permissions after updating via API
+   - Clear permissions on logout
+
+2. CHECKING:
+   - Check permissions client-side before showing UI elements
+   - Check permissions before making API calls (UX improvement)
+   - Never rely solely on permissions for security (backend validates auth)
+
+3. PERFORMANCE:
+   - Cache permissions in memory/state after login
+   - Don't parse JSON from localStorage on every permission check
+   - Use memoization for permission checks if needed
+
+4. USER EXPERIENCE:
+   - Show clear messages when actions are disabled due to permissions
+   - Don't show disabled buttons - hide them instead
+   - Provide feedback when permission update succeeds/fails
+
+5. TESTING:
+   - Test with custom users having various permission combinations
+   - Test with non-custom users (should work with existing logic)
+   - Test permission updates and re-login scenarios
+
+================================================================================
+END OF DOCUMENT
+================================================================================
+

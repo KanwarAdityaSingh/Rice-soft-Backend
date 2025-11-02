@@ -12,7 +12,7 @@ export class LeadDAO {
   ): Promise<Lead[]> {
     let query = `
       SELECT id, company_name, contact_person, email, phone, address, business_details,
-             is_existing_customer, lead_status, customer_status, assigned_to, rice_code_id,
+             is_existing_customer, lead_status, customer_status, assigned_to, broker_id, rice_code_id,
              rice_type, created_by, updated_by, created_at, updated_at, notes, priority,
              source, estimated_value, expected_close_date, revenue, salesman_latitude, salesman_longitude
       FROM leads
@@ -51,7 +51,7 @@ export class LeadDAO {
   async findById(id: string): Promise<Lead | null> {
     const query = `
       SELECT id, company_name, contact_person, email, phone, address, business_details,
-             is_existing_customer, lead_status, customer_status, assigned_to, rice_code_id,
+             is_existing_customer, lead_status, customer_status, assigned_to, broker_id, rice_code_id,
              rice_type, created_by, updated_by, created_at, updated_at, notes, priority,
              source, estimated_value, expected_close_date, revenue, salesman_latitude, salesman_longitude
       FROM leads
@@ -64,7 +64,7 @@ export class LeadDAO {
   async findByEmail(email: string): Promise<Lead | null> {
     const query = `
       SELECT id, company_name, contact_person, email, phone, address, business_details,
-             is_existing_customer, lead_status, customer_status, assigned_to, rice_code_id,
+             is_existing_customer, lead_status, customer_status, assigned_to, broker_id, rice_code_id,
              rice_type, created_by, updated_by, created_at, updated_at, notes, priority,
              source, estimated_value, expected_close_date, revenue, salesman_latitude, salesman_longitude
       FROM leads
@@ -77,7 +77,7 @@ export class LeadDAO {
   async findByAssignedTo(assignedTo: string): Promise<Lead[]> {
     const query = `
       SELECT id, company_name, contact_person, email, phone, address, business_details,
-             is_existing_customer, lead_status, customer_status, assigned_to, rice_code_id,
+             is_existing_customer, lead_status, customer_status, assigned_to, broker_id, rice_code_id,
              rice_type, created_by, updated_by, created_at, updated_at, notes, priority,
              source, estimated_value, expected_close_date, revenue, salesman_latitude, salesman_longitude
       FROM leads
@@ -91,12 +91,12 @@ export class LeadDAO {
   async create(leadData: CreateLeadDTO): Promise<Lead> {
     const query = `
       INSERT INTO leads (company_name, contact_person, email, phone, address, business_details,
-                        is_existing_customer, lead_status, customer_status, assigned_to, rice_code_id,
+                        is_existing_customer, lead_status, customer_status, assigned_to, broker_id, rice_code_id,
                         rice_type, created_by, notes, priority, source, estimated_value,
                         expected_close_date, revenue, salesman_latitude, salesman_longitude)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
       RETURNING id, company_name, contact_person, email, phone, address, business_details,
-                is_existing_customer, lead_status, customer_status, assigned_to, rice_code_id,
+                is_existing_customer, lead_status, customer_status, assigned_to, broker_id, rice_code_id,
                 rice_type, created_by, updated_by, created_at, updated_at, notes, priority,
                 source, estimated_value, expected_close_date, revenue, salesman_latitude, salesman_longitude
     `;
@@ -112,6 +112,7 @@ export class LeadDAO {
       leadData.lead_status || 'new',
       leadData.customer_status || null,
       leadData.assigned_to || null,
+      leadData.broker_id || null,
       leadData.rice_code_id,
       leadData.rice_type,
       leadData.created_by || null,
@@ -183,6 +184,10 @@ export class LeadDAO {
       fields.push(`assigned_to = $${paramCount++}`);
       values.push(leadData.assigned_to);
     }
+    if (leadData.broker_id !== undefined) {
+      fields.push(`broker_id = $${paramCount++}`);
+      values.push(leadData.broker_id);
+    }
     if (leadData.rice_code_id !== undefined) {
       fields.push(`rice_code_id = $${paramCount++}`);
       values.push(leadData.rice_code_id);
@@ -240,7 +245,7 @@ export class LeadDAO {
       SET ${fields.join(', ')}
       WHERE id = $${paramCount}
       RETURNING id, company_name, contact_person, email, phone, address, business_details,
-                is_existing_customer, lead_status, customer_status, assigned_to, rice_code_id,
+                is_existing_customer, lead_status, customer_status, assigned_to, broker_id, rice_code_id,
                 rice_type, created_by, updated_by, created_at, updated_at, notes, priority,
                 source, estimated_value, expected_close_date, revenue, salesman_latitude, salesman_longitude
     `;

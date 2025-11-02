@@ -202,9 +202,9 @@ npm run format           # Format code with Prettier
 
 After running `npm run create-admin`:
 - **Username:** `admin`
-- **Password:** `admin123`
+- **Password:** Set via `ADMIN_PASSWORD` environment variable (default: `Xk9#mP2@nQ7!vR4$wT8&aL5`)
 
-⚠️ **IMPORTANT:** Change this password immediately after first login!
+⚠️ **IMPORTANT:** Change this password immediately after first login or set a custom password in `.env`!
 
 ## 📊 Database Schema
 
@@ -256,7 +256,7 @@ curl http://localhost:3000/api/v1/health
 # Login
 curl -X POST http://localhost:3000/api/v1/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"admin123"}'
+  -d '{"username":"admin","password":"Xk9#mP2@nQ7!vR4$wT8&aL5"}'
 ```
 
 ## 🏗️ Architecture Highlights

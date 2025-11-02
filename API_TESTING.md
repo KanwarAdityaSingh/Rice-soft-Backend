@@ -5,7 +5,7 @@ This guide provides quick copy-paste commands for testing the Rice Soft Backend 
 ## Prerequisites
 
 - Server running on `http://localhost:3000`
-- Admin user created with credentials: `admin` / `admin123`
+- Admin user created with credentials: `admin` / password from `ADMIN_PASSWORD` env var (default: `Xk9#mP2@nQ7!vR4$wT8&aL5`)
 
 ## 1. Health Check
 
@@ -21,7 +21,7 @@ curl -X POST http://localhost:3000/api/v1/auth/login \
   -H "Content-Type: application/json" \
   -d '{
     "username": "admin",
-    "password": "admin123"
+    "password": "Xk9#mP2@nQ7!vR4$wT8&aL5"
   }'
 ```
 
@@ -275,7 +275,7 @@ done
 # Step 1: Login as admin
 TOKEN=$(curl -s -X POST http://localhost:3000/api/v1/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"admin123"}' | \
+  -d '{"username":"admin","password":"Xk9#mP2@nQ7!vR4$wT8&aL5"}' | \
   grep -o '"token":"[^"]*' | cut -d'"' -f4)
 
 echo "Token: $TOKEN"
@@ -364,7 +364,7 @@ curl -s "$BASE_URL/health" | json_pp
 echo -e "\n2. Logging in..."
 RESPONSE=$(curl -s -X POST "$BASE_URL/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"admin123"}')
+  -d '{"username":"admin","password":"Xk9#mP2@nQ7!vR4$wT8&aL5"}')
 
 TOKEN=$(echo $RESPONSE | grep -o '"token":"[^"]*' | cut -d'"' -f4)
 echo "Token obtained: ${TOKEN:0:20}..."
