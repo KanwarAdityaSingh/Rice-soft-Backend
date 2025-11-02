@@ -158,7 +158,8 @@ npm run create-admin
 
 This will create an admin user with:
 - Username: `admin`
-- Password: `admin123` (change this immediately after first login)
+- Password: Set via `ADMIN_PASSWORD` environment variable (default: `Xk9#mP2@nQ7!vR4$wT8&aL5`)
+  - Change this immediately after first login or set a custom password in `.env`
 
 ### Running the Application
 
@@ -200,7 +201,7 @@ Content-Type: application/json
 
 {
   "username": "admin",
-  "password": "admin123"
+  "password": "Xk9#mP2@nQ7!vR4$wT8&aL5"
 }
 
 Response:

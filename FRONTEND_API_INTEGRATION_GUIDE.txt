@@ -1087,7 +1087,7 @@ DEFAULT SYSTEM ROLES:
 RECOMMENDED TESTING CREDENTIALS:
 After running create-admin script:
 - Username: admin
-- Password: admin123
+- Password: Set via ADMIN_PASSWORD env var (default: Xk9#mP2@nQ7!vR4$wT8&aL5)
 - Role: admin
 
 API VERSIONING:

@@ -6,8 +6,9 @@ import {
   createUserSchema,
   updateUserSchema,
   uuidSchema,
+  updateCustomPermissionsSchema,
 } from '../utils/validators';
-import { CreateUserDTO, UpdateUserDTO, UserResponse } from '../models/user.model';
+import { CreateUserDTO, UpdateUserDTO, UserResponse, CustomPermissions } from '../models/user.model';
 import { AuthRequest } from '../middleware/auth.middleware';
 
 export class UserController {
@@ -55,7 +56,16 @@ export class UserController {
         updated_at: user.updated_at.toISOString(),
       };
 
-      return ResponseHandler.success(res, userResponse);
+      // Compute permissions similar to login response
+      const permissions: CustomPermissions | null = 
+        user.user_type === 'custom' ? (user.custom_permissions || {}) : null;
+
+      const response = {
+        user: userResponse,
+        permissions,
+      };
+
+      return ResponseHandler.success(res, response);
     } catch (error) {
       next(error);
     }
@@ -129,6 +139,20 @@ export class UserController {
       await userService.deleteUser(id);
 
       return ResponseHandler.success(res, null, 'User deleted successfully');
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async updatePermissions(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const id = validate<string>(uuidSchema, req.params.id);
+      const permissions = validate<any>(updateCustomPermissionsSchema, req.body);
+
+      const updatedBy = req.user ? req.user.userId : undefined;
+      await userService.updateCustomPermissions(id, permissions, updatedBy);
+
+      return ResponseHandler.success(res, null, 'User permissions updated successfully');
     } catch (error) {
       next(error);
     }

@@ -55,5 +55,24 @@ router.post(
   userController.delete.bind(userController)
 );
 
+/**
+ * @route   PATCH/PUT /api/v1/users/:id/permissions
+ * @desc    Update custom user's permissions
+ * @access  Private (All authenticated users)
+ */
+router.patch(
+  '/:id/permissions',
+  authenticate,
+  auditLog('UPDATE', 'users'),
+  userController.updatePermissions.bind(userController)
+);
+
+router.put(
+  '/:id/permissions',
+  authenticate,
+  auditLog('UPDATE', 'users'),
+  userController.updatePermissions.bind(userController)
+);
+
 export default router;
 

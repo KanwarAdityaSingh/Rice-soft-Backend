@@ -13,7 +13,7 @@ POST http://localhost:3000/api/v1/auth/loginUser
 REQUEST BODY:
 {
   "username": "admin",
-  "password": "admin123"
+  "password": "Xk9#mP2@nQ7!vR4$wT8&aL5"
 }
 
 SUCCESS RESPONSE (200):
@@ -34,7 +34,14 @@ SUCCESS RESPONSE (200):
       "updated_at": "2025-10-27T10:46:20.919Z"
     },
     "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-    "expires_in": "24h"
+    "expires_in": "24h",
+    "permissions": {
+      "salesman": { "create": true, "read": true, "update": false, "delete": false },
+      "broker": { "create": false, "read": true, "update": false, "delete": false },
+      "vendor": { "create": false, "read": true, "update": false, "delete": false },
+      "leads": { "create": true, "read": true, "update": true, "delete": false },
+      "riceCode": { "create": false, "read": true, "update": false, "delete": false }
+    }
   },
   "timestamp": "2025-10-27T10:46:20.930Z"
 }
@@ -54,6 +61,7 @@ STORAGE:
 Store in localStorage:
 - token (JWT string)
 - user data (object with id, username, email, user_type, etc.)
+- permissions (object; may be null for non-custom users)
 
 
 TOKEN USAGE:
@@ -109,12 +117,16 @@ Broker Sidebar:
 - Profile (/broker/profile)
 
 CONDITIONAL RENDERING:
-Check user.user_type to show/hide menu items and features:
+Check user.user_type and permissions to show/hide menu items and features:
 if (user.user_type === 'admin') {
   // Show admin menu items
 } else if (user.user_type === 'salesman') {
   // Show salesman menu items
 }
+
+For custom users, gate actions by permissions:
+const can = (entity, action) => permissions?.[entity]?.[action] === true;
+// Example: if (can('leads', 'create')) { showCreateLeadButton(); }
 
 
 ================================================================================
@@ -481,6 +493,9 @@ export const usersAPI = {
   
   delete: (id) => 
     axios.post(`${API_BASE_URL}/users/deleteUser/${id}`)
+  ,
+  updatePermissions: (id, permissions) =>
+    axios.patch(`${API_BASE_URL}/users/${id}/permissions`, permissions)
 };
 
 // Usage in components
@@ -495,7 +510,7 @@ SECTION 7: DATA FLOW SUMMARY
 LOGIN FLOW:
 1. User enters username/password
 2. Call POST /auth/loginUser
-3. Store response.data.token and response.data.user in localStorage
+3. Store response.data.token, response.data.user, and response.data.permissions in localStorage
 4. Check user.user_type
 5. Redirect to appropriate dashboard
 6. Load dashboard with token in header

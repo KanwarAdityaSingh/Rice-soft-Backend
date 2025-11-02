@@ -19,11 +19,15 @@ async function createAdminUser() {
       process.exit(0);
     }
 
+    // Get admin password from environment variable or use secure default
+    // Note: Change this password immediately after first login via environment variable
+    const adminPassword = process.env.ADMIN_PASSWORD || 'Xk9#mP2@nQ7!vR4$wT8&aL5';
+
     // Create admin user
     const adminUser = await userDAO.create({
       username: 'admin',
       email: 'admin@ricesoft.com',
-      password: 'admin123',
+      password: adminPassword,
       full_name: 'System Administrator',
       user_type: 'admin',
       is_active: true,
@@ -38,7 +42,7 @@ async function createAdminUser() {
     logger.warn('IMPORTANT: Please change the default password after first login!');
     logger.info('Default credentials:');
     logger.info('  Username: admin');
-    logger.info('  Password: admin123');
+    logger.info(`  Password: ${adminPassword}`);
 
     await db.close();
     process.exit(0);

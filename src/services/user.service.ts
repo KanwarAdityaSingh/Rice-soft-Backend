@@ -1,6 +1,6 @@
 import { userDAO } from '../dao/user.dao';
 import { NotFoundError, ConflictError } from '../utils/errors';
-import { CreateUserDTO, UpdateUserDTO, User } from '../models/user.model';
+import { CreateUserDTO, UpdateUserDTO, User, CustomPermissions } from '../models/user.model';
 import { logger } from '../utils/logger';
 
 export class UserService {
@@ -79,6 +79,18 @@ export class UserService {
 
     logger.info('Deleting user', { userId: id });
     await userDAO.delete(id);
+  }
+
+  async updateCustomPermissions(id: string, permissions: CustomPermissions, updatedBy?: string): Promise<void> {
+    const user = await userDAO.findById(id);
+    if (!user) {
+      throw new NotFoundError('User not found');
+    }
+    if (user.user_type !== 'custom') {
+      throw new NotFoundError('Permissions are only applicable to custom users');
+    }
+
+    await userDAO.updateCustomPermissions(id, permissions, updatedBy);
   }
 }
 

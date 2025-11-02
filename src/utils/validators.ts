@@ -276,3 +276,19 @@ export const updateRiceCodeSchema = Joi.object({
   updated_by: Joi.string().optional().uuid(),
 }).min(1);
 
+// Custom user permissions schema
+const crudPermSchema = Joi.object({
+  create: Joi.boolean().required(),
+  read: Joi.boolean().required(),
+  update: Joi.boolean().required(),
+  delete: Joi.boolean().required(),
+});
+
+export const updateCustomPermissionsSchema = Joi.object({
+  salesman: crudPermSchema.optional(),
+  broker: crudPermSchema.optional(),
+  vendor: crudPermSchema.optional(),
+  leads: crudPermSchema.optional(),
+  riceCode: crudPermSchema.optional(),
+}).min(1);
+

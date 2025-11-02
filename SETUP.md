@@ -89,9 +89,9 @@ npm run create-admin
 
 This creates an admin user with default credentials:
 - **Username:** `admin`
-- **Password:** `admin123`
+- **Password:** Set via `ADMIN_PASSWORD` environment variable (default: `Xk9#mP2@nQ7!vR4$wT8&aL5`)
 
-**⚠️ IMPORTANT:** Change this password after your first login!
+**⚠️ IMPORTANT:** Change this password after your first login or set a custom password in `.env`!
 
 ### 7. Start the Server
 
@@ -134,7 +134,7 @@ curl -X POST http://localhost:3000/api/v1/auth/login \
   -H "Content-Type: application/json" \
   -d '{
     "username": "admin",
-    "password": "admin123"
+    "password": "Xk9#mP2@nQ7!vR4$wT8&aL5"
   }'
 ```
 

@@ -9,7 +9,8 @@ export class UserDAO {
     let query = `
       SELECT 
         id, username, email, password_hash, full_name, phone, user_type,
-        is_active, last_login, created_at, updated_at, created_by, updated_by
+        is_active, last_login, created_at, updated_at, created_by, updated_by,
+        custom_permissions
       FROM users
       WHERE 1=1
     `;
@@ -36,7 +37,8 @@ export class UserDAO {
     const query = `
       SELECT 
         id, username, email, password_hash, full_name, phone, user_type,
-        is_active, last_login, created_at, updated_at, created_by, updated_by
+        is_active, last_login, created_at, updated_at, created_by, updated_by,
+        custom_permissions
       FROM users
       WHERE id = $1
     `;
@@ -47,7 +49,8 @@ export class UserDAO {
   async findByUsername(username: string): Promise<User | null> {
     const query = `
       SELECT id, username, email, password_hash, full_name, phone, user_type,
-             is_active, last_login, created_at, updated_at, created_by, updated_by
+             is_active, last_login, created_at, updated_at, created_by, updated_by,
+             custom_permissions
       FROM users
       WHERE username = $1
     `;
@@ -58,7 +61,8 @@ export class UserDAO {
   async findByEmail(email: string): Promise<User | null> {
     const query = `
       SELECT id, username, email, password_hash, full_name, phone, user_type,
-             is_active, last_login, created_at, updated_at, created_by, updated_by
+             is_active, last_login, created_at, updated_at, created_by, updated_by,
+             custom_permissions
       FROM users
       WHERE email = $1
     `;
@@ -73,7 +77,8 @@ export class UserDAO {
       INSERT INTO users (username, email, password_hash, full_name, phone, user_type, is_active, created_by)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
       RETURNING id, username, email, password_hash, full_name, phone, user_type,
-                is_active, last_login, created_at, updated_at, created_by, updated_by
+                is_active, last_login, created_at, updated_at, created_by, updated_by,
+                custom_permissions
     `;
     
     const values = [
@@ -152,7 +157,8 @@ export class UserDAO {
       SET ${updateFields.join(', ')}
       WHERE id = $${paramCount}
       RETURNING id, username, email, password_hash, full_name, phone,
-                is_active, last_login, created_at, updated_at, created_by, updated_by
+                is_active, last_login, created_at, updated_at, created_by, updated_by,
+                custom_permissions
     `;
 
     const result = await db.query<User>(query, values);
@@ -210,6 +216,15 @@ export class UserDAO {
     await db.query(query, [hashedPassword, id]);
     
     logger.info('Password updated', { userId: id });
+  }
+
+  async updateCustomPermissions(id: string, permissions: any, updatedBy?: string): Promise<void> {
+    const query = `
+      UPDATE users
+      SET custom_permissions = $1::jsonb, updated_at = CURRENT_TIMESTAMP, updated_by = $2
+      WHERE id = $3
+    `;
+    await db.query(query, [permissions, updatedBy || null, id]);
   }
 
   async getUserWithEntity(id: string): Promise<any> {

@@ -1,5 +1,10 @@
 export type UserType = 'admin' | 'vendor' | 'salesman' | 'broker' | 'custom';
 
+// Entity permissions model for custom users
+export type EntityKey = 'salesman' | 'broker' | 'vendor' | 'leads' | 'riceCode';
+export interface CrudPerm { create: boolean; read: boolean; update: boolean; delete: boolean }
+export type CustomPermissions = Partial<Record<EntityKey, CrudPerm>>;
+
 export interface User {
   id: string;
   username: string;
@@ -14,6 +19,7 @@ export interface User {
   updated_at: Date;
   created_by: string | null;
   updated_by: string | null;
+  custom_permissions?: CustomPermissions | null;
 }
 
 export interface CreateUserDTO {
@@ -60,6 +66,7 @@ export interface LoginResponse {
   user: UserResponse;
   token: string;
   expires_in: string;
+  permissions: CustomPermissions | null;
 }
 
 export interface UserWithEntityResponse {
