@@ -10,10 +10,10 @@ ALTER TABLE vendors ADD COLUMN user_id UUID REFERENCES users(id) ON DELETE CASCA
 ALTER TABLE brokers ADD COLUMN user_id UUID REFERENCES users(id) ON DELETE CASCADE;
 
 -- 3. Create indexes for better performance
-CREATE INDEX idx_users_user_type ON users(user_type);
-CREATE INDEX idx_salesmen_user_id ON salesmen(user_id);
-CREATE INDEX idx_vendors_user_id ON vendors(user_id);
-CREATE INDEX idx_brokers_user_id ON brokers(user_id);
+CREATE INDEX IF NOT EXISTS idx_users_user_type ON users(user_type);
+CREATE INDEX IF NOT EXISTS idx_salesmen_user_id ON salesmen(user_id);
+CREATE INDEX IF NOT EXISTS idx_vendors_user_id ON vendors(user_id);
+CREATE INDEX IF NOT EXISTS idx_brokers_user_id ON brokers(user_id);
 
 -- 4. Add unique constraints to ensure one-to-one relationships
 ALTER TABLE salesmen ADD CONSTRAINT unique_salesman_user UNIQUE (user_id);
