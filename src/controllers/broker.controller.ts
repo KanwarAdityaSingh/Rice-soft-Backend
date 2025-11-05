@@ -109,9 +109,23 @@ export class BrokerController {
         }
       }
 
+      // Generate username from contact_person (first part before space, lowercase, remove special chars)
+      let baseUsername = brokerData.contact_person
+        .toLowerCase()
+        .split(' ')[0]
+        .replace(/[^a-z0-9]/g, '');
+      
+      // Check if username already exists and append number if needed
+      let username = baseUsername;
+      let counter = 1;
+      while (await userDAO.usernameExists(username)) {
+        username = `${baseUsername}${counter}`;
+        counter++;
+      }
+
       // Create user first
       const userData = {
-        username: brokerData.email.split('@')[0], // Use email prefix as username
+        username: username,
         email: brokerData.email,
         password: 'defaultPassword123', // Default password, should be changed on first login
         full_name: brokerData.contact_person,

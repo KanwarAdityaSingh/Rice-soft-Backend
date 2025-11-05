@@ -147,10 +147,24 @@ export class LeadService {
       throw new NotFoundError('Lead not found');
     }
 
+    // Generate username from contact_person (first part before space, lowercase, remove special chars)
+    let baseUsername = lead.contact_person
+      .toLowerCase()
+      .split(' ')[0]
+      .replace(/[^a-z0-9]/g, '');
+    
+    // Check if username already exists and append number if needed
+    let username = baseUsername;
+    let counter = 1;
+    while (await userDAO.usernameExists(username)) {
+      username = `${baseUsername}${counter}`;
+      counter++;
+    }
+
     // Create user
     const userData = {
-      username: lead.email.split('@')[0],
-      email: lead.email,
+      username: username,
+      email: lead.email || undefined,
       password: 'TempPassword123!',
       full_name: lead.contact_person,
       phone: lead.phone || '',
@@ -165,7 +179,7 @@ export class LeadService {
     const vendorData = {
       business_name: businessData.business_name || lead.company_name,
       contact_person: lead.contact_person,
-      email: lead.email,
+      email: lead.email || undefined,
       phone: lead.phone || '',
       address: lead.address || businessData.address,
       business_details: lead.business_details || businessData.business_details,

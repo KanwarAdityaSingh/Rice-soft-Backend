@@ -455,9 +455,23 @@ export class LeadController {
           throw new NotFoundError('Existing vendor user not found');
         }
       } else {
+        // Generate username from contact_person (first part before space, lowercase, remove special chars)
+        let baseUsername = lead.contact_person
+          .toLowerCase()
+          .split(' ')[0]
+          .replace(/[^a-z0-9]/g, '');
+        
+        // Check if username already exists and append number if needed
+        let username = baseUsername;
+        let counter = 1;
+        while (await userDAO.usernameExists(username)) {
+          username = `${baseUsername}${counter}`;
+          counter++;
+        }
+
         // Create a new user for the vendor
         const userData = {
-          username: lead.email.split('@')[0],
+          username: username,
           email: lead.email,
           password: 'defaultPassword123', // Default password, should be changed
           full_name: lead.contact_person,
