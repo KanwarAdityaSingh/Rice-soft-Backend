@@ -146,7 +146,7 @@ export const updateVendorSchema = Joi.object({
 const brokerDetailsSchema = Joi.object({
   commission_rate: Joi.number().optional().min(0).max(100),
   specialization: Joi.string().optional().allow(null, '').max(255),
-  experience_years: Joi.number().optional().min(0).max(100),
+  experience_years: Joi.string().optional().max(100),
 });
 
 // Broker validation schemas

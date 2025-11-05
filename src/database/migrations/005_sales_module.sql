@@ -54,23 +54,23 @@ CREATE TABLE conversions (
 ALTER TABLE vendors ADD COLUMN lead_id UUID REFERENCES leads(id) ON DELETE SET NULL;
 
 -- Create indexes for performance
-CREATE INDEX idx_leads_assigned_to ON leads (assigned_to);
-CREATE INDEX idx_leads_created_by ON leads (created_by);
-CREATE INDEX idx_leads_lead_status ON leads (lead_status);
-CREATE INDEX idx_leads_is_existing_customer ON leads (is_existing_customer);
-CREATE INDEX idx_leads_created_at ON leads (created_at);
-CREATE INDEX idx_leads_priority ON leads (priority);
+CREATE INDEX IF NOT EXISTS idx_leads_assigned_to ON leads (assigned_to);
+CREATE INDEX IF NOT EXISTS idx_leads_created_by ON leads (created_by);
+CREATE INDEX IF NOT EXISTS idx_leads_lead_status ON leads (lead_status);
+CREATE INDEX IF NOT EXISTS idx_leads_is_existing_customer ON leads (is_existing_customer);
+CREATE INDEX IF NOT EXISTS idx_leads_created_at ON leads (created_at);
+CREATE INDEX IF NOT EXISTS idx_leads_priority ON leads (priority);
 
-CREATE INDEX idx_lead_events_lead_id ON lead_events (lead_id);
-CREATE INDEX idx_lead_events_created_at ON lead_events (created_at);
-CREATE INDEX idx_lead_events_event_type ON lead_events (event_type);
+CREATE INDEX IF NOT EXISTS idx_lead_events_lead_id ON lead_events (lead_id);
+CREATE INDEX IF NOT EXISTS idx_lead_events_created_at ON lead_events (created_at);
+CREATE INDEX IF NOT EXISTS idx_lead_events_event_type ON lead_events (event_type);
 
-CREATE INDEX idx_conversions_lead_id ON conversions (lead_id);
-CREATE INDEX idx_conversions_vendor_id ON conversions (vendor_id);
-CREATE INDEX idx_conversions_broker_id ON conversions (broker_id);
-CREATE INDEX idx_conversions_conversion_date ON conversions (conversion_date);
+CREATE INDEX IF NOT EXISTS idx_conversions_lead_id ON conversions (lead_id);
+CREATE INDEX IF NOT EXISTS idx_conversions_vendor_id ON conversions (vendor_id);
+CREATE INDEX IF NOT EXISTS idx_conversions_broker_id ON conversions (broker_id);
+CREATE INDEX IF NOT EXISTS idx_conversions_conversion_date ON conversions (conversion_date);
 
-CREATE INDEX idx_vendors_lead_id ON vendors (lead_id);
+CREATE INDEX IF NOT EXISTS idx_vendors_lead_id ON vendors (lead_id);
 
 -- Add constraints
 ALTER TABLE leads ADD CONSTRAINT chk_lead_status_valid CHECK (lead_status IN ('new', 'contacted', 'engaged', 'converted', 'rejected'));

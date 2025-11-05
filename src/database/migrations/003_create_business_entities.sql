@@ -14,9 +14,9 @@ CREATE TABLE IF NOT EXISTS salesmen (
 );
 
 -- Create indexes for salesmen
-CREATE INDEX idx_salesmen_email ON salesmen(email);
-CREATE INDEX idx_salesmen_is_active ON salesmen(is_active);
-CREATE INDEX idx_salesmen_name ON salesmen(name);
+CREATE INDEX IF NOT EXISTS idx_salesmen_email ON salesmen(email);
+CREATE INDEX IF NOT EXISTS idx_salesmen_is_active ON salesmen(is_active);
+CREATE INDEX IF NOT EXISTS idx_salesmen_name ON salesmen(name);
 
 -- 2. VENDORS TABLE
 CREATE TABLE IF NOT EXISTS vendors (
@@ -37,12 +37,12 @@ CREATE TABLE IF NOT EXISTS vendors (
 );
 
 -- Create indexes for vendors
-CREATE INDEX idx_vendors_email ON vendors(email);
-CREATE INDEX idx_vendors_is_active ON vendors(is_active);
-CREATE INDEX idx_vendors_business_name ON vendors(business_name);
-CREATE INDEX idx_vendors_type ON vendors(type);
-CREATE INDEX idx_vendors_gst ON vendors((business_details->>'gst_number'));
-CREATE INDEX idx_vendors_pan ON vendors((business_details->>'pan_number'));
+CREATE INDEX IF NOT EXISTS idx_vendors_email ON vendors(email);
+CREATE INDEX IF NOT EXISTS idx_vendors_is_active ON vendors(is_active);
+CREATE INDEX IF NOT EXISTS idx_vendors_business_name ON vendors(business_name);
+CREATE INDEX IF NOT EXISTS idx_vendors_type ON vendors(type);
+CREATE INDEX IF NOT EXISTS idx_vendors_gst ON vendors((business_details->>'gst_number'));
+CREATE INDEX IF NOT EXISTS idx_vendors_pan ON vendors((business_details->>'pan_number'));
 
 -- 3. BROKERS TABLE
 CREATE TABLE IF NOT EXISTS brokers (
@@ -63,12 +63,12 @@ CREATE TABLE IF NOT EXISTS brokers (
 );
 
 -- Create indexes for brokers
-CREATE INDEX idx_brokers_email ON brokers(email);
-CREATE INDEX idx_brokers_is_active ON brokers(is_active);
-CREATE INDEX idx_brokers_business_name ON brokers(business_name);
-CREATE INDEX idx_brokers_type ON brokers(type);
-CREATE INDEX idx_brokers_gst ON brokers((business_details->>'gst_number'));
-CREATE INDEX idx_brokers_pan ON brokers((business_details->>'pan_number'));
+CREATE INDEX IF NOT EXISTS idx_brokers_email ON brokers(email);
+CREATE INDEX IF NOT EXISTS idx_brokers_is_active ON brokers(is_active);
+CREATE INDEX IF NOT EXISTS idx_brokers_business_name ON brokers(business_name);
+CREATE INDEX IF NOT EXISTS idx_brokers_type ON brokers(type);
+CREATE INDEX IF NOT EXISTS idx_brokers_gst ON brokers((business_details->>'gst_number'));
+CREATE INDEX IF NOT EXISTS idx_brokers_pan ON brokers((business_details->>'pan_number'));
 
 -- Create triggers for updated_at
 CREATE TRIGGER update_salesmen_updated_at BEFORE UPDATE ON salesmen

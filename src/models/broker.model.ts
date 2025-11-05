@@ -17,7 +17,7 @@ export interface BusinessDetails {
 export interface BrokerDetails {
   commission_rate?: number; // percentage
   specialization?: string; // rice, wheat, etc.
-  experience_years?: number;
+  experience_years?: string;
 }
 
 export type BrokerType = 'purchase' | 'sale' | 'both';
