@@ -23,15 +23,17 @@ export class UserService {
       throw new ConflictError('Username already exists');
     }
 
-    // Check if email already exists
-    const emailExists = await userDAO.emailExists(userData.email);
-    if (emailExists) {
-      throw new ConflictError('Email already exists');
+    // Check if email already exists (only if email is provided)
+    if (userData.email) {
+      const emailExists = await userDAO.emailExists(userData.email);
+      if (emailExists) {
+        throw new ConflictError('Email already exists');
+      }
     }
 
     logger.info('Creating user', {
       username: userData.username,
-      email: userData.email,
+      email: userData.email || null,
       userType: userData.user_type
     });
 

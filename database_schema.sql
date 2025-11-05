@@ -135,7 +135,7 @@ $$ LANGUAGE plpgsql;
 CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     username VARCHAR(100) UNIQUE NOT NULL,
-    email VARCHAR(255) UNIQUE NOT NULL,
+    email VARCHAR(255),
     password_hash VARCHAR(255) NOT NULL,
     full_name VARCHAR(255) NOT NULL,
     phone VARCHAR(20),
@@ -147,6 +147,11 @@ CREATE TABLE IF NOT EXISTS users (
     created_by UUID REFERENCES users(id) ON DELETE SET NULL,
     updated_by UUID REFERENCES users(id) ON DELETE SET NULL
 );
+
+-- Create partial unique index for email (allows multiple NULLs, ensures uniqueness for non-null emails)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_unique 
+ON users(email) 
+WHERE email IS NOT NULL;
 
 -- Audit logs table
 CREATE TABLE IF NOT EXISTS audit_logs (

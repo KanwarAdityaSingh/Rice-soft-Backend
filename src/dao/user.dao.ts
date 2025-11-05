@@ -83,7 +83,7 @@ export class UserDAO {
     
     const values = [
       userData.username,
-      userData.email,
+      userData.email || null,
       hashedPassword,
       userData.full_name,
       userData.phone || null,

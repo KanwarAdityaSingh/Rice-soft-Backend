@@ -8,7 +8,7 @@ export type CustomPermissions = Partial<Record<EntityKey, CrudPerm>>;
 export interface User {
   id: string;
   username: string;
-  email: string;
+  email: string | null;
   password_hash: string;
   full_name: string;
   phone: string | null;
@@ -24,7 +24,7 @@ export interface User {
 
 export interface CreateUserDTO {
   username: string;
-  email: string;
+  email?: string;
   password: string;
   full_name: string;
   phone?: string;
@@ -47,7 +47,7 @@ export interface UpdateUserDTO {
 export interface UserResponse {
   id: string;
   username: string;
-  email: string;
+  email: string | null;
   full_name: string;
   phone: string | null;
   user_type: UserType;
@@ -72,7 +72,7 @@ export interface LoginResponse {
 export interface UserWithEntityResponse {
   user_id: string;
   username: string;
-  email: string;
+  email: string | null;
   full_name: string;
   user_type: UserType;
   is_active: boolean;
