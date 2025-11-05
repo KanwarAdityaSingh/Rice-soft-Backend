@@ -40,5 +40,3 @@ router.post('/changeUserPassword', authenticate, authController.changePassword.b
 router.get('/getUserLoginHistory', authenticate, authController.getLoginHistory.bind(authController));
 
 export default router;
-
-

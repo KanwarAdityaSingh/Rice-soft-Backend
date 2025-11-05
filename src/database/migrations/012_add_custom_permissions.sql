@@ -11,3 +11,5 @@ WHERE user_type = 'custom' AND custom_permissions IS NULL;
 -- CREATE INDEX IF NOT EXISTS idx_users_custom_permissions ON users USING GIN (custom_permissions);
 
 
+
+

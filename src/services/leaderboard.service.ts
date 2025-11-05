@@ -16,20 +16,20 @@ export class LeaderboardService {
     };
   }
 
-  async getSalespersonStats(salespersonId: string, timeRange?: any): Promise<any> {
+  async getSalespersonStats(salespersonId: string, timeRange?: { start_date: string; end_date: string }): Promise<any> {
     return await leaderboardDAO.getSalespersonStats(salespersonId, timeRange);
   }
 
-  async getSalespersonDetailStats(salespersonId: string, timeRange?: any): Promise<any> {
-    return await leaderboardDAO.getSalespersonDetailStats(salespersonId, timeRange);
+  async getSalespersonDetailStats(salespersonId: string): Promise<any> {
+    return await leaderboardDAO.getSalespersonDetailStats(salespersonId);
   }
 
   async getTeamStats(): Promise<any> {
     return await leaderboardDAO.getTeamStats();
   }
 
-  async getMonthlyTrends(salespersonId: string, year: number, month: number): Promise<any> {
-    return await leaderboardDAO.getMonthlyTrends(salespersonId, year, month);
+  async getMonthlyTrends(salespersonId: string): Promise<any> {
+    return await leaderboardDAO.getMonthlyTrends(salespersonId);
   }
 
   async getRecentActivities(salespersonId: string, limit: number = 10): Promise<any[]> {

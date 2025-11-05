@@ -1,0 +1,27 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: migrate
+  namespace: rice
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          image: rice-soft-backend:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: HOST
+              value: "0.0.0.0"
+            - name: DB_HOST
+              value: postgres
+            - name: DB_PORT
+              value: "5432"
+          envFrom:
+            - secretRef:
+                name: backend-env
+          command: ["node", "dist/database/migrations/run-migrations.js"]
+
+

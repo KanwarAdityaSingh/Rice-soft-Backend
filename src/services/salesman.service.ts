@@ -1,5 +1,4 @@
 import { salesmanDAO } from '../dao/salesman.dao';
-import { userDAO } from '../dao/user.dao';
 import { NotFoundError, ConflictError } from '../utils/errors';
 import { CreateSalesmanDTO, UpdateSalesmanDTO, Salesman } from '../models/salesman.model';
 import { logger } from '../utils/logger';

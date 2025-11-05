@@ -10,3 +10,5 @@ CREATE INDEX IF NOT EXISTS idx_leads_broker_id ON leads(broker_id);
 -- 3. Add comment
 COMMENT ON COLUMN leads.broker_id IS 'Foreign key reference to brokers table, indicating which broker is associated with this lead';
 
+
+

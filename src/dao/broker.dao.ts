@@ -231,6 +231,15 @@ export class BrokerDAO {
     const result = await db.query(query, values);
     return result.rows.length > 0;
   }
+
+  async gstExists(gstNumber: string, excludeId?: string): Promise<boolean> {
+    const query = excludeId 
+      ? `SELECT 1 FROM brokers WHERE business_details->>'gst_number' = $1 AND id != $2 LIMIT 1`
+      : `SELECT 1 FROM brokers WHERE business_details->>'gst_number' = $1 LIMIT 1`;
+    const values = excludeId ? [gstNumber, excludeId] : [gstNumber];
+    const result = await db.query(query, values);
+    return result.rows.length > 0;
+  }
 }
 
 export const brokerDAO = new BrokerDAO();

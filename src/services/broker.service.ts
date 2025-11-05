@@ -1,11 +1,11 @@
 import { brokerDAO } from '../dao/broker.dao';
 import { NotFoundError, ConflictError, ValidationError } from '../utils/errors';
-import { CreateBrokerDTO, UpdateBrokerDTO, Broker } from '../models/broker.model';
+import { CreateBrokerDTO, UpdateBrokerDTO, Broker, BrokerType } from '../models/broker.model';
 import { gstLookupService } from './gst-lookup.service';
 import { logger } from '../utils/logger';
 
 export class BrokerService {
-  async getAllBrokers(includeInactive: boolean, type?: string): Promise<Broker[]> {
+  async getAllBrokers(includeInactive: boolean, type?: BrokerType): Promise<Broker[]> {
     return await brokerDAO.findAll(includeInactive, type);
   }
 
@@ -119,7 +119,7 @@ export class BrokerService {
     contactPerson: string,
     email: string,
     phone: string,
-    type: string,
+    type: BrokerType,
     brokerDetails: any,
     createdBy?: string
   ): Promise<Broker> {

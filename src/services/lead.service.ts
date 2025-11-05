@@ -3,7 +3,6 @@ import { LeadEventDAO } from '../dao/lead-event.dao';
 import { ConversionDAO } from '../dao/conversion.dao';
 import { VendorDAO } from '../dao/vendor.dao';
 import { UserDAO } from '../dao/user.dao';
-import { leadVendorMappingDAO } from '../dao/lead-vendor-mapping.dao';
 import { NotFoundError, ConflictError } from '../utils/errors';
 import { CreateLeadDTO, UpdateLeadDTO, Lead, LeadStatus } from '../models/lead.model';
 import { CreateLeadEventDTO, LEAD_EVENT_TYPES } from '../models/lead-event.model';
@@ -36,7 +35,7 @@ export class LeadService {
   }
 
   async getLeadAnalytics(): Promise<any[]> {
-    return await leadDAO.findAnalytics();
+    return await leadDAO.getAnalytics();
   }
 
   async createLead(leadData: CreateLeadDTO): Promise<Lead> {

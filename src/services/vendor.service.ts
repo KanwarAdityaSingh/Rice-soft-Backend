@@ -1,11 +1,11 @@
 import { vendorDAO } from '../dao/vendor.dao';
 import { NotFoundError, ConflictError, ValidationError } from '../utils/errors';
-import { CreateVendorDTO, UpdateVendorDTO, Vendor } from '../models/vendor.model';
+import { CreateVendorDTO, UpdateVendorDTO, Vendor, VendorType } from '../models/vendor.model';
 import { gstLookupService } from './gst-lookup.service';
 import { logger } from '../utils/logger';
 
 export class VendorService {
-  async getAllVendors(includeInactive: boolean, type?: string): Promise<Vendor[]> {
+  async getAllVendors(includeInactive: boolean, type?: VendorType): Promise<Vendor[]> {
     return await vendorDAO.findAll(includeInactive, type);
   }
 
@@ -119,7 +119,7 @@ export class VendorService {
     contactPerson: string,
     email: string,
     phone: string,
-    type: string,
+    type: VendorType,
     brokerDetails: any,
     createdBy?: string
   ): Promise<Vendor> {
@@ -171,7 +171,7 @@ export class VendorService {
     email: string,
     phone: string,
     address: any,
-    type: string,
+    type: VendorType,
     bankDetails: any,
     createdBy?: string
   ): Promise<Vendor> {
