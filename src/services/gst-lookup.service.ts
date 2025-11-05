@@ -1,5 +1,6 @@
 import { logger } from '../utils/logger';
-import { ValidationError } from '../utils/errors';
+import { ValidationError, BadRequestError, InternalServerError } from '../utils/errors';
+import { appConfig } from '../config/app.config';
 
 /**
  * GST API Response Interface
@@ -32,6 +33,23 @@ export interface GSTLookupResponse {
 }
 
 /**
+ * Surepass PAN API Response Interface
+ */
+export interface SurepassPANResponse {
+  status_code: number;
+  message?: string;
+  message_code?: string;
+  success?: boolean;
+  data?: {
+    full_name?: string;
+    name?: string;
+    pan_number?: string;
+    category?: string;
+    client_id?: string;
+  };
+}
+
+/**
  * PAN API Response Interface
  * Based on Income Tax PAN Verification API structure
  */
@@ -41,6 +59,46 @@ export interface PANLookupResponse {
   category: string;
   status: string;
   lastUpdated: string;
+}
+
+/**
+ * MastersIndia Auth Token Response Interface
+ */
+export interface MastersIndiaTokenResponse {
+  access_token: string;
+  token_type?: string;
+  expires_in?: number;
+  scope?: string;
+}
+
+/**
+ * MastersIndia GST API Response Interface
+ */
+export interface MastersIndiaGSTResponse {
+  error: boolean;
+  message?: string;
+  data?: {
+    gstin?: string;
+    sts: string;
+    tradeNam?: string;
+    lgnm?: string;
+    rgdt?: string;
+    ctb?: string;
+    ctjCd?: string;
+    ctj?: string;
+    pradr?: {
+      addr?: {
+        bno?: string;
+        st?: string;
+        loc?: string;
+        dst?: string;
+        city?: string;
+        stcd?: string;
+        pncd?: string;
+      };
+    };
+    [key: string]: any;
+  };
 }
 
 /**
@@ -68,11 +126,14 @@ export interface MappedBusinessData {
 }
 
 export class GSTLookupService {
-  // API configuration (for future production use)
-  // private static readonly GST_API_BASE_URL = process.env.GST_API_URL || 'https://api.gst.gov.in';
-  // private static readonly PAN_API_BASE_URL = process.env.PAN_API_URL || 'https://api.incometax.gov.in';
-  // private static readonly API_KEY = process.env.GST_PAN_API_KEY || '';
-  
+  // MastersIndia token cache
+  private static mastersIndiaTokenCache: {
+    token: string;
+    expiresAt: number;
+  } | null = null;
+
+  // Token cache duration (default 1 hour, but we'll use expires_in from API if available)
+  private static readonly TOKEN_CACHE_DURATION = 3600000; // 1 hour in milliseconds
   /**
    * Validate GST Number Format
    * Format: 15 characters - 2 digits (state code) + 10 chars (PAN) + 1 char (entity number) + 1 char (Z) + 1 char (checksum)
@@ -115,12 +176,83 @@ export class GSTLookupService {
   }
 
   /**
-   * Lookup GST Number
-   * NOTE: This is a mock implementation. In production, you would call the actual GST API.
-   * For real implementation, you need to register with GST Suvidha Provider (GSP) or use services like:
-   * - Razorpay GST API
-   * - ClearTax API
-   * - MasterIndia API
+   * Get MastersIndia Authentication Token
+   * Caches token to avoid unnecessary API calls
+   */
+  private static async getMasterIndiaAuthToken(): Promise<string> {
+    // Check if we have a valid cached token
+    if (
+      this.mastersIndiaTokenCache &&
+      this.mastersIndiaTokenCache.expiresAt > Date.now()
+    ) {
+      logger.debug('Using cached MastersIndia token');
+      return this.mastersIndiaTokenCache.token;
+    }
+
+    const config = appConfig.apis.mastersIndia;
+
+    if (!config.username || !config.password || !config.clientId || !config.clientSecret) {
+      throw new InternalServerError('MastersIndia API credentials not configured');
+    }
+
+    try {
+      logger.info('Fetching MastersIndia auth token');
+
+      const authData = {
+        username: config.username,
+        password: config.password,
+        client_id: config.clientId,
+        client_secret: config.clientSecret,
+        grant_type: 'password',
+      };
+
+      const response = await fetch(config.authUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(authData),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        logger.error('MastersIndia auth failed', {
+          status: response.status,
+          statusText: response.statusText,
+          error: errorText,
+        });
+        throw new InternalServerError('Failed to authenticate with MastersIndia API');
+      }
+
+      const tokenData = (await response.json()) as MastersIndiaTokenResponse;
+
+      if (!tokenData.access_token) {
+        throw new InternalServerError('Invalid token response from MastersIndia API');
+      }
+
+      // Cache the token with expiration
+      const expiresIn = tokenData.expires_in
+        ? tokenData.expires_in * 1000 // Convert seconds to milliseconds
+        : this.TOKEN_CACHE_DURATION;
+      
+      this.mastersIndiaTokenCache = {
+        token: tokenData.access_token,
+        expiresAt: Date.now() + expiresIn - 60000, // Refresh 1 minute before expiry
+      };
+
+      logger.info('MastersIndia auth token obtained successfully');
+      return tokenData.access_token;
+    } catch (error) {
+      logger.error('MastersIndia token fetch failed', { error });
+      if (error instanceof InternalServerError) {
+        throw error;
+      }
+      throw new InternalServerError('Failed to fetch MastersIndia authentication token');
+    }
+  }
+
+  /**
+   * Lookup GST Number using MastersIndia API
    */
   static async lookupGST(gstNumber: string): Promise<GSTLookupResponse> {
     // Validate format
@@ -130,64 +262,66 @@ export class GSTLookupService {
 
     logger.info('GST lookup requested', { gstNumber });
 
-    // MOCK IMPLEMENTATION - Replace with actual API call
-    // In production, uncomment and configure:
-    /*
     try {
-      const response = await fetch(`${this.GST_API_BASE_URL}/search/${gstNumber}`, {
+      // Get authentication token
+      const token = await this.getMasterIndiaAuthToken();
+      const config = appConfig.apis.mastersIndia;
+
+      // Make API call to MastersIndia
+      const apiUrl = `${config.url}?gstin=${encodeURIComponent(gstNumber)}`;
+      logger.debug('Calling MastersIndia API', { url: config.url });
+
+      const response = await fetch(apiUrl, {
         method: 'GET',
         headers: {
-          'Authorization': `Bearer ${this.API_KEY}`,
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+          'client_id': config.clientId,
         },
       });
 
       if (!response.ok) {
-        throw new Error(`GST API error: ${response.statusText}`);
+        const errorText = await response.text();
+        logger.error('MastersIndia API error', {
+          status: response.status,
+          statusText: response.statusText,
+          error: errorText,
+        });
+        throw new BadRequestError(`GST lookup failed: ${response.statusText}`);
       }
 
-      const data = await response.json();
-      return data;
+      const apiResponse = (await response.json()) as MastersIndiaGSTResponse;
+
+      // Handle API error response
+      if (apiResponse.error === true) {
+        logger.warn('MastersIndia API returned error', { message: apiResponse.message });
+        throw new BadRequestError(apiResponse.message || 'Invalid GSTIN');
+      }
+
+      // Check if GSTIN status is Active
+      if (apiResponse.data?.sts !== 'Active') {
+        logger.warn('GSTIN status is not Active', { status: apiResponse.data?.sts });
+        throw new BadRequestError(
+          `GSTIN is valid but status is ${apiResponse.data?.sts || 'Unknown'}`
+        );
+      }
+
+      // Map MastersIndia response to our GSTLookupResponse format
+      const gstData = this.mapMastersIndiaToGSTLookupResponse(gstNumber, apiResponse.data);
+
+      logger.info('GST lookup successful', { gstNumber });
+      return gstData;
     } catch (error) {
       logger.error('GST lookup failed', { gstNumber, error });
-      throw new Error('Failed to fetch GST details from government API');
+      if (error instanceof ValidationError || error instanceof BadRequestError) {
+        throw error;
+      }
+      throw new InternalServerError('Failed to fetch GST details from external API');
     }
-    */
-
-    // MOCK DATA for development/testing
-    const mockData: GSTLookupResponse = {
-      gstin: gstNumber,
-      legalName: 'Sample Business Private Limited',
-      tradeName: 'Sample Business',
-      registrationDate: '2020-01-15',
-      constitutionOfBusiness: 'Private Limited Company',
-      taxpayerType: 'Regular',
-      gstinStatus: 'Active',
-      lastUpdateDate: new Date().toISOString().split('T')[0],
-      principalPlaceOfBusiness: {
-        buildingName: 'Business Tower',
-        buildingNumber: '123',
-        floorNumber: '5',
-        street: 'MG Road',
-        location: 'Andheri West',
-        district: 'Mumbai',
-        city: 'Mumbai',
-        state: this.getStateFromGST(gstNumber),
-        pincode: '400001',
-        latitude: '19.1136',
-        longitude: '72.8697',
-      },
-      additionalPlacesOfBusiness: [],
-      filingStatus: [],
-    };
-
-    logger.info('GST lookup successful (MOCK)', { gstNumber });
-    return mockData;
   }
 
   /**
-   * Lookup PAN Number
-   * NOTE: This is a mock implementation. In production, you would call the actual PAN verification API.
+   * Lookup PAN Number using Surepass API
    */
   static async lookupPAN(panNumber: string): Promise<PANLookupResponse> {
     // Validate format
@@ -197,41 +331,125 @@ export class GSTLookupService {
 
     logger.info('PAN lookup requested', { panNumber });
 
-    // MOCK IMPLEMENTATION - Replace with actual API call
-    // In production, uncomment and configure:
-    /*
     try {
-      const response = await fetch(`${this.PAN_API_BASE_URL}/verify/${panNumber}`, {
-        method: 'GET',
+      const config = appConfig.apis.surepass;
+
+      if (!config.token) {
+        throw new InternalServerError('Surepass API token not configured');
+      }
+
+      // Strip "Bearer " prefix if it exists in the token
+      const token = config.token.startsWith('Bearer ')
+        ? config.token.substring(7)
+        : config.token;
+
+      // Make API call to Surepass
+      logger.debug('Calling Surepass API', { url: config.url });
+
+      const response = await fetch(config.url, {
+        method: 'POST',
         headers: {
-          'Authorization': `Bearer ${this.API_KEY}`,
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
         },
+        body: JSON.stringify({
+          id_number: panNumber,
+        }),
       });
 
       if (!response.ok) {
-        throw new Error(`PAN API error: ${response.statusText}`);
+        const errorText = await response.text();
+        logger.error('Surepass API error', {
+          status: response.status,
+          statusText: response.statusText,
+          error: errorText,
+        });
+        throw new BadRequestError(`PAN lookup failed: ${response.statusText}`);
       }
 
-      const data = await response.json();
-      return data;
+      const apiResponse = (await response.json()) as SurepassPANResponse;
+
+      // Handle API error response
+      if (apiResponse.status_code !== 200 || apiResponse.success !== true) {
+        logger.warn('Surepass API returned error', {
+          status_code: apiResponse.status_code,
+          message: apiResponse.message,
+          success: apiResponse.success,
+        });
+        throw new BadRequestError(apiResponse.message || 'Failed to fetch PAN details');
+      }
+
+      // Check if data is present
+      if (!apiResponse.data) {
+        logger.warn('Surepass API returned empty data', { response: apiResponse });
+        throw new BadRequestError('PAN details not found');
+      }
+
+      // Extract name from full_name or name field
+      const name = apiResponse.data.full_name || apiResponse.data.name;
+      if (!name) {
+        logger.warn('Surepass API returned data without name', { response: apiResponse });
+        throw new BadRequestError('PAN name not found in response');
+      }
+
+      // Map Surepass response to our PANLookupResponse format
+      const panData: PANLookupResponse = {
+        pan: apiResponse.data.pan_number || panNumber,
+        name: name,
+        category: apiResponse.data.category || 'Individual',
+        status: 'Active',
+        lastUpdated: new Date().toISOString().split('T')[0],
+      };
+
+      logger.info('PAN lookup successful', { panNumber });
+      return panData;
     } catch (error) {
       logger.error('PAN lookup failed', { panNumber, error });
-      throw new Error('Failed to fetch PAN details from government API');
+      if (error instanceof ValidationError || error instanceof BadRequestError) {
+        throw error;
+      }
+      throw new InternalServerError('Failed to fetch PAN details from external API');
     }
-    */
+  }
 
-    // MOCK DATA for development/testing
-    const mockData: PANLookupResponse = {
-      pan: panNumber,
-      name: 'Sample Business Entity',
-      category: 'Company',
-      status: 'Active',
-      lastUpdated: new Date().toISOString().split('T')[0],
+  /**
+   * Map MastersIndia GST API response to our GSTLookupResponse format
+   */
+  private static mapMastersIndiaToGSTLookupResponse(
+    gstNumber: string,
+    data: MastersIndiaGSTResponse['data']
+  ): GSTLookupResponse {
+    if (!data) {
+      throw new BadRequestError('Invalid GST data received from API');
+    }
+
+    const address = data.pradr?.addr || {};
+
+    return {
+      gstin: data.gstin || gstNumber,
+      legalName: data.lgnm || data.tradeNam || 'Unknown',
+      tradeName: data.tradeNam || data.lgnm || 'Unknown',
+      registrationDate: data.rgdt || new Date().toISOString().split('T')[0],
+      constitutionOfBusiness: data.ctb || 'Unknown',
+      taxpayerType: data.ctj || 'Regular',
+      gstinStatus: data.sts || 'Active',
+      lastUpdateDate: new Date().toISOString().split('T')[0],
+      principalPlaceOfBusiness: {
+        buildingName: address.bno || '',
+        buildingNumber: '',
+        floorNumber: '',
+        street: address.st || '',
+        location: address.loc || '',
+        district: address.dst || '',
+        city: address.city || address.dst || '',
+        state: this.getStateFromGST(gstNumber),
+        pincode: address.pncd || '',
+        latitude: '',
+        longitude: '',
+      },
+      additionalPlacesOfBusiness: [],
+      filingStatus: [],
     };
-
-    logger.info('PAN lookup successful (MOCK)', { panNumber });
-    return mockData;
   }
 
   /**

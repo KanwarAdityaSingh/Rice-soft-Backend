@@ -23,7 +23,7 @@ export interface Lead {
   id: string;
   company_name: string;
   contact_person: string;
-  email: string;
+  email: string | null;
   phone: string | null;
   address: Address | null;
   business_details: BusinessDetails | null;
@@ -52,7 +52,7 @@ export interface Lead {
 export interface CreateLeadDTO {
   company_name: string;
   contact_person: string;
-  email: string;
+  email?: string;
   phone?: string;
   address?: Address;
   business_details?: BusinessDetails;
@@ -103,7 +103,7 @@ export interface LeadResponse {
   id: string;
   company_name: string;
   contact_person: string;
-  email: string;
+  email: string | null;
   phone: string | null;
   address: Address | null;
   business_details: BusinessDetails | null;
@@ -132,7 +132,7 @@ export interface LeadAnalytics {
   id: string;
   company_name: string;
   contact_person: string;
-  email: string;
+  email: string | null;
   lead_status: LeadStatus;
   priority: Priority;
   estimated_value: number | null;

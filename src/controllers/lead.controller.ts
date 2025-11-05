@@ -15,6 +15,7 @@ import {
 import {
   NotFoundError,
   ConflictError,
+  ValidationError,
 } from '../utils/errors';
 import { CreateLeadDTO, UpdateLeadDTO, LeadResponse, LeadStatus } from '../models/lead.model';
 import { CreateLeadEventDTO, LEAD_EVENT_TYPES } from '../models/lead-event.model';
@@ -129,10 +130,12 @@ export class LeadController {
     try {
       const leadData = validate<CreateLeadDTO>(createLeadSchema, req.body);
 
-      // Check if email already exists
-      const emailExists = await leadDAO.emailExists(leadData.email);
-      if (emailExists) {
-        throw new ConflictError('Email already exists');
+      // Check if email already exists (only if email is provided)
+      if (leadData.email) {
+        const emailExists = await leadDAO.emailExists(leadData.email);
+        if (emailExists) {
+          throw new ConflictError('Email already exists');
+        }
       }
 
       // Set created_by from authenticated user
@@ -433,6 +436,11 @@ export class LeadController {
       }
       if (lead.lead_status === 'converted') {
         throw new ConflictError('Lead is already converted');
+      }
+
+      // Validate that email exists for vendor conversion
+      if (!lead.email) {
+        throw new ValidationError('Email is required to convert lead to vendor');
       }
 
       // 1. Create a new user for the vendor (if not already existing via is_existing_customer)

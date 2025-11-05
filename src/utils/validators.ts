@@ -178,7 +178,7 @@ export const updateBrokerSchema = Joi.object({
 export const createLeadSchema = Joi.object({
   company_name: Joi.string().required().min(2).max(255),
   contact_person: Joi.string().required().min(2).max(255),
-  email: Joi.string().required().email(),
+  email: Joi.string().optional().allow(null, '').email(),
   phone: Joi.string().optional().max(20),
   address: addressSchema.optional(),
   business_details: Joi.object({

@@ -28,6 +28,22 @@ export const appConfig = {
   cors: {
     origin: process.env.CORS_ORIGIN || 'http://localhost:3001',
   },
+  
+  // External API Configurations
+  apis: {
+    surepass: {
+      url: process.env.SUREPASS_API_URL || 'https://kyc-api.surepass.io/api/v1/pan/pan',
+      token: process.env.SUREPASS_API_TOKEN || '',
+    },
+    mastersIndia: {
+      url: process.env.MASTERS_INDIA_API_URL || 'https://commonapi.mastersindia.co/commonapis/searchgstin/',
+      authUrl: process.env.MASTERS_INDIA_AUTH_URL || 'https://pro.mastersindia.co/oauth/access_token',
+      username: process.env.MASTERS_INDIA_USERNAME || '',
+      password: process.env.MASTERS_INDIA_PASSWORD || '',
+      clientId: process.env.MASTERS_INDIA_CLIENT_ID || '',
+      clientSecret: process.env.MASTERS_INDIA_CLIENT_SECRET || '',
+    },
+  },
 };
 
 export const isDevelopment = appConfig.env === 'development';
