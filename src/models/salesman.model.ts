@@ -2,7 +2,7 @@ export interface Salesman {
   id: string;
   name: string;
   phone: string;
-  email: string;
+  email: string | null;
   is_active: boolean;
   user_id: string | null;
   created_at: Date;
@@ -14,7 +14,7 @@ export interface Salesman {
 export interface CreateSalesmanDTO {
   name: string;
   phone: string;
-  email: string;
+  email?: string;
   is_active?: boolean;
   created_by?: string;
   user_id?: string;
@@ -32,7 +32,7 @@ export interface SalesmanResponse {
   id: string;
   name: string;
   phone: string;
-  email: string;
+  email: string | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;

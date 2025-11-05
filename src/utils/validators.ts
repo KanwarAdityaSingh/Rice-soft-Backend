@@ -50,7 +50,7 @@ export const uuidSchema = Joi.string().uuid();
 export const createSalesmanSchema = Joi.object({
   name: Joi.string().required().min(2).max(255),
   phone: Joi.string().required().max(20),
-  email: Joi.string().required().email(),
+  email: Joi.string().optional().allow(null, '').email(),
   is_active: Joi.boolean().optional(),
 });
 

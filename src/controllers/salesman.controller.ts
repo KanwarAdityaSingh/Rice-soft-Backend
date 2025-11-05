@@ -66,21 +66,37 @@ export class SalesmanController {
     try {
       const salesmanData = validate<CreateSalesmanDTO>(createSalesmanSchema, req.body);
 
-      // Check if email already exists in salesmen
-      const emailExists = await salesmanDAO.emailExists(salesmanData.email);
-      if (emailExists) {
-        throw new ConflictError('Email already exists');
+      // Generate username from name (first part before space, lowercase, remove special chars)
+      let baseUsername = salesmanData.name
+        .toLowerCase()
+        .split(' ')[0]
+        .replace(/[^a-z0-9]/g, '');
+      
+      // Check if username already exists and append number if needed
+      let username = baseUsername;
+      let counter = 1;
+      while (await userDAO.usernameExists(username)) {
+        username = `${baseUsername}${counter}`;
+        counter++;
       }
 
-      // Check if email already exists in users
-      const userEmailExists = await userDAO.emailExists(salesmanData.email);
-      if (userEmailExists) {
-        throw new ConflictError('Email already exists in users');
+      // Check if email already exists in salesmen (only if email is provided)
+      if (salesmanData.email) {
+        const emailExists = await salesmanDAO.emailExists(salesmanData.email);
+        if (emailExists) {
+          throw new ConflictError('Email already exists');
+        }
+
+        // Check if email already exists in users
+        const userEmailExists = await userDAO.emailExists(salesmanData.email);
+        if (userEmailExists) {
+          throw new ConflictError('Email already exists in users');
+        }
       }
 
-      // Create user first
+      // Create user first (always create user, using name for username)
       const userData = {
-        username: salesmanData.email.split('@')[0], // Use email prefix as username
+        username: username,
         email: salesmanData.email,
         password: 'defaultPassword123', // Default password, should be changed on first login
         full_name: salesmanData.name,
