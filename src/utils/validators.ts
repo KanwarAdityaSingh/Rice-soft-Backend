@@ -66,7 +66,7 @@ const addressSchema = Joi.object({
   street: Joi.string().required().max(255),
   city: Joi.string().required().max(100),
   state: Joi.string().required().max(100),
-  pincode: Joi.string().required().max(10),
+  pincode: Joi.string().required().allow('').max(10),
   country: Joi.string().required().max(100),
 });
 
@@ -146,7 +146,7 @@ export const updateVendorSchema = Joi.object({
 const brokerDetailsSchema = Joi.object({
   commission_rate: Joi.number().optional().min(0).max(100),
   specialization: Joi.string().optional().allow(null, '').max(255),
-  experience_years: Joi.string().optional().max(100),
+  experience_years: Joi.string().optional().allow(null, '').max(100),
 });
 
 // Broker validation schemas

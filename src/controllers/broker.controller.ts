@@ -361,14 +361,14 @@ export class BrokerController {
           street: Joi.string().required().max(255),
           city: Joi.string().required().max(100),
           state: Joi.string().required().max(100),
-          pincode: Joi.string().required().max(10),
+          pincode: Joi.string().required().allow('').max(10),
           country: Joi.string().required().max(100),
         }).required(),
         type: Joi.string().required().valid('purchase', 'sale', 'both'),
         broker_details: Joi.object({
           commission_rate: Joi.number().optional().min(0).max(100),
           specialization: Joi.string().optional().allow(null, '').max(255),
-          experience_years: Joi.string().optional().max(100),
+          experience_years: Joi.string().optional().allow(null, '').max(100),
         }).optional(),
       });
 
