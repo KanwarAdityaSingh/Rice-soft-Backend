@@ -27,7 +27,7 @@ export interface Vendor {
   id: string;
   business_name: string;
   contact_person: string;
-  email: string;
+  email: string | null;
   phone: string;
   address: Address;
   business_details: BusinessDetails;
@@ -46,7 +46,7 @@ export interface Vendor {
 export interface CreateVendorDTO {
   business_name: string;
   contact_person: string;
-  email: string;
+  email?: string;
   phone: string;
   address: Address;
   business_details: BusinessDetails;
@@ -76,7 +76,7 @@ export interface VendorResponse {
   id: string;
   business_name: string;
   contact_person: string;
-  email: string;
+  email: string | null;
   phone: string;
   address: Address;
   business_details: BusinessDetails;

@@ -83,16 +83,18 @@ export class VendorController {
     try {
       const vendorData = validate<CreateVendorDTO>(createVendorSchema, req.body);
 
-      // Check if email already exists in vendors
-      const emailExists = await vendorDAO.emailExists(vendorData.email);
-      if (emailExists) {
-        throw new ConflictError('Email already exists');
-      }
+      // Check if email already exists in vendors (only if email is provided)
+      if (vendorData.email) {
+        const emailExists = await vendorDAO.emailExists(vendorData.email);
+        if (emailExists) {
+          throw new ConflictError('Email already exists');
+        }
 
-      // Check if email already exists in users
-      const userEmailExists = await userDAO.emailExists(vendorData.email);
-      if (userEmailExists) {
-        throw new ConflictError('Email already exists in users');
+        // Check if email already exists in users
+        const userEmailExists = await userDAO.emailExists(vendorData.email);
+        if (userEmailExists) {
+          throw new ConflictError('Email already exists in users');
+        }
       }
 
       // Check if GST already exists (if provided)
@@ -111,30 +113,32 @@ export class VendorController {
         }
       }
 
-      // Create user first
-      const userData = {
-        username: vendorData.email.split('@')[0], // Use email prefix as username
-        email: vendorData.email,
-        password: 'defaultPassword123', // Default password, should be changed on first login
-        full_name: vendorData.contact_person,
-        phone: vendorData.phone,
-        user_type: 'vendor' as const,
-        is_active: vendorData.is_active !== undefined ? vendorData.is_active : true,
-        created_by: req.user?.userId,
-      };
+      // Create user first (only if email is provided)
+      let user = null;
+      if (vendorData.email) {
+        const userData = {
+          username: vendorData.email.split('@')[0], // Use email prefix as username
+          email: vendorData.email,
+          password: 'defaultPassword123', // Default password, should be changed on first login
+          full_name: vendorData.contact_person,
+          phone: vendorData.phone,
+          user_type: 'vendor' as const,
+          is_active: vendorData.is_active !== undefined ? vendorData.is_active : true,
+          created_by: req.user?.userId,
+        };
 
-      let user;
-      try {
-        user = await userDAO.create(userData);
-      } catch (userError) {
-        console.error('User creation failed:', userError);
-        throw new ConflictError('Failed to create user account for vendor');
+        try {
+          user = await userDAO.create(userData);
+        } catch (userError) {
+          console.error('User creation failed:', userError);
+          throw new ConflictError('Failed to create user account for vendor');
+        }
       }
 
-      // Create vendor with user_id
+      // Create vendor with user_id (or undefined if no email)
       const vendorWithUser = {
         ...vendorData,
-        user_id: user.id,
+        user_id: user?.id,
         created_by: req.user?.userId,
       };
 

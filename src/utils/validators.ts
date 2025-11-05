@@ -66,7 +66,7 @@ const addressSchema = Joi.object({
   street: Joi.string().required().max(255),
   city: Joi.string().required().max(100),
   state: Joi.string().required().max(100),
-  pincode: Joi.string().required().allow('').max(10),
+  pincode: Joi.string().required().max(10),
   country: Joi.string().required().max(100),
 });
 
@@ -121,7 +121,7 @@ const bankDetailsSchema = Joi.object({
 export const createVendorSchema = Joi.object({
   business_name: Joi.string().required().min(2).max(255),
   contact_person: Joi.string().required().min(2).max(255),
-  email: Joi.string().required().email(),
+  email: Joi.string().optional().allow(null, '').email(),
   phone: Joi.string().required().max(20),
   address: addressSchema.required(),
   business_details: businessDetailsSchema.required(),
@@ -146,7 +146,7 @@ export const updateVendorSchema = Joi.object({
 const brokerDetailsSchema = Joi.object({
   commission_rate: Joi.number().optional().min(0).max(100),
   specialization: Joi.string().optional().allow(null, '').max(255),
-  experience_years: Joi.string().optional().allow(null, '').max(100),
+  experience_years: Joi.string().optional().max(100),
 });
 
 // Broker validation schemas
