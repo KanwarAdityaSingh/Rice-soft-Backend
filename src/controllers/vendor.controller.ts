@@ -13,7 +13,7 @@ import {
   ConflictError,
   ValidationError,
 } from '../utils/errors';
-import { CreateVendorDTO, UpdateVendorDTO, VendorResponse, VendorType } from '../models/vendor.model';
+import { CreateVendorDTO, UpdateVendorDTO, Vendor, VendorResponse, VendorType } from '../models/vendor.model';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { gstLookupService } from '../services/gst-lookup.service';
 import Joi from 'joi';
@@ -491,6 +491,71 @@ export class VendorController {
       };
 
       return ResponseHandler.created(res, vendorResponse, 'Vendor created from PAN successfully');
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Check if vendor exists by GST or PAN number
+   * Returns vendor details if found, otherwise returns exists: false
+   */
+  async checkVendorExists(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const gstNumber = req.query.gst_number as string | undefined;
+      const panNumber = req.query.pan_number as string | undefined;
+
+      if (!gstNumber && !panNumber) {
+        throw new ValidationError('Either GST number or PAN number is required');
+      }
+
+      let vendor: Vendor | null = null;
+
+      // Check by GST first if provided
+      if (gstNumber) {
+        // Validate GST format
+        if (!gstLookupService.validateGSTFormat(gstNumber)) {
+          throw new ValidationError('Invalid GST number format. Expected format: 27ABCDE1234F1Z5');
+        }
+        vendor = await vendorDAO.findByGST(gstNumber);
+      }
+
+      // If not found by GST, check by PAN
+      if (!vendor && panNumber) {
+        // Validate PAN format
+        if (!gstLookupService.validatePANFormat(panNumber)) {
+          throw new ValidationError('Invalid PAN number format. Expected format: ABCDE1234F');
+        }
+        vendor = await vendorDAO.findByPAN(panNumber);
+      }
+
+      if (vendor) {
+        const vendorResponse: VendorResponse = {
+          id: vendor.id,
+          business_name: vendor.business_name,
+          contact_person: vendor.contact_person,
+          email: vendor.email,
+          phone: vendor.phone,
+          address: vendor.address,
+          business_details: vendor.business_details,
+          bank_details: vendor.bank_details,
+          type: vendor.type,
+          is_active: vendor.is_active,
+          created_at: vendor.created_at.toISOString(),
+          updated_at: vendor.updated_at.toISOString(),
+          last_enquiry_date: vendor.last_enquiry_date?.toISOString() || null,
+        };
+
+        return ResponseHandler.success(res, {
+          exists: true,
+          vendor: vendorResponse,
+        }, 'Vendor found');
+      }
+
+      return ResponseHandler.success(res, {
+        exists: false,
+        vendor: null,
+      }, 'Vendor not found');
     } catch (error) {
       next(error);
     }

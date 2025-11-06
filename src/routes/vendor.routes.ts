@@ -22,6 +22,14 @@ router.get('/lookupGST', authenticate, vendorController.lookupGST.bind(vendorCon
 router.get('/lookupPAN', authenticate, vendorController.lookupPAN.bind(vendorController));
 
 /**
+ * @route   GET /api/v1/vendors/checkExists
+ * @desc    Check if vendor exists by GST or PAN number
+ * @access  Private
+ * @query   gst_number: string (optional, 15 chars) OR pan_number: string (optional, 10 chars)
+ */
+router.get('/checkExists', authenticate, vendorController.checkVendorExists.bind(vendorController));
+
+/**
  * @route   POST /api/v1/vendors/quickCreateFromGST
  * @desc    Quick create vendor from GST number
  * @access  Private
