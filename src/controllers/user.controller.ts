@@ -57,8 +57,7 @@ export class UserController {
       };
 
       // Compute permissions similar to login response
-      const permissions: CustomPermissions | null = 
-        user.user_type === 'custom' ? (user.custom_permissions || {}) : null;
+      const permissions: CustomPermissions | null = user.custom_permissions || null;
 
       const response = {
         user: userResponse,

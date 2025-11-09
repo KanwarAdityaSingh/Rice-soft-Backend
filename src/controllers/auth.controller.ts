@@ -109,7 +109,7 @@ export class AuthController {
         updated_at: userInfo.updated_at.toISOString(),
       };
 
-      const permissions = userInfo.user_type === 'custom' ? (userInfo as any).custom_permissions || {} : null;
+      const permissions = (userInfo as any).custom_permissions || null;
 
       const response: LoginResponse = {
         user: userResponse,

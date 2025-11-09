@@ -88,9 +88,6 @@ export class UserService {
     if (!user) {
       throw new NotFoundError('User not found');
     }
-    if (user.user_type !== 'custom') {
-      throw new NotFoundError('Permissions are only applicable to custom users');
-    }
 
     await userDAO.updateCustomPermissions(id, permissions, updatedBy);
   }
