@@ -18,9 +18,11 @@ export class SalesmanService {
 
   async createSalesman(salesmanData: CreateSalesmanDTO): Promise<Salesman> {
     // Check if email already exists
-    const emailExists = await salesmanDAO.emailExists(salesmanData.email);
-    if (emailExists) {
-      throw new ConflictError('Email already exists');
+    if (salesmanData.email) {
+      const emailExists = await salesmanDAO.emailExists(salesmanData.email);
+      if (emailExists) {
+        throw new ConflictError('Email already exists');
+      }
     }
 
     logger.info('Creating salesman', {

@@ -48,6 +48,25 @@ else
     exit 1
 fi
 
+# Step 1.5: Fix critical environment variables
+echo_info "Step 1.5/5: Ensuring critical env vars are set..."
+ssh -o StrictHostKeyChecking=no -i "$KEY_PATH" "$REMOTE_HOST" <<'EOS'
+set -euo pipefail
+cd ~/Rice-soft-Backend
+
+# Ensure DB credentials are correct
+sed -i 's/^DB_HOST=.*/DB_HOST=postgres/' .env || echo 'DB_HOST=postgres' >> .env
+sed -i 's/^DB_PORT=.*/DB_PORT=5432/' .env || echo 'DB_PORT=5432' >> .env
+sed -i 's/^DB_NAME=.*/DB_NAME=rice_soft_db/' .env || echo 'DB_NAME=rice_soft_db' >> .env
+sed -i 's/^DB_USER=.*/DB_USER=postgres/' .env || echo 'DB_USER=postgres' >> .env
+sed -i 's/^DB_PASSWORD=.*/DB_PASSWORD=postgres/' .env || echo 'DB_PASSWORD=postgres' >> .env
+
+# Ensure CORS is set to production frontend
+sed -i 's|^CORS_ORIGIN=.*|CORS_ORIGIN=https://riceops.adhraamrit.com|' .env || echo 'CORS_ORIGIN=https://riceops.adhraamrit.com' >> .env
+
+echo "✓ DB credentials and CORS updated in .env"
+EOS
+
 # Step 2: Build Docker image
 echo_info "Step 2/5: Building Docker image..."
 ssh -o StrictHostKeyChecking=no -i "$KEY_PATH" "$REMOTE_HOST" <<'EOS'
@@ -126,10 +145,17 @@ else
 fi
 EOS
 
-# Step 5: Restart backend deployment
-echo_info "Step 5/5: Restarting backend deployment..."
+# Step 5: Update secret and restart backend deployment
+echo_info "Step 5/5: Updating secret and restarting backend deployment..."
 ssh -o StrictHostKeyChecking=no -i "$KEY_PATH" "$REMOTE_HOST" <<'EOS'
 set -euo pipefail
+cd ~/Rice-soft-Backend
+
+echo "Updating Kubernetes secret with latest .env..."
+sudo kubectl -n rice create secret generic backend-env \
+  --from-env-file=.env \
+  --dry-run=client -o yaml | \
+  sudo kubectl -n rice apply -f -
 
 echo "Restarting backend deployment..."
 sudo kubectl -n rice rollout restart deploy/backend
