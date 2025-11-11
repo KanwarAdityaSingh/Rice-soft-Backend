@@ -23,12 +23,14 @@ import { CreateConversionDTO } from '../models/conversion.model';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { VendorDAO } from '../dao/vendor.dao';
 import { UserDAO } from '../dao/user.dao';
+import { SalesmanDAO } from '../dao/salesman.dao';
 
 const leadDAO = new LeadDAO();
 const leadEventDAO = new LeadEventDAO();
 const conversionDAO = new ConversionDAO();
 const vendorDAO = new VendorDAO();
 const userDAO = new UserDAO();
+const salesmanDAO = new SalesmanDAO();
 
 export class LeadController {
   async getAll(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
@@ -138,6 +140,25 @@ export class LeadController {
         }
       }
 
+      // Convert salesman_id to user_id if assigned_to is provided
+      // The frontend may send a salesman ID, but the database expects a user ID
+      if (leadData.assigned_to) {
+        // First, check if it's already a valid user_id by checking if it exists in users table
+        const user = await userDAO.findById(leadData.assigned_to);
+        if (!user) {
+          // If not found in users, check if it's a salesman_id
+          const salesman = await salesmanDAO.findById(leadData.assigned_to);
+          if (salesman && salesman.user_id) {
+            // Convert salesman_id to user_id
+            leadData.assigned_to = salesman.user_id;
+          } else {
+            // Neither a user_id nor a valid salesman_id
+            throw new ValidationError(`Invalid assigned_to: ${leadData.assigned_to} is not a valid user ID or salesman ID`);
+          }
+        }
+        // If user exists, it's already a valid user_id, so we can proceed
+      }
+
       // Set created_by from authenticated user
       if (req.user) {
         leadData.created_by = req.user.userId;
@@ -210,6 +231,25 @@ export class LeadController {
         if (emailExists) {
           throw new ConflictError('Email already exists');
         }
+      }
+
+      // Convert salesman_id to user_id if assigned_to is provided
+      // The frontend may send a salesman ID, but the database expects a user ID
+      if (leadData.assigned_to) {
+        // First, check if it's already a valid user_id by checking if it exists in users table
+        const user = await userDAO.findById(leadData.assigned_to);
+        if (!user) {
+          // If not found in users, check if it's a salesman_id
+          const salesman = await salesmanDAO.findById(leadData.assigned_to);
+          if (salesman && salesman.user_id) {
+            // Convert salesman_id to user_id
+            leadData.assigned_to = salesman.user_id;
+          } else {
+            // Neither a user_id nor a valid salesman_id
+            throw new ValidationError(`Invalid assigned_to: ${leadData.assigned_to} is not a valid user ID or salesman ID`);
+          }
+        }
+        // If user exists, it's already a valid user_id, so we can proceed
       }
 
       // Set updated_by from authenticated user
