@@ -274,23 +274,40 @@ export class LeaderboardDAO {
         tp.conversion_rate as top_performer_conversion_rate,
         tp.revenue as top_performer_revenue
       FROM team_stats ts
-      CROSS JOIN top_performer tp
+      LEFT JOIN top_performer tp ON true
     `;
 
     const result = await db.query(query);
     const row = result.rows[0];
 
+    // Handle case where no rows are returned (no salespeople)
+    if (!row) {
+      return {
+        total_salespeople: 0,
+        total_leads: 0,
+        total_conversions: 0,
+        overall_conversion_rate: 0,
+        total_revenue: 0,
+        avg_deal_size: 0,
+        top_performer: {
+          name: '',
+          conversion_rate: 0,
+          revenue: 0
+        }
+      };
+    }
+
     return {
-      total_salespeople: parseInt(row.total_salespeople),
-      total_leads: parseInt(row.total_leads),
-      total_conversions: parseInt(row.total_conversions),
-      overall_conversion_rate: parseFloat(row.overall_conversion_rate),
-      total_revenue: parseFloat(row.total_revenue),
-      avg_deal_size: parseFloat(row.avg_deal_size),
+      total_salespeople: parseInt(row.total_salespeople || '0'),
+      total_leads: parseInt(row.total_leads || '0'),
+      total_conversions: parseInt(row.total_conversions || '0'),
+      overall_conversion_rate: parseFloat(row.overall_conversion_rate || '0'),
+      total_revenue: parseFloat(row.total_revenue || '0'),
+      avg_deal_size: parseFloat(row.avg_deal_size || '0'),
       top_performer: {
-        name: row.top_performer_name,
-        conversion_rate: parseFloat(row.top_performer_conversion_rate),
-        revenue: parseFloat(row.top_performer_revenue)
+        name: row.top_performer_name || null,
+        conversion_rate: parseFloat(row.top_performer_conversion_rate || '0'),
+        revenue: parseFloat(row.top_performer_revenue || '0')
       }
     };
   }
