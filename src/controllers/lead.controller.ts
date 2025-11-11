@@ -50,7 +50,7 @@ export class LeadController {
       const leadResponses: LeadResponse[] = leads.map((lead: any) => ({
         id: lead.id,
         company_name: lead.company_name,
-        contact_person: lead.contact_person,
+        contact_persons: lead.contact_persons,
         email: lead.email,
         phone: lead.phone,
         address: lead.address,
@@ -94,7 +94,7 @@ export class LeadController {
       const leadResponse: LeadResponse = {
         id: lead.id,
         company_name: lead.company_name,
-        contact_person: lead.contact_person,
+        contact_persons: lead.contact_persons,
         email: lead.email,
         phone: lead.phone,
         address: lead.address,
@@ -161,7 +161,7 @@ export class LeadController {
       const leadResponse: LeadResponse = {
         id: lead.id,
         company_name: lead.company_name,
-        contact_person: lead.contact_person,
+        contact_persons: lead.contact_persons,
         email: lead.email,
         phone: lead.phone,
         address: lead.address,
@@ -253,7 +253,7 @@ export class LeadController {
       const leadResponse: LeadResponse = {
         id: lead.id,
         company_name: lead.company_name,
-        contact_person: lead.contact_person,
+        contact_persons: lead.contact_persons,
         email: lead.email,
         phone: lead.phone,
         address: lead.address,
@@ -455,8 +455,11 @@ export class LeadController {
           throw new NotFoundError('Existing vendor user not found');
         }
       } else {
-        // Generate username from contact_person (first part before space, lowercase, remove special chars)
-        let baseUsername = lead.contact_person
+        // Generate username from first contact person (first part before space, lowercase, remove special chars)
+        const firstContactPerson = lead.contact_persons && lead.contact_persons.length > 0 
+          ? lead.contact_persons[0] 
+          : { name: 'user', phones: [] };
+        let baseUsername = firstContactPerson.name
           .toLowerCase()
           .split(' ')[0]
           .replace(/[^a-z0-9]/g, '');
@@ -474,8 +477,10 @@ export class LeadController {
           username: username,
           email: lead.email,
           password: 'defaultPassword123', // Default password, should be changed
-          full_name: lead.contact_person,
-          phone: lead.phone || undefined,
+          full_name: firstContactPerson.name,
+          phone: (firstContactPerson.phones && firstContactPerson.phones.length > 0) 
+            ? firstContactPerson.phones[0] 
+            : lead.phone || undefined,
           user_type: 'vendor' as const,
           is_active: true,
           created_by: req.user?.userId,
@@ -495,11 +500,16 @@ export class LeadController {
         // Update existing vendor if necessary, e.g., link lead_id
         await vendorDAO.update(vendor.id, { lead_id: lead.id, updated_by: req.user?.userId });
       } else {
+        const firstContactPerson = lead.contact_persons && lead.contact_persons.length > 0 
+          ? lead.contact_persons[0] 
+          : { name: '', phones: [] };
         const newVendorData = {
           business_name: lead.company_name,
-          contact_person: lead.contact_person,
+          contact_person: firstContactPerson.name,
           email: lead.email,
-          phone: lead.phone || '',
+          phone: (firstContactPerson.phones && firstContactPerson.phones.length > 0) 
+            ? firstContactPerson.phones[0] 
+            : lead.phone || '',
           address: lead.address || { street: '', city: '', state: '', pincode: '', country: '' },
           business_details: lead.business_details || { pan_number: '', gst_number: '', industry: '', company_size: '', annual_revenue: 0 },
           type: 'both' as const, // Default to 'both' for converted leads

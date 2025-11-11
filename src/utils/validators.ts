@@ -177,7 +177,12 @@ export const updateBrokerSchema = Joi.object({
 // Lead validation schemas
 export const createLeadSchema = Joi.object({
   company_name: Joi.string().required().min(2).max(255),
-  contact_person: Joi.string().required().min(2).max(255),
+  contact_persons: Joi.array().items(
+    Joi.object({
+      name: Joi.string().required().min(2).max(255),
+      phones: Joi.array().items(Joi.string().max(20)).required().min(1)
+    })
+  ).required().min(1),
   email: Joi.string().optional().allow(null, '').email(),
   phone: Joi.string().optional().max(20),
   address: addressSchema.optional(),
@@ -191,22 +196,27 @@ export const createLeadSchema = Joi.object({
   is_existing_customer: Joi.boolean().optional(),
   lead_status: Joi.string().optional().valid('new', 'contacted', 'engaged', 'converted', 'rejected'),
   customer_status: Joi.string().optional().max(100),
-  assigned_to: Joi.string().optional().uuid(),
-  broker_id: Joi.string().optional().uuid(),
-  rice_code_id: Joi.string().required().uuid(),
-  rice_type: Joi.string().required().valid('basmati', 'non_basmati', 'parboiled', 'raw'),
+  assigned_to: Joi.string().optional().uuid().allow(null, ''),
+  broker_id: Joi.string().optional().uuid().allow(null, ''),
+  rice_code_id: Joi.string().optional().uuid().allow(null, ''),
+  rice_type: Joi.string().optional().valid('basmati', 'non_basmati', 'parboiled', 'raw').allow(null, ''),
   notes: Joi.string().optional().max(1000),
   priority: Joi.string().optional().valid('low', 'medium', 'high', 'urgent'),
   source: Joi.string().optional().max(100),
   estimated_value: Joi.number().optional().min(0),
   expected_close_date: Joi.date().optional(),
-  salesman_latitude: Joi.number().optional().precision(8),
-  salesman_longitude: Joi.number().optional().precision(8),
+  salesman_latitude: Joi.number().optional().allow(null, '').precision(8),
+  salesman_longitude: Joi.number().optional().allow(null, '').precision(8),
 });
 
 export const updateLeadSchema = Joi.object({
   company_name: Joi.string().optional().min(2).max(255),
-  contact_person: Joi.string().optional().min(2).max(255),
+  contact_persons: Joi.array().items(
+    Joi.object({
+      name: Joi.string().required().min(2).max(255),
+      phones: Joi.array().items(Joi.string().max(20)).required().min(1)
+    })
+  ).optional().min(1),
   email: Joi.string().optional().allow(null, '').email(),
   phone: Joi.string().optional().allow(null, '').max(20),
   address: addressSchema.optional().allow(null),

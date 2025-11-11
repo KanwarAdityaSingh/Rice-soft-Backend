@@ -6,6 +6,11 @@ export interface Address {
   country: string;
 }
 
+export interface ContactPerson {
+  name: string;
+  phones: string[];
+}
+
 export interface BusinessDetails {
   pan_number?: string;
   gst_number?: string;
@@ -22,7 +27,7 @@ export type RiceType = 'basmati' | 'non_basmati' | 'parboiled' | 'raw';
 export interface Lead {
   id: string;
   company_name: string;
-  contact_person: string;
+  contact_persons: ContactPerson[];
   email: string | null;
   phone: string | null;
   address: Address | null;
@@ -32,8 +37,8 @@ export interface Lead {
   customer_status: string | null;
   assigned_to: string | null;
   broker_id: string | null;
-  rice_code_id: string;
-  rice_type: RiceType;
+  rice_code_id: string | null;
+  rice_type: RiceType | null;
   created_by: string | null;
   updated_by: string | null;
   created_at: Date;
@@ -51,7 +56,7 @@ export interface Lead {
 
 export interface CreateLeadDTO {
   company_name: string;
-  contact_person: string;
+  contact_persons: ContactPerson[];
   email?: string;
   phone?: string;
   address?: Address;
@@ -61,8 +66,8 @@ export interface CreateLeadDTO {
   customer_status?: string;
   assigned_to?: string;
   broker_id?: string;
-  rice_code_id: string;
-  rice_type: RiceType;
+  rice_code_id?: string;
+  rice_type?: RiceType;
   created_by?: string;
   notes?: string;
   priority?: Priority;
@@ -76,7 +81,7 @@ export interface CreateLeadDTO {
 
 export interface UpdateLeadDTO {
   company_name?: string;
-  contact_person?: string;
+  contact_persons?: ContactPerson[];
   email?: string;
   phone?: string;
   address?: Address;
@@ -102,7 +107,7 @@ export interface UpdateLeadDTO {
 export interface LeadResponse {
   id: string;
   company_name: string;
-  contact_person: string;
+  contact_persons: ContactPerson[];
   email: string | null;
   phone: string | null;
   address: Address | null;
@@ -112,8 +117,8 @@ export interface LeadResponse {
   customer_status: string | null;
   assigned_to: string | null;
   broker_id: string | null;
-  rice_code_id: string;
-  rice_type: RiceType;
+  rice_code_id: string | null;
+  rice_type: RiceType | null;
   created_by: string | null;
   updated_by: string | null;
   created_at: string;
@@ -131,7 +136,7 @@ export interface LeadResponse {
 export interface LeadAnalytics {
   id: string;
   company_name: string;
-  contact_person: string;
+  contact_persons: ContactPerson[];
   email: string | null;
   lead_status: LeadStatus;
   priority: Priority;
