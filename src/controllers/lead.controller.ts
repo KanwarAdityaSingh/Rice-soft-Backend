@@ -138,6 +138,14 @@ export class LeadController {
         }
       }
 
+      // Validate assigned_to user exists if provided
+      if (leadData.assigned_to) {
+        const assignedUser = await userDAO.findById(leadData.assigned_to);
+        if (!assignedUser) {
+          throw new NotFoundError('Assigned user not found');
+        }
+      }
+
       // Set created_by from authenticated user
       if (req.user) {
         leadData.created_by = req.user.userId;
@@ -209,6 +217,14 @@ export class LeadController {
         const emailExists = await leadDAO.emailExists(leadData.email, id);
         if (emailExists) {
           throw new ConflictError('Email already exists');
+        }
+      }
+
+      // Validate assigned_to user exists if provided
+      if (leadData.assigned_to !== undefined && leadData.assigned_to !== null && leadData.assigned_to !== '') {
+        const assignedUser = await userDAO.findById(leadData.assigned_to);
+        if (!assignedUser) {
+          throw new NotFoundError('Assigned user not found');
         }
       }
 

@@ -1,11 +1,62 @@
 import { db } from '../database/connection';
-import { Broker, CreateBrokerDTO, UpdateBrokerDTO, BrokerType } from '../models/broker.model';
+import { Broker, CreateBrokerDTO, UpdateBrokerDTO, BrokerType, ContactPerson } from '../models/broker.model';
 import { logger } from '../utils/logger';
 
 export class BrokerDAO {
+  /**
+   * Transform contact_persons from database (JSONB or string) to ContactPerson[]
+   * Handles migration from old format (phone: string) to new format (phones: string[])
+   */
+  private transformContactPersons(data: any): ContactPerson[] {
+    if (!data) return [];
+    
+    // If it's already an array, transform each item
+    if (Array.isArray(data)) {
+      return data.map((item: any) => {
+        // If item has old format (phone: string), convert to new format (phones: string[])
+        if (item.phone !== undefined && !item.phones) {
+          return {
+            name: item.name || '',
+            phones: item.phone ? [item.phone] : []
+          };
+        }
+        // If item already has phones array, ensure it's valid
+        return {
+          name: item.name || '',
+          phones: Array.isArray(item.phones) ? item.phones : []
+        };
+      });
+    }
+    
+    // If it's a string, try to parse it
+    if (typeof data === 'string') {
+      try {
+        const parsed = JSON.parse(data);
+        if (Array.isArray(parsed)) {
+          return this.transformContactPersons(parsed);
+        }
+        return [];
+      } catch {
+        return [];
+      }
+    }
+    
+    return [];
+  }
+
+  /**
+   * Transform broker data from database to include parsed contact_persons
+   */
+  private transformBroker(broker: any): Broker {
+    return {
+      ...broker,
+      contact_persons: this.transformContactPersons(broker.contact_persons || broker.contact_person)
+    };
+  }
+
   async findAll(includeInactive = false, type?: BrokerType): Promise<Broker[]> {
     let query = `
-      SELECT id, business_name, contact_person, email, phone, address, business_details, 
+      SELECT id, business_name, contact_persons, email, phone, address, business_details, 
              broker_details, type, is_active, user_id, created_at, updated_at, created_by, updated_by
       FROM brokers
       WHERE 1=1
@@ -25,68 +76,68 @@ export class BrokerDAO {
 
     query += ` ORDER BY business_name ASC`;
 
-    const result = await db.query<Broker>(query, params);
-    return result.rows;
+    const result = await db.query<any>(query, params);
+    return result.rows.map(row => this.transformBroker(row));
   }
 
   async findById(id: string): Promise<Broker | null> {
     const query = `
-      SELECT id, business_name, contact_person, email, phone, address, business_details,
+      SELECT id, business_name, contact_persons, email, phone, address, business_details,
              broker_details, type, is_active, created_at, updated_at, created_by, updated_by
       FROM brokers
       WHERE id = $1
     `;
-    const result = await db.query<Broker>(query, [id]);
-    return result.rows[0] || null;
+    const result = await db.query<any>(query, [id]);
+    return result.rows[0] ? this.transformBroker(result.rows[0]) : null;
   }
 
   async findByEmail(email: string): Promise<Broker | null> {
     const query = `
-      SELECT id, business_name, contact_person, email, phone, address, business_details,
+      SELECT id, business_name, contact_persons, email, phone, address, business_details,
              broker_details, type, is_active, created_at, updated_at, created_by, updated_by
       FROM brokers
       WHERE email = $1
     `;
-    const result = await db.query<Broker>(query, [email]);
-    return result.rows[0] || null;
+    const result = await db.query<any>(query, [email]);
+    return result.rows[0] ? this.transformBroker(result.rows[0]) : null;
   }
 
   async findByAadhaar(aadhaarNumber: string): Promise<Broker | null> {
     // Remove spaces from Aadhaar number for comparison
     const cleanedAadhaar = aadhaarNumber.replace(/\s/g, '');
     const query = `
-      SELECT id, business_name, contact_person, email, phone, address, business_details,
+      SELECT id, business_name, contact_persons, email, phone, address, business_details,
              broker_details, type, is_active, created_at, updated_at, created_by, updated_by
       FROM brokers
       WHERE REPLACE(business_details->>'aadhaar_number', ' ', '') = $1
     `;
-    const result = await db.query<Broker>(query, [cleanedAadhaar]);
-    return result.rows[0] || null;
+    const result = await db.query<any>(query, [cleanedAadhaar]);
+    return result.rows[0] ? this.transformBroker(result.rows[0]) : null;
   }
 
   async findByPAN(panNumber: string): Promise<Broker | null> {
     const query = `
-      SELECT id, business_name, contact_person, email, phone, address, business_details,
+      SELECT id, business_name, contact_persons, email, phone, address, business_details,
              broker_details, type, is_active, created_at, updated_at, created_by, updated_by
       FROM brokers
       WHERE business_details->>'pan_number' = $1
     `;
-    const result = await db.query<Broker>(query, [panNumber]);
-    return result.rows[0] || null;
+    const result = await db.query<any>(query, [panNumber]);
+    return result.rows[0] ? this.transformBroker(result.rows[0]) : null;
   }
 
   async create(brokerData: CreateBrokerDTO & { user_id?: string }): Promise<Broker> {
     const query = `
-      INSERT INTO brokers (business_name, contact_person, email, phone, address, business_details, 
+      INSERT INTO brokers (business_name, contact_persons, email, phone, address, business_details, 
                           broker_details, type, is_active, created_by, user_id)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-      RETURNING id, business_name, contact_person, email, phone, address, business_details,
+      RETURNING id, business_name, contact_persons, email, phone, address, business_details,
                 broker_details, type, is_active, user_id, created_at, updated_at, created_by, updated_by
     `;
     
     const values = [
       brokerData.business_name,
-      brokerData.contact_person,
+      JSON.stringify(brokerData.contact_persons),
       brokerData.email,
       brokerData.phone,
       JSON.stringify(brokerData.address),
@@ -98,8 +149,8 @@ export class BrokerDAO {
       brokerData.user_id || null
     ];
 
-    const result = await db.query<Broker>(query, values);
-    const broker = result.rows[0];
+    const result = await db.query<any>(query, values);
+    const broker = this.transformBroker(result.rows[0]);
 
     logger.info('Broker created', {
       brokerId: broker.id,
@@ -120,9 +171,9 @@ export class BrokerDAO {
       values.push(brokerData.business_name);
     }
 
-    if (brokerData.contact_person !== undefined) {
-      updateFields.push(`contact_person = $${paramCount++}`);
-      values.push(brokerData.contact_person);
+    if (brokerData.contact_persons !== undefined) {
+      updateFields.push(`contact_persons = $${paramCount++}`);
+      values.push(JSON.stringify(brokerData.contact_persons));
     }
 
     if (brokerData.email !== undefined) {
@@ -176,12 +227,12 @@ export class BrokerDAO {
       UPDATE brokers 
       SET ${updateFields.join(', ')}
       WHERE id = $${paramCount}
-      RETURNING id, business_name, contact_person, email, phone, address, business_details,
+      RETURNING id, business_name, contact_persons, email, phone, address, business_details,
                 broker_details, type, is_active, created_at, updated_at, created_by, updated_by
     `;
 
-    const result = await db.query<Broker>(query, values);
-    const broker = result.rows[0];
+    const result = await db.query<any>(query, values);
+    const broker = result.rows[0] ? this.transformBroker(result.rows[0]) : null;
 
     if (broker) {
       logger.info('Broker updated', {
@@ -190,7 +241,7 @@ export class BrokerDAO {
       });
     }
 
-    return broker || null;
+    return broker;
   }
 
   async delete(id: string): Promise<void> {

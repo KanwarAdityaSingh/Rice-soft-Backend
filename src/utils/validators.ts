@@ -87,7 +87,7 @@ const addressSchema = Joi.object({
   street: Joi.string().required().max(255),
   city: Joi.string().required().max(100),
   state: Joi.string().required().max(100),
-  pincode: Joi.string().required().max(10),
+  pincode: Joi.string().optional().allow('', null).max(10),
   country: Joi.string().required().max(100),
 });
 
@@ -167,13 +167,20 @@ export const updateVendorSchema = Joi.object({
 const brokerDetailsSchema = Joi.object({
   commission_rate: Joi.number().optional().min(0).max(100),
   specialization: Joi.string().optional().allow(null, '').max(255),
-  experience_years: Joi.string().optional().max(100),
+  experience_years: Joi.string().optional().allow(null, '').max(100),
 });
 
 // Broker validation schemas
 export const createBrokerSchema = Joi.object({
   business_name: Joi.string().required().min(2).max(255),
-  contact_person: Joi.string().required().min(2).max(255),
+  contact_persons: Joi.array().items(
+    Joi.object({
+      name: Joi.string().required().min(2).max(255),
+      phones: Joi.array().items(Joi.string().max(20)).required().min(1)
+    })
+  ).optional().min(1),
+  // Legacy field - will be converted to contact_persons
+  contact_person: Joi.string().optional().min(2).max(255),
   email: Joi.string().required().email(),
   phone: Joi.string().required().max(20),
   address: addressSchema.required(),
@@ -181,10 +188,35 @@ export const createBrokerSchema = Joi.object({
   broker_details: brokerDetailsSchema.optional(),
   type: Joi.string().required().valid('purchase', 'sale', 'both'),
   is_active: Joi.boolean().optional(),
+}).custom((value, helpers) => {
+  // Convert legacy contact_person to contact_persons if needed
+  if (value.contact_person && !value.contact_persons) {
+    value.contact_persons = [{
+      name: value.contact_person,
+      phones: value.phone ? [value.phone] : []
+    }];
+    delete value.contact_person;
+  }
+  
+  // Ensure contact_persons is provided
+  if (!value.contact_persons || value.contact_persons.length === 0) {
+    return helpers.error('custom.contactPersonsRequired');
+  }
+  
+  return value;
+}).messages({
+  'custom.contactPersonsRequired': 'Either contact_persons or contact_person must be provided'
 });
 
 export const updateBrokerSchema = Joi.object({
   business_name: Joi.string().optional().min(2).max(255),
+  contact_persons: Joi.array().items(
+    Joi.object({
+      name: Joi.string().required().min(2).max(255),
+      phones: Joi.array().items(Joi.string().max(20)).required().min(1)
+    })
+  ).optional().min(1),
+  // Legacy field - will be converted to contact_persons
   contact_person: Joi.string().optional().min(2).max(255),
   email: Joi.string().optional().email(),
   phone: Joi.string().optional().max(20),
@@ -193,6 +225,18 @@ export const updateBrokerSchema = Joi.object({
   broker_details: brokerDetailsSchema.optional(),
   type: Joi.string().optional().valid('purchase', 'sale', 'both'),
   is_active: Joi.boolean().optional(),
+}).custom((value) => {
+  // Convert legacy contact_person to contact_persons if needed
+  if (value.contact_person && !value.contact_persons) {
+    // Use phone from value if available, otherwise empty array
+    value.contact_persons = [{
+      name: value.contact_person,
+      phones: value.phone ? [value.phone] : []
+    }];
+    delete value.contact_person;
+  }
+  
+  return value;
 }).min(1);
 
 // Lead validation schemas

@@ -116,7 +116,7 @@ export class BrokerService {
 
   async createBrokerFromGST(
     gstNumber: string,
-    contactPerson: string,
+    contactPersons: Array<{ name: string; phones: string[] }>,
     email: string,
     phone: string,
     type: BrokerType,
@@ -147,7 +147,7 @@ export class BrokerService {
     // Create broker with fetched + provided data
     const brokerData: CreateBrokerDTO = {
       business_name: mappedData.business_name,
-      contact_person: contactPerson,
+      contact_persons: contactPersons,
       email,
       phone,
       address: mappedData.address,
@@ -167,7 +167,7 @@ export class BrokerService {
   async createBrokerFromPAN(
     panNumber: string,
     businessName: string | undefined,
-    contactPerson: string,
+    contactPersons: Array<{ name: string; phones: string[] }>,
     email: string,
     phone: string,
     address: any,
@@ -199,7 +199,7 @@ export class BrokerService {
     // Create broker with fetched + provided data
     const brokerData: CreateBrokerDTO = {
       business_name: businessName || mappedData.business_name,
-      contact_person: contactPerson,
+      contact_persons: contactPersons,
       email,
       phone,
       address,

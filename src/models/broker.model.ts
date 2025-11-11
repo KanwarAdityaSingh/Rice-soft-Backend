@@ -6,6 +6,11 @@ export interface Address {
   country: string;
 }
 
+export interface ContactPerson {
+  name: string;
+  phones: string[];
+}
+
 export interface BusinessDetails {
   pan_number?: string;
   aadhaar_number?: string;
@@ -25,7 +30,7 @@ export type BrokerType = 'purchase' | 'sale' | 'both';
 export interface Broker {
   id: string;
   business_name: string;
-  contact_person: string;
+  contact_persons: ContactPerson[];
   email: string;
   phone: string;
   address: Address;
@@ -42,7 +47,7 @@ export interface Broker {
 
 export interface CreateBrokerDTO {
   business_name: string;
-  contact_person: string;
+  contact_persons: ContactPerson[];
   email: string;
   phone: string;
   address: Address;
@@ -56,7 +61,7 @@ export interface CreateBrokerDTO {
 
 export interface UpdateBrokerDTO {
   business_name?: string;
-  contact_person?: string;
+  contact_persons?: ContactPerson[];
   email?: string;
   phone?: string;
   address?: Address;
@@ -70,7 +75,7 @@ export interface UpdateBrokerDTO {
 export interface BrokerResponse {
   id: string;
   business_name: string;
-  contact_person: string;
+  contact_persons: ContactPerson[];
   email: string;
   phone: string;
   address: Address;

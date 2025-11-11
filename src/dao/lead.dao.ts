@@ -232,11 +232,11 @@ export class LeadDAO {
     }
     if (leadData.assigned_to !== undefined) {
       fields.push(`assigned_to = $${paramCount++}`);
-      values.push(leadData.assigned_to);
+      values.push(leadData.assigned_to === '' ? null : leadData.assigned_to);
     }
     if (leadData.broker_id !== undefined) {
       fields.push(`broker_id = $${paramCount++}`);
-      values.push(leadData.broker_id);
+      values.push(leadData.broker_id === '' ? null : leadData.broker_id);
     }
     if (leadData.rice_code_id !== undefined) {
       fields.push(`rice_code_id = $${paramCount++}`);

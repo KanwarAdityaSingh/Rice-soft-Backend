@@ -268,7 +268,7 @@ export class UserDAO {
         v.type as vendor_type,
         b.id as broker_id,
         b.business_name as broker_business_name,
-        b.contact_person as broker_contact_person,
+        b.contact_persons as broker_contact_persons,
         b.type as broker_type
       FROM users u
       LEFT JOIN salesmen s ON u.id = s.user_id

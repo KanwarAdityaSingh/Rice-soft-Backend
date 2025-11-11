@@ -29,7 +29,7 @@ export class BrokerController {
       const brokerResponses: BrokerResponse[] = brokers.map((broker) => ({
         id: broker.id,
         business_name: broker.business_name,
-        contact_person: broker.contact_person,
+        contact_persons: broker.contact_persons,
         email: broker.email,
         phone: broker.phone,
         address: broker.address,
@@ -59,7 +59,7 @@ export class BrokerController {
       const brokerResponse: BrokerResponse = {
         id: broker.id,
         business_name: broker.business_name,
-        contact_person: broker.contact_person,
+        contact_persons: broker.contact_persons,
         email: broker.email,
         phone: broker.phone,
         address: broker.address,
@@ -109,8 +109,16 @@ export class BrokerController {
         }
       }
 
-      // Generate username from contact_person (first part before space, lowercase, remove special chars)
-      let baseUsername = brokerData.contact_person
+      // Generate username from first contact person (first part before space, lowercase, remove special chars)
+      const firstContactPerson = brokerData.contact_persons && brokerData.contact_persons.length > 0 
+        ? brokerData.contact_persons[0] 
+        : null;
+      
+      if (!firstContactPerson) {
+        throw new ValidationError('At least one contact person is required');
+      }
+
+      let baseUsername = firstContactPerson.name
         .toLowerCase()
         .split(' ')[0]
         .replace(/[^a-z0-9]/g, '');
@@ -128,8 +136,10 @@ export class BrokerController {
         username: username,
         email: brokerData.email,
         password: 'defaultPassword123', // Default password, should be changed on first login
-        full_name: brokerData.contact_person,
-        phone: brokerData.phone,
+        full_name: firstContactPerson.name,
+        phone: (firstContactPerson.phones && firstContactPerson.phones.length > 0) 
+          ? firstContactPerson.phones[0] 
+          : brokerData.phone,
         user_type: 'broker' as const,
         is_active: brokerData.is_active !== undefined ? brokerData.is_active : true,
         created_by: req.user?.userId,
@@ -155,7 +165,7 @@ export class BrokerController {
       const brokerResponse: BrokerResponse = {
         id: broker.id,
         business_name: broker.business_name,
-        contact_person: broker.contact_person,
+        contact_persons: broker.contact_persons,
         email: broker.email,
         phone: broker.phone,
         address: broker.address,
@@ -221,7 +231,7 @@ export class BrokerController {
       const brokerResponse: BrokerResponse = {
         id: broker.id,
         business_name: broker.business_name,
-        contact_person: broker.contact_person,
+        contact_persons: broker.contact_persons,
         email: broker.email,
         phone: broker.phone,
         address: broker.address,
@@ -362,13 +372,18 @@ export class BrokerController {
    */
   async createFromPAN(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const { pan_number, business_name, contact_person, email, phone, address, type, broker_details } = req.body;
+      const { pan_number, business_name, contact_persons, email, phone, address, type, broker_details } = req.body;
 
       // Validate required fields (PAN gives less info, so we need more input)
       const quickCreateSchema = Joi.object({
         pan_number: Joi.string().required().length(10),
         business_name: Joi.string().optional().min(2).max(255),
-        contact_person: Joi.string().required().min(2).max(255),
+        contact_persons: Joi.array().items(
+          Joi.object({
+            name: Joi.string().required().min(2).max(255),
+            phones: Joi.array().items(Joi.string().max(20)).required().min(1)
+          })
+        ).required().min(1),
         email: Joi.string().required().email(),
         phone: Joi.string().required().max(20),
         address: Joi.object({
@@ -412,7 +427,7 @@ export class BrokerController {
       // Create broker with fetched + provided data
       const brokerData: CreateBrokerDTO = {
         business_name: business_name || mappedData.business_name,
-        contact_person,
+        contact_persons,
         email,
         phone,
         address,
@@ -431,7 +446,7 @@ export class BrokerController {
       const brokerResponse: BrokerResponse = {
         id: broker.id,
         business_name: broker.business_name,
-        contact_person: broker.contact_person,
+        contact_persons: broker.contact_persons,
         email: broker.email,
         phone: broker.phone,
         address: broker.address,
