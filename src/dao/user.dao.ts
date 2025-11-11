@@ -70,6 +70,22 @@ export class UserDAO {
     return result.rows[0] || null;
   }
 
+  async findByPhone(normalizedPhoneE164Digits: string): Promise<User | null> {
+    // normalizedPhoneE164Digits expected like 91XXXXXXXXXX
+    const nationalTen = normalizedPhoneE164Digits.slice(-10);
+    const query = `
+      SELECT id, username, email, password_hash, full_name, phone, user_type,
+             is_active, last_login, created_at, updated_at, created_by, updated_by,
+             custom_permissions
+      FROM users
+      WHERE is_active = true
+        AND regexp_replace(COALESCE(phone, ''), '[^0-9]', '', 'g') IN ($1, $2)
+      LIMIT 1
+    `;
+    const result = await db.query<User>(query, [normalizedPhoneE164Digits, nationalTen]);
+    return result.rows[0] || null;
+  }
+
   async create(userData: CreateUserDTO): Promise<User> {
     const hashedPassword = await bcrypt.hash(userData.password, appConfig.security.bcryptRounds);
     

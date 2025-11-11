@@ -1,0 +1,208 @@
+================================================================================
+VENDOR EXISTENCE CHECK API - FRONTEND IMPLEMENTATION PROMPT
+================================================================================
+
+IMPLEMENTATION TASK:
+Create a function/service to check if a vendor exists by GST or PAN number before creating a new vendor/lead. This prevents duplicate vendor creation.
+
+================================================================================
+API ENDPOINT DETAILS
+================================================================================
+
+ENDPOINT:
+GET /api/v1/vendors/checkExists
+
+AUTHENTICATION:
+Required - Include Bearer token in Authorization header
+
+QUERY PARAMETERS:
+- gst_number (optional): string (15 characters, format: 27ABCDE1234F1Z5)
+- pan_number (optional): string (10 characters, format: ABCDE1234F)
+- At least one parameter is required
+
+REQUEST EXAMPLE:
+GET /api/v1/vendors/checkExists?gst_number=27ABCDE1234F1Z5
+GET /api/v1/vendors/checkExists?pan_number=ABCDE1234F
+GET /api/v1/vendors/checkExists?gst_number=27ABCDE1234F1Z5&pan_number=ABCDE1234F
+
+================================================================================
+SUCCESS RESPONSES
+================================================================================
+
+VENDOR EXISTS (200):
+{
+  "success": true,
+  "message": "Vendor found",
+  "data": {
+    "exists": true,
+    "vendor": {
+      "id": "uuid",
+      "business_name": "Example Business Pvt Ltd",
+      "contact_person": "John Doe",
+      "email": "contact@example.com",
+      "phone": "+91-9876543210",
+      "address": {
+        "street": "123 Main Street",
+        "city": "Mumbai",
+        "state": "Maharashtra",
+        "pincode": "400001",
+        "country": "India"
+      },
+      "business_details": {
+        "gst_number": "27ABCDE1234F1Z5",
+        "pan_number": "ABCDE1234F",
+        "registration_number": "123456",
+        "business_type": "company"
+      },
+      "bank_details": {
+        "account_holder_name": "Example Business",
+        "account_number": "1234567890",
+        "ifsc_code": "BANK0001234",
+        "bank_name": "Example Bank",
+        "branch": "Mumbai Main"
+      },
+      "type": "both",
+      "is_active": true,
+      "created_at": "2025-01-15T10:00:00.000Z",
+      "updated_at": "2025-01-15T10:00:00.000Z",
+      "last_enquiry_date": null
+    }
+  },
+  "timestamp": "2025-01-15T10:30:00.000Z"
+}
+
+VENDOR DOES NOT EXIST (200):
+{
+  "success": true,
+  "message": "Vendor not found",
+  "data": {
+    "exists": false,
+    "vendor": null
+  },
+  "timestamp": "2025-01-15T10:30:00.000Z"
+}
+
+================================================================================
+ERROR RESPONSES
+================================================================================
+
+400 - VALIDATION ERROR:
+{
+  "success": false,
+  "message": "Either GST number or PAN number is required",
+  "error": "ValidationError",
+  "timestamp": "2025-01-15T10:30:00.000Z"
+}
+
+400 - INVALID FORMAT:
+{
+  "success": false,
+  "message": "Invalid GST number format. Expected format: 27ABCDE1234F1Z5",
+  "error": "ValidationError",
+  "timestamp": "2025-01-15T10:30:00.000Z"
+}
+
+401 - UNAUTHORIZED:
+{
+  "success": false,
+  "message": "Unauthorized",
+  "error": "AuthenticationError",
+  "timestamp": "2025-01-15T10:30:00.000Z"
+}
+
+================================================================================
+IMPLEMENTATION REQUIREMENTS
+================================================================================
+
+1. CREATE API SERVICE FUNCTION:
+   - Function name: checkVendorExists
+   - Parameters: { gstNumber?: string, panNumber?: string }
+   - Returns: Promise with response containing { exists: boolean, vendor: VendorResponse | null }
+   - Handle errors appropriately
+
+2. INTEGRATION WITH VENDOR/LEAD CREATION FLOW:
+   - Before creating a new vendor/lead, call checkVendorExists
+   - If vendor exists (exists: true):
+     * Show message to user: "Vendor already exists with this GST/PAN"
+     * Display existing vendor details
+     * Optionally allow user to use existing vendor or cancel creation
+   - If vendor does not exist (exists: false):
+     * Proceed with vendor/lead creation flow
+
+3. VALIDATION:
+   - Validate GST format: 15 characters, alphanumeric
+   - Validate PAN format: 10 characters, alphanumeric
+   - Ensure at least one parameter (GST or PAN) is provided before API call
+
+4. ERROR HANDLING:
+   - Handle network errors
+   - Handle validation errors (show user-friendly messages)
+   - Handle authentication errors (redirect to login if needed)
+
+5. LOADING STATES:
+   - Show loading indicator while checking vendor existence
+   - Disable form submission during check
+
+================================================================================
+EXAMPLE IMPLEMENTATION STRUCTURE
+================================================================================
+
+// API Service Function
+async function checkVendorExists(gstNumber?: string, panNumber?: string) {
+  // Validate at least one parameter exists
+  // Build query string
+  // Make API call with authentication
+  // Return response
+}
+
+// Usage in Vendor/Lead Creation Form
+async function handleVendorCheck() {
+  // Get GST/PAN from form
+  // Call checkVendorExists
+  // Handle response:
+  //   - If exists: show existing vendor info, prevent creation
+  //   - If not exists: allow creation to proceed
+}
+
+// Integration with form submission
+async function handleFormSubmit() {
+  // 1. Check vendor existence first
+  // 2. If exists, show error and stop
+  // 3. If not exists, proceed with creation
+}
+
+================================================================================
+USAGE SCENARIOS
+================================================================================
+
+SCENARIO 1: Check by GST before creating lead
+- User enters GST number in lead creation form
+- On blur/change, call checkVendorExists with GST
+- If vendor exists, show existing vendor details and prevent duplicate lead
+- If vendor doesn't exist, allow lead creation
+
+SCENARIO 2: Check by PAN before creating vendor
+- User enters PAN number in vendor creation form
+- Before form submission, call checkVendorExists with PAN
+- If vendor exists, show error message and existing vendor info
+- If vendor doesn't exist, proceed with vendor creation
+
+SCENARIO 3: Check by both GST and PAN
+- User has both GST and PAN numbers
+- Call checkVendorExists with both parameters
+- API checks GST first, then PAN if GST not found
+- Return result based on which identifier matches
+
+================================================================================
+NOTES
+================================================================================
+
+- This endpoint is designed to prevent duplicate vendor creation
+- Always check vendor existence before creating new vendors/leads
+- The endpoint validates GST/PAN format before checking database
+- If both GST and PAN are provided, GST is checked first
+- Response includes full vendor details if found, useful for pre-filling forms
+- Use this check in both vendor creation and lead creation flows
+
+================================================================================
+

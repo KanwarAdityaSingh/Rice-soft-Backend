@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { authController } from '../controllers/auth.controller';
 import { authenticate } from '../middleware/auth.middleware';
+import { requestOtpLimiter, verifyOtpLimiter } from '../middleware/rate-limit.middleware';
 
 const router = Router();
 
@@ -10,6 +11,20 @@ const router = Router();
  * @access  Public
  */
 router.post('/loginUser', authController.login.bind(authController));
+
+/**
+ * @route   POST /api/v1/auth/requestOtp
+ * @desc    Request OTP for passwordless login
+ * @access  Public
+ */
+router.post('/requestOtp', requestOtpLimiter, authController.requestOtp.bind(authController));
+
+/**
+ * @route   POST /api/v1/auth/verifyOtp
+ * @desc    Verify OTP and login
+ * @access  Public
+ */
+router.post('/verifyOtp', verifyOtpLimiter, authController.verifyOtp.bind(authController));
 
 /**
  * @route   POST /api/v1/auth/logoutUser

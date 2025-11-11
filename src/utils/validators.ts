@@ -23,6 +23,27 @@ export const changePasswordSchema = Joi.object({
   new_password: Joi.string().required().min(6).max(100),
 });
 
+// OTP login schemas
+// Accept Indian numbers: either 10 digits or 12 digits starting with 91, optional separators are removed client-side
+const phoneSchema = Joi.string()
+  .required()
+  .custom((value, helpers) => {
+    const digits = value.replace(/\D/g, '');
+    if ((digits.startsWith('91') && digits.length === 12) || digits.length === 10) {
+      return value;
+    }
+    return helpers.error('string.pattern.base', { name: 'phone' });
+  }, 'Indian phone validation');
+
+export const requestOtpSchema = Joi.object({
+  phone: phoneSchema,
+});
+
+export const verifyOtpSchema = Joi.object({
+  phone: phoneSchema,
+  otp: Joi.string().required().pattern(/^[0-9]{6}$/),
+});
+
 export const createUserSchema = Joi.object({
   username: Joi.string().required().min(3).max(100),
   email: Joi.string().optional().allow(null, '').email(),

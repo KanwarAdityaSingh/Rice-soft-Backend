@@ -4,11 +4,12 @@ import { LoginHistoryDAO } from '../dao/login-history.dao';
 import { JWTService } from '../utils/jwt';
 import * as UAParser from 'ua-parser-js';
 import { ResponseHandler } from '../utils/response';
-import { validate, loginSchema, changePasswordSchema } from '../utils/validators';
+import { validate, loginSchema, changePasswordSchema, requestOtpSchema, verifyOtpSchema } from '../utils/validators';
 import { UnauthorizedError, NotFoundError, BadRequestError } from '../utils/errors';
 import { LoginDTO, LoginResponse, UserResponse } from '../models/user.model';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { logger } from '../utils/logger';
+import { otpService } from '../services/otp.service';
 
 export class AuthController {
   private loginHistoryDAO = new LoginHistoryDAO();
@@ -230,8 +231,125 @@ export class AuthController {
       next(error);
     }
   }
+
+  async requestOtp(req: Request, res: Response, _next: NextFunction): Promise<Response | void> {
+    try {
+      const { phone } = validate<{ phone: string }>(requestOtpSchema, req.body);
+      const userAgent = req.get('user-agent') || '';
+      const ipAddress = req.ip || req.socket.remoteAddress || '';
+      await otpService.generateAndSend(phone, { ipAddress, userAgent });
+      return ResponseHandler.success(res, { sent: true }, 'If the phone exists, an OTP has been sent', 202);
+    } catch (error) {
+      // For security, return 202 even in most errors to avoid enumeration
+      logger.warn('requestOtp encountered an error; responding generically', { error });
+      return ResponseHandler.success(res, { sent: true }, 'If the phone exists, an OTP has been sent', 202);
+    }
+  }
+
+  async verifyOtp(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const { phone, otp } = validate<{ phone: string; otp: string }>(verifyOtpSchema, req.body);
+
+      // Extract device and browser info from request
+      const userAgent = req.get('user-agent') || '';
+      const parser = new UAParser.UAParser(userAgent);
+      const browser = parser.getBrowser();
+      const os = parser.getOS();
+      const device = parser.getDevice();
+
+      // Get IP address
+      const ipAddress = req.ip || req.socket.remoteAddress || '';
+
+      // Attempt verification (may throw)
+      const { userId } = await otpService.verifyOtp(phone, otp);
+
+      // Get user information
+      const userInfo = await userDAO.findById(userId);
+      if (!userInfo) {
+        throw new UnauthorizedError('User not found');
+      }
+
+      // Log successful login
+      await this.loginHistoryDAO.create({
+        user_id: userInfo.id,
+        ip_address: ipAddress,
+        user_agent: userAgent,
+        device_type: device.type || 'desktop',
+        browser: `${browser.name} ${browser.version}`,
+        operating_system: `${os.name} ${os.version}`,
+        login_status: 'success',
+      });
+
+      // Update last login
+      await userDAO.updateLastLogin(userInfo.id);
+
+      // Generate JWT token
+      const token = JWTService.generateToken({
+        userId: userInfo.id,
+        username: userInfo.username,
+      });
+
+      const userResponse: UserResponse = {
+        id: userInfo.id,
+        username: userInfo.username,
+        email: userInfo.email,
+        full_name: userInfo.full_name,
+        phone: userInfo.phone,
+        user_type: userInfo.user_type,
+        is_active: userInfo.is_active,
+        last_login: userInfo.last_login?.toISOString() || null,
+        created_at: userInfo.created_at.toISOString(),
+        updated_at: userInfo.updated_at.toISOString(),
+      };
+
+      const permissions = (userInfo as any).custom_permissions || null;
+
+      const response: LoginResponse = {
+        user: userResponse,
+        token,
+        expires_in: '24h',
+        permissions,
+      };
+
+      logger.info('User logged in via OTP', { userId: userInfo.id, username: userInfo.username });
+
+      return ResponseHandler.success(res, response, 'Login successful');
+    } catch (error: any) {
+      try {
+        // Attempt to log failed OTP verification if we can resolve a user by phone
+        const phoneRaw = req.body?.phone as string | undefined;
+        if (phoneRaw) {
+          // Reuse otpService normalization
+          const normalizedPhone = otpService.normalizePhone(phoneRaw);
+          const user = await userDAO.findByPhone(normalizedPhone);
+          if (user) {
+            const userAgent = req.get('user-agent') || '';
+            const parser = new UAParser.UAParser(userAgent);
+            const browser = parser.getBrowser();
+            const os = parser.getOS();
+            const device = parser.getDevice();
+            const ipAddress = req.ip || req.socket.remoteAddress || '';
+            await this.loginHistoryDAO.create({
+              user_id: user.id,
+              ip_address: ipAddress,
+              user_agent: userAgent,
+              device_type: device.type || 'desktop',
+              browser: `${browser.name} ${browser.version}`,
+              operating_system: `${os.name} ${os.version}`,
+              login_status: 'failed',
+              failure_reason: error?.message || 'OTP verification failed',
+            });
+          }
+        }
+      } catch (logErr) {
+        // Swallow logging errors
+        logger.warn('Failed to log OTP verification failure', { logErr });
+      }
+      return next(error);
+    }
+  }
 }
 
 export const authController = new AuthController();
 
-
+ 

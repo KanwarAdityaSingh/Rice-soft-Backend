@@ -1,0 +1,61 @@
+Frontend Deployment Prompt
+
+Context
+- Backend is live behind Apache path: https://adhraamrit.com/temporary-api/v1
+- Use this as the API base URL until api.adhraamrit.com is provisioned.
+
+Temporary Frontend URL (no DNS)
+- The frontend is served at: http://3.6.49.120:8081
+- It reads the API at: https://adhraamrit.com/temporary-api/v1
+
+Environment
+- Set your frontend API base URL env var accordingly (pick the one your stack uses):
+  - VITE_API_BASE_URL=https://adhraamrit.com/temporary-api/v1
+  - NEXT_PUBLIC_API_BASE_URL=https://adhraamrit.com/temporary-api/v1
+  - REACT_APP_API_BASE_URL=https://adhraamrit.com/temporary-api/v1
+
+Build
+1) npm ci
+2) npm run build
+   - Output directory assumed: dist/ (adjust if your framework differs)
+
+SSH and Upload
+1) SSH:
+   ssh -i ~/aws_keys/santkripa.pem ubuntu@3.6.49.120
+
+2) Upload build from local machine:
+   scp -i ~/aws_keys/santkripa.pem -r dist/ ubuntu@3.6.49.120:/tmp/frontend-dist
+
+Publish to Apache (on server)
+1) Create/refresh site directory:
+   sudo mkdir -p /var/www/html/riceops
+   sudo rsync -a --delete /tmp/frontend-dist/ /var/www/html/riceops/
+
+2) Enable SPA routing (if single-page app):
+   # For port 8081 root deployment
+   printf '%s\n' \
+   'RewriteEngine On' \
+   'RewriteBase /' \
+   'RewriteRule ^index\\.html$ - [L]' \
+   'RewriteCond %{REQUEST_FILENAME} !-f' \
+   'RewriteCond %{REQUEST_FILENAME} !-d' \
+   'RewriteRule . /index.html [L]' \
+   | sudo tee /var/www/html/riceops/.htaccess >/dev/null
+   sudo a2enmod rewrite && sudo systemctl reload apache2
+
+3) Open the app:
+   http://3.6.49.120:8081
+
+Later (move to subdomains)
+- Create DNS A records (GoDaddy for adhraamrit.com):
+  - api.adhraamrit.com → 3.6.49.120
+  - riceops.adhraamrit.com → 3.6.49.120
+- After api.adhraamrit.com resolves to the EC2, we will issue TLS and switch the frontend API base URL to:
+  - https://api.adhraamrit.com/v1
+- After riceops.adhraamrit.com resolves, we will provision an Apache vhost and serve the frontend at that domain.
+
+Notes
+- Keep your SSH private key with chmod 400 and never commit PEMs to git.
+- If your build output is not dist/, replace dist/ in the commands above.
+
+

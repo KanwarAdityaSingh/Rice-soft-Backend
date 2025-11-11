@@ -43,6 +43,19 @@ export const appConfig = {
       clientId: process.env.MASTERS_INDIA_CLIENT_ID || '',
       clientSecret: process.env.MASTERS_INDIA_CLIENT_SECRET || '',
     },
+    kaleyra: {
+      url: process.env.KALEYRA_BASE_URL || 'https://api.kaleyra.io/v1/HXAP1679900797IN/messages',
+      apiKey: process.env.KALEYRA_API_KEY || 'A7817538772624b312d23974ca14997bb',
+      senderId: process.env.KALEYRA_SENDER_ID || 'SNTKRI',
+      templateId: process.env.KALEYRA_TEMPLATE_ID || '1007162144526914389',
+    },
+  },
+  
+  otp: {
+    ttlMinutes: parseInt(process.env.OTP_TTL_MINUTES || '30', 10),
+    length: parseInt(process.env.OTP_LENGTH || '6', 10),
+    maxAttempts: parseInt(process.env.OTP_MAX_ATTEMPTS || '5', 10),
+    resendCooldownSec: parseInt(process.env.OTP_RESEND_COOLDOWN_SEC || '45', 10),
   },
 };
 

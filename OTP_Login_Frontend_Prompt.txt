@@ -1,0 +1,854 @@
+            ================================================================================
+OTP LOGIN FRONTEND IMPLEMENTATION GUIDE
+================================================================================
+
+This guide provides all technical details needed to implement OTP-based passwordless
+login in the frontend. Focus on logic and functionality only - no styling required.
+
+================================================================================
+SECTION 1: OTP LOGIN OVERVIEW
+================================================================================
+
+Login Flow Options:
+1. Password Login (existing) - Username + Password
+2. OTP Login (new) - Phone Number + OTP via SMS
+
+OTP Login Flow:
+1. User enters phone number → Request OTP
+2. OTP sent via SMS to user's phone
+3. User enters 6-digit OTP → Verify OTP
+4. On success: Receive JWT token (same as password login)
+5. Store token and redirect to dashboard
+
+Key Features:
+- OTP expires in 30 minutes
+- OTP can be attempted 5 times before requiring new OTP
+- Resend cooldown: 45 seconds between requests
+- Generic success message (prevents user enumeration)
+- Same JWT token structure as password login
+- Login history tracked for OTP logins
+
+IMPORTANT:
+- Phone number format: Accept 10-digit Indian numbers (e.g., 9876543210)
+- Backend normalizes to 91XXXXXXXXXX format automatically
+- Always show generic "OTP sent" message (even if phone doesn't exist)
+- OTP is 6 digits numeric only
+- Rate limiting: 5 requests per minute per IP+phone for requestOtp
+- Rate limiting: 10 requests per 15 minutes per IP+phone for verifyOtp
+
+
+================================================================================
+SECTION 2: REQUEST OTP ENDPOINT
+================================================================================
+
+API ENDPOINT:
+POST http://localhost:3000/api/v1/auth/requestOtp
+
+HEADERS:
+Content-Type: application/json
+
+REQUEST BODY:
+{
+  "phone": "9876543210"  // 10-digit Indian phone number (required)
+}
+
+SUCCESS RESPONSE (202 Accepted):
+{
+  "success": true,
+  "message": "If the phone exists, an OTP has been sent",
+  "data": {
+    "sent": true
+  },
+  "timestamp": "2025-11-11T09:19:14.402Z"
+}
+
+ERROR RESPONSE (400 Bad Request):
+{
+  "success": false,
+  "message": "Validation failed",
+  "error": "\"phone\" is required",
+  "timestamp": "2025-11-11T09:19:14.402Z"
+}
+
+ERROR RESPONSE (429 Too Many Requests):
+{
+  "success": false,
+  "message": "Too many requests",
+  "error": "Too many OTP requests. Please try again later.",
+  "timestamp": "2025-11-11T09:19:14.402Z"
+}
+
+FRONTEND LOGIC:
+
+1. VALIDATION:
+   - Phone must be exactly 10 digits (Indian format)
+   - Strip spaces, dashes, parentheses before validation
+   - Show error if phone is not 10 digits
+   - Example valid formats: "9876543210", "98765 43210", "(987) 654-3210"
+   - Normalize to digits only before sending: "9876543210"
+
+2. STATE MANAGEMENT:
+   - Track: phoneNumber (string), isLoading (boolean), error (string | null)
+   - Track: canResend (boolean), resendCooldownSeconds (number)
+   - Track: otpSent (boolean) - to show OTP input screen
+
+3. API CALL:
+   - Show loading state while requesting
+   - Disable submit button during request
+   - Always show success message: "OTP sent to your phone if the number exists"
+   - Don't reveal if phone exists or not (security)
+
+4. RESEND COOLDOWN:
+   - After successful request, start 45-second countdown timer
+   - Disable "Resend OTP" button during cooldown
+   - Show countdown: "Resend in 45s", "Resend in 44s", etc.
+   - After cooldown, enable resend button
+   - Resend uses same endpoint (requestOtp)
+
+5. ERROR HANDLING:
+   - 400: Show validation error (phone format)
+   - 429: Show "Too many requests. Please wait X seconds."
+   - Network error: Show "Unable to send OTP. Please check your connection."
+   - Always allow retry after error
+
+6. SUCCESS FLOW:
+   - Show success message
+   - Switch to OTP input screen
+   - Start 30-minute expiry countdown (optional UI)
+   - Start 45-second resend cooldown timer
+
+
+================================================================================
+SECTION 3: VERIFY OTP ENDPOINT
+================================================================================
+
+API ENDPOINT:
+POST http://localhost:3000/api/v1/auth/verifyOtp
+
+HEADERS:
+Content-Type: application/json
+
+REQUEST BODY:
+{
+  "phone": "9876543210",  // Same phone used in requestOtp
+  "otp": "123456"         // 6-digit OTP code (required)
+}
+
+SUCCESS RESPONSE (200 OK):
+{
+  "success": true,
+  "message": "Login successful",
+  "data": {
+    "user": {
+      "id": "uuid",
+      "username": "string",
+      "email": "string",
+      "full_name": "string",
+      "phone": "9876543210",
+      "user_type": "vendor" | "broker" | "salesman" | "admin" | "custom",
+      "is_active": true,
+      "last_login": "2025-11-11T09:20:28.436Z",
+      "created_at": "ISO date string",
+      "updated_at": "ISO date string"
+    },
+    "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "expires_in": "24h",
+    "permissions": {
+      "broker": { "read": false, "create": true, "delete": false, "update": false },
+      "vendor": { "read": false, "create": true, "delete": false, "update": false },
+      "salesman": { "read": true, "create": true, "delete": true, "update": true }
+    }
+  },
+  "timestamp": "2025-11-11T09:20:28.436Z"
+}
+
+ERROR RESPONSE (401 Unauthorized):
+{
+  "success": false,
+  "error": "Invalid OTP" | "OTP expired or not found" | "Too many invalid attempts",
+  "timestamp": "2025-11-11T09:19:32.572Z"
+}
+
+ERROR RESPONSE (400 Bad Request):
+{
+  "success": false,
+  "message": "Validation failed",
+  "error": "\"otp\" must be 6 digits",
+  "timestamp": "2025-11-11T09:19:32.572Z"
+}
+
+ERROR RESPONSE (429 Too Many Requests):
+{
+  "success": false,
+  "message": "Too many requests",
+  "error": "Too many verification attempts. Please try again later.",
+  "timestamp": "2025-11-11T09:19:32.572Z"
+}
+
+FRONTEND LOGIC:
+
+1. VALIDATION:
+   - OTP must be exactly 6 digits
+   - Only numeric characters allowed
+   - Auto-format: Remove non-numeric characters
+   - Show error if OTP is not 6 digits
+   - Phone must match the one used in requestOtp
+
+2. STATE MANAGEMENT:
+   - Track: otp (string), phoneNumber (string), isLoading (boolean)
+   - Track: error (string | null), attemptsRemaining (number, default: 5)
+   - Track: isExpired (boolean) - for 30-minute expiry
+   - Store phoneNumber from requestOtp step
+
+3. OTP INPUT UI:
+   - Use 6 separate input fields OR single input with maxLength=6
+   - Auto-focus next field when digit entered (if using separate fields)
+   - Auto-submit when 6 digits entered (optional)
+   - Allow paste of 6-digit code
+   - Show character count: "3/6" or similar
+
+4. API CALL:
+   - Show loading state during verification
+   - Disable submit button during request
+   - Decrement attemptsRemaining on error
+   - Track attempts to show "X attempts remaining"
+
+5. SUCCESS HANDLING:
+   - Store JWT token (same as password login)
+   - Store user data in auth context/state
+   - Store permissions if needed
+   - Clear OTP input fields
+   - Redirect to dashboard/home
+   - Show success message (optional)
+
+6. ERROR HANDLING:
+   - "Invalid OTP": 
+     * Clear OTP input
+     * Show error: "Invalid OTP. Please try again."
+     * Decrement attempts counter
+     * Show "X attempts remaining"
+   
+   - "OTP expired or not found":
+     * Show error: "OTP has expired. Please request a new one."
+     * Allow user to go back and request new OTP
+     * Clear current OTP state
+   
+   - "Too many invalid attempts":
+     * Show error: "Too many failed attempts. Please request a new OTP."
+     * Disable OTP input
+     * Show "Request New OTP" button
+     * Reset attempts counter after new OTP requested
+   
+   - 429 Rate Limit:
+     * Show: "Too many verification attempts. Please wait X seconds."
+     * Disable submit button with countdown
+   
+   - Network error:
+     * Show: "Unable to verify OTP. Please check your connection."
+     * Allow retry
+
+7. ATTEMPTS TRACKING:
+   - Start with 5 attempts remaining
+   - Show: "5 attempts remaining", "4 attempts remaining", etc.
+   - After 5 failed attempts, require new OTP
+   - Reset attempts when new OTP is requested
+
+8. EXPIRY HANDLING:
+   - Optional: Show 30-minute countdown timer
+   - If expired, show message: "OTP expired. Request a new one."
+   - Auto-disable submit if expired (client-side check)
+   - Backend will also reject expired OTPs
+
+
+================================================================================
+SECTION 4: LOGIN PAGE UI STRUCTURE
+================================================================================
+
+COMPONENT STRUCTURE:
+
+LoginPage Component:
+  ├── TabSelector (Password | OTP)
+  ├── PasswordLoginForm (existing)
+  └── OTPLoginForm (new)
+      ├── PhoneInputStep
+      │   ├── PhoneInput
+      │   ├── RequestOtpButton
+      │   └── SuccessMessage
+      └── OTPVerificationStep
+          ├── OTPInput (6 digits)
+          ├── VerifyButton
+          ├── ResendOtpButton (with cooldown)
+          ├── ErrorMessage
+          └── AttemptsCounter
+
+STATE FLOW:
+
+1. INITIAL STATE:
+   - activeTab: "password" | "otp"
+   - otpStep: "phone" | "verify"
+   - phoneNumber: ""
+   - otp: ""
+   - isLoading: false
+   - error: null
+   - otpSent: false
+   - canResend: false
+   - resendCooldown: 0
+   - attemptsRemaining: 5
+
+2. PHONE INPUT STEP:
+   - User enters phone
+   - Clicks "Send OTP"
+   - API call: requestOtp
+   - On success: otpSent = true, otpStep = "verify"
+   - Start resend cooldown timer
+
+3. OTP VERIFICATION STEP:
+   - User enters 6-digit OTP
+   - Clicks "Verify OTP" or auto-submits
+   - API call: verifyOtp
+   - On success: Store token, redirect
+   - On error: Show error, decrement attempts
+
+4. RESEND FLOW:
+   - User clicks "Resend OTP"
+   - Check cooldown (must be 0)
+   - API call: requestOtp (same endpoint)
+   - Reset cooldown timer
+   - Clear previous OTP input
+   - Reset attempts counter
+
+
+================================================================================
+SECTION 5: VALIDATION RULES
+================================================================================
+
+PHONE NUMBER VALIDATION:
+- Required field
+- Must be exactly 10 digits (Indian format)
+- Accept formats: "9876543210", "98765 43210", "(987) 654-3210", "+91 9876543210"
+- Strip all non-numeric characters before validation
+- Show error: "Please enter a valid 10-digit phone number"
+- Normalize to digits only: "9876543210"
+
+OTP VALIDATION:
+- Required field
+- Must be exactly 6 digits
+- Only numeric characters (0-9)
+- Auto-remove non-numeric characters
+- Show error: "OTP must be 6 digits"
+- Format: "123456" (no spaces, dashes, etc.)
+
+CLIENT-SIDE VALIDATION:
+- Validate before API call
+- Show inline errors
+- Disable submit if invalid
+- Clear errors on input change
+
+
+================================================================================
+SECTION 6: ERROR MESSAGES
+================================================================================
+
+PHONE REQUEST ERRORS:
+- "Please enter a valid 10-digit phone number" (validation)
+- "If the phone exists, an OTP has been sent" (always show on 202)
+- "Too many requests. Please wait X seconds." (429)
+- "Unable to send OTP. Please check your connection." (network)
+
+OTP VERIFICATION ERRORS:
+- "Please enter a valid 6-digit OTP" (validation)
+- "Invalid OTP. Please try again. (X attempts remaining)" (401 - invalid)
+- "OTP has expired. Please request a new one." (401 - expired)
+- "Too many failed attempts. Please request a new OTP." (401 - max attempts)
+- "Too many verification attempts. Please wait X seconds." (429)
+- "Unable to verify OTP. Please check your connection." (network)
+
+
+================================================================================
+SECTION 7: TIMERS & COUNTDOWNS
+================================================================================
+
+RESEND COOLDOWN TIMER:
+- Duration: 45 seconds
+- Start after successful requestOtp
+- Display: "Resend OTP in 45s", "Resend OTP in 44s", etc.
+- When 0: Show "Resend OTP" button (enabled)
+- Update every second
+- Clear on component unmount
+
+OTP EXPIRY TIMER (Optional):
+- Duration: 30 minutes (1800 seconds)
+- Start after successful requestOtp
+- Display: "OTP expires in 29:45", "OTP expires in 29:44", etc.
+- When 0: Show "OTP expired" message
+- Disable submit button when expired
+- Update every second
+
+IMPLEMENTATION:
+- Use setInterval for countdown
+- Clear interval on component unmount
+- Use useEffect cleanup
+- Format: MM:SS or "X minutes remaining"
+
+
+================================================================================
+SECTION 8: API SERVICE IMPLEMENTATION
+================================================================================
+
+TYPESCRIPT INTERFACES:
+
+interface RequestOtpRequest {
+  phone: string;
+}
+
+interface RequestOtpResponse {
+  success: boolean;
+  message: string;
+  data: {
+    sent: boolean;
+  };
+  timestamp: string;
+}
+
+interface VerifyOtpRequest {
+  phone: string;
+  otp: string;
+}
+
+interface VerifyOtpResponse {
+  success: boolean;
+  message: string;
+  data: {
+    user: User;
+    token: string;
+    expires_in: string;
+    permissions: CustomPermissions | null;
+  };
+  timestamp: string;
+}
+
+API SERVICE FUNCTIONS:
+
+// Request OTP
+async function requestOtp(phone: string): Promise<RequestOtpResponse> {
+  const normalizedPhone = phone.replace(/\D/g, ''); // Remove non-digits
+  
+  if (normalizedPhone.length !== 10) {
+    throw new Error('Phone must be 10 digits');
+  }
+  
+  const response = await api.post<RequestOtpResponse>('/auth/requestOtp', {
+    phone: normalizedPhone,
+  });
+  
+  return response.data;
+}
+
+// Verify OTP
+async function verifyOtp(phone: string, otp: string): Promise<VerifyOtpResponse> {
+  const normalizedPhone = phone.replace(/\D/g, '');
+  const normalizedOtp = otp.replace(/\D/g, '');
+  
+  if (normalizedPhone.length !== 10) {
+    throw new Error('Phone must be 10 digits');
+  }
+  
+  if (normalizedOtp.length !== 6) {
+    throw new Error('OTP must be 6 digits');
+  }
+  
+  const response = await api.post<VerifyOtpResponse>('/auth/verifyOtp', {
+    phone: normalizedPhone,
+    otp: normalizedOtp,
+  });
+  
+  return response.data;
+}
+
+ERROR HANDLING:
+
+try {
+  const result = await requestOtp(phone);
+  // Handle success
+} catch (error) {
+  if (axios.isAxiosError(error)) {
+    if (error.response?.status === 429) {
+      // Rate limit - show countdown
+    } else if (error.response?.status === 400) {
+      // Validation error
+    } else {
+      // Other error
+    }
+  } else {
+    // Network error
+  }
+}
+
+
+================================================================================
+SECTION 9: STATE MANAGEMENT PATTERNS
+================================================================================
+
+USING REACT HOOKS:
+
+const [phoneNumber, setPhoneNumber] = useState('');
+const [otp, setOtp] = useState('');
+const [otpStep, setOtpStep] = useState<'phone' | 'verify'>('phone');
+const [isLoading, setIsLoading] = useState(false);
+const [error, setError] = useState<string | null>(null);
+const [otpSent, setOtpSent] = useState(false);
+const [canResend, setCanResend] = useState(false);
+const [resendCooldown, setResendCooldown] = useState(0);
+const [attemptsRemaining, setAttemptsRemaining] = useState(5);
+
+// Resend cooldown timer
+useEffect(() => {
+  if (resendCooldown > 0) {
+    const timer = setTimeout(() => {
+      setResendCooldown(resendCooldown - 1);
+    }, 1000);
+    return () => clearTimeout(timer);
+  } else {
+    setCanResend(true);
+  }
+}, [resendCooldown]);
+
+// Phone normalization
+const normalizePhone = (phone: string): string => {
+  return phone.replace(/\D/g, '');
+};
+
+// OTP normalization
+const normalizeOtp = (otp: string): string => {
+  return otp.replace(/\D/g, '').slice(0, 6);
+};
+
+USING CONTEXT (if needed):
+
+interface OtpLoginContextType {
+  phoneNumber: string;
+  setPhoneNumber: (phone: string) => void;
+  otpStep: 'phone' | 'verify';
+  setOtpStep: (step: 'phone' | 'verify') => void;
+  requestOtp: (phone: string) => Promise<void>;
+  verifyOtp: (otp: string) => Promise<void>;
+  resendOtp: () => Promise<void>;
+  resetOtpFlow: () => void;
+}
+
+
+================================================================================
+SECTION 10: COMPONENT IMPLEMENTATION EXAMPLES
+================================================================================
+
+PHONE INPUT COMPONENT:
+
+function PhoneInputStep({ onOtpSent }: { onOtpSent: () => void }) {
+  const [phone, setPhone] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  
+  const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value.replace(/\D/g, '').slice(0, 10);
+    setPhone(value);
+    setError(null);
+  };
+  
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (phone.length !== 10) {
+      setError('Please enter a valid 10-digit phone number');
+      return;
+    }
+    
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      await requestOtp(phone);
+      onOtpSent();
+      // Show success message
+    } catch (err) {
+      // Handle error
+      setError('Unable to send OTP. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  
+  return (
+    <form onSubmit={handleSubmit}>
+      <input
+        type="tel"
+        value={phone}
+        onChange={handlePhoneChange}
+        placeholder="Enter 10-digit phone number"
+        maxLength={10}
+        disabled={isLoading}
+      />
+      {error && <div>{error}</div>}
+      <button type="submit" disabled={isLoading || phone.length !== 10}>
+        {isLoading ? 'Sending...' : 'Send OTP'}
+      </button>
+    </form>
+  );
+}
+
+OTP INPUT COMPONENT:
+
+function OTPVerificationStep({ phone }: { phone: string }) {
+  const [otp, setOtp] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [attemptsRemaining, setAttemptsRemaining] = useState(5);
+  
+  const handleOtpChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value.replace(/\D/g, '').slice(0, 6);
+    setOtp(value);
+    setError(null);
+  };
+  
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (otp.length !== 6) {
+      setError('Please enter a valid 6-digit OTP');
+      return;
+    }
+    
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      const response = await verifyOtp(phone, otp);
+      // Store token
+      localStorage.setItem('token', response.data.token);
+      // Store user data
+      // Redirect to dashboard
+    } catch (err: any) {
+      if (err.response?.status === 401) {
+        const errorMsg = err.response.data.error;
+        if (errorMsg.includes('expired')) {
+          setError('OTP has expired. Please request a new one.');
+        } else if (errorMsg.includes('Too many')) {
+          setError('Too many failed attempts. Please request a new OTP.');
+          setAttemptsRemaining(0);
+        } else {
+          setAttemptsRemaining(prev => {
+            const newAttempts = prev - 1;
+            if (newAttempts === 0) {
+              setError('Too many failed attempts. Please request a new OTP.');
+            } else {
+              setError(`Invalid OTP. ${newAttempts} attempts remaining.`);
+            }
+            return newAttempts;
+          });
+        }
+      } else {
+        setError('Unable to verify OTP. Please try again.');
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  
+  return (
+    <form onSubmit={handleSubmit}>
+      <input
+        type="text"
+        value={otp}
+        onChange={handleOtpChange}
+        placeholder="Enter 6-digit OTP"
+        maxLength={6}
+        disabled={isLoading || attemptsRemaining === 0}
+      />
+      {error && <div>{error}</div>}
+      {attemptsRemaining > 0 && (
+        <div>{attemptsRemaining} attempts remaining</div>
+      )}
+      <button 
+        type="submit" 
+        disabled={isLoading || otp.length !== 6 || attemptsRemaining === 0}
+      >
+        {isLoading ? 'Verifying...' : 'Verify OTP'}
+      </button>
+    </form>
+  );
+}
+
+
+================================================================================
+SECTION 11: INTEGRATION WITH EXISTING AUTH
+================================================================================
+
+TOKEN STORAGE:
+- Use same storage mechanism as password login
+- Store in localStorage/sessionStorage (same as current implementation)
+- Token format and expiry same as password login (24 hours)
+
+AUTH CONTEXT:
+- Use same auth context/state management
+- Same user object structure
+- Same permissions structure
+- Same logout logic
+
+REDIRECT LOGIC:
+- Same redirect after successful login
+- Same protected route logic
+- Same token refresh logic (if implemented)
+
+API INTERCEPTORS:
+- Same axios interceptors
+- Same token injection
+- Same 401 handling (redirect to login)
+
+
+================================================================================
+SECTION 12: TESTING CHECKLIST
+================================================================================
+
+PHONE INPUT:
+□ Enter 10-digit phone → Success
+□ Enter 9-digit phone → Show validation error
+□ Enter 11-digit phone → Show validation error
+□ Enter non-numeric → Auto-remove, show only digits
+□ Submit with empty phone → Show validation error
+□ Submit with valid phone → Show success, switch to OTP step
+□ Rate limit (5 requests) → Show rate limit error
+□ Network error → Show network error, allow retry
+
+OTP REQUEST:
+□ Success response → Show generic "OTP sent" message
+□ Start 45-second resend cooldown
+□ Switch to OTP verification step
+□ Store phone number for verification
+
+OTP VERIFICATION:
+□ Enter 6-digit OTP → Success, store token, redirect
+□ Enter 5-digit OTP → Show validation error
+□ Enter 7-digit OTP → Auto-truncate to 6 digits
+□ Enter invalid OTP → Show error, decrement attempts
+□ Enter expired OTP → Show expired message
+□ 5 failed attempts → Show "request new OTP" message
+□ Rate limit → Show rate limit error with countdown
+□ Network error → Show network error, allow retry
+
+RESEND OTP:
+□ Click resend during cooldown → Button disabled
+□ Click resend after cooldown → New OTP sent
+□ Resend resets attempts counter
+□ Resend clears previous OTP input
+
+INTEGRATION:
+□ OTP login stores token same as password login
+□ OTP login redirects to same dashboard
+□ OTP login user data same structure
+□ Logout works same for both login methods
+□ Protected routes work with OTP login token
+
+
+================================================================================
+SECTION 13: SECURITY CONSIDERATIONS
+================================================================================
+
+1. NEVER reveal if phone exists:
+   - Always show "OTP sent" message (even if phone doesn't exist)
+   - Don't show different messages for existing vs non-existing phones
+   - This prevents user enumeration attacks
+
+2. RATE LIMITING:
+   - Respect rate limits from backend
+   - Show countdown timers for rate limit errors
+   - Don't allow rapid-fire requests
+
+3. OTP HANDLING:
+   - Never log OTP to console
+   - Clear OTP from state after successful login
+   - Clear OTP from state on component unmount
+   - Don't store OTP in localStorage
+
+4. PHONE NUMBER:
+   - Normalize before sending (digits only)
+   - Don't store raw phone with formatting
+   - Clear phone from state after successful login (optional)
+
+5. ERROR MESSAGES:
+   - Don't reveal system internals in errors
+   - Use generic error messages
+   - Don't expose API structure in errors
+
+
+================================================================================
+SECTION 14: ADDITIONAL NOTES
+================================================================================
+
+PHONE NUMBER FORMATS ACCEPTED:
+- "9876543210" (10 digits)
+- "98765 43210" (with space)
+- "(987) 654-3210" (with formatting)
+- "+91 9876543210" (with country code)
+- All will be normalized to "9876543210" before sending
+
+OTP FORMATS ACCEPTED:
+- "123456" (6 digits)
+- "123 456" (with space - auto-remove)
+- "123-456" (with dash - auto-remove)
+- All will be normalized to "123456" before sending
+
+BACKEND NORMALIZATION:
+- Backend automatically normalizes phone to 91XXXXXXXXXX format
+- Frontend should send 10-digit number, backend handles country code
+- Backend handles phone matching (flexible format matching)
+
+TAB SWITCHING:
+- User can switch between Password and OTP tabs
+- Switching tabs should clear OTP state
+- Switching tabs should reset to phone input step
+- Don't persist OTP state across tab switches
+
+PERSISTENCE:
+- Don't persist OTP or phone in localStorage
+- Don't persist OTP state across page refreshes
+- User must complete OTP flow in single session
+- If page refreshes, user must start over
+
+ACCESSIBILITY:
+- Label all inputs properly
+- Show error messages clearly
+- Disable buttons with clear indication
+- Show loading states
+- Support keyboard navigation
+
+
+================================================================================
+SECTION 15: API ENDPOINTS SUMMARY
+================================================================================
+
+REQUEST OTP:
+POST /api/v1/auth/requestOtp
+Body: { phone: "9876543210" }
+Response: 202 Accepted
+Rate Limit: 5 requests/minute per IP+phone
+
+VERIFY OTP:
+POST /api/v1/auth/verifyOtp
+Body: { phone: "9876543210", otp: "123456" }
+Response: 200 OK (with token) or 401 Unauthorized
+Rate Limit: 10 requests/15 minutes per IP+phone
+
+Both endpoints are public (no authentication required).
+
+
+================================================================================
+END OF OTP LOGIN FRONTEND GUIDE
+================================================================================
+
+For backend API details, refer to:
+- API_TESTING.md for curl examples
+- FRONTEND_API_INTEGRATION_GUIDE.txt for general API patterns
+
+Implementation focus: Logic and functionality only - no styling required.
+Backend API version: 1.0.0
+Last updated: 2025-11-11
+
