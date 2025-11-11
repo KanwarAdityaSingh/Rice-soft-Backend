@@ -64,7 +64,8 @@ export class LeadDAO {
       SELECT id, company_name, contact_persons, email, phone, address, business_details,
              is_existing_customer, lead_status, customer_status, assigned_to, broker_id, rice_code_id,
              rice_type, created_by, updated_by, created_at, updated_at, notes, priority,
-             source, estimated_value, expected_close_date, revenue, salesman_latitude, salesman_longitude
+             source, estimated_value, expected_close_date, revenue, salesman_latitude, salesman_longitude,
+             google_location_link
       FROM leads
       WHERE 1=1
     `;
@@ -103,7 +104,8 @@ export class LeadDAO {
       SELECT id, company_name, contact_persons, email, phone, address, business_details,
              is_existing_customer, lead_status, customer_status, assigned_to, broker_id, rice_code_id,
              rice_type, created_by, updated_by, created_at, updated_at, notes, priority,
-             source, estimated_value, expected_close_date, revenue, salesman_latitude, salesman_longitude
+             source, estimated_value, expected_close_date, revenue, salesman_latitude, salesman_longitude,
+             google_location_link
       FROM leads
       WHERE id = $1
     `;
@@ -116,7 +118,8 @@ export class LeadDAO {
       SELECT id, company_name, contact_persons, email, phone, address, business_details,
              is_existing_customer, lead_status, customer_status, assigned_to, broker_id, rice_code_id,
              rice_type, created_by, updated_by, created_at, updated_at, notes, priority,
-             source, estimated_value, expected_close_date, revenue, salesman_latitude, salesman_longitude
+             source, estimated_value, expected_close_date, revenue, salesman_latitude, salesman_longitude,
+             google_location_link
       FROM leads
       WHERE email = $1
     `;
@@ -129,7 +132,8 @@ export class LeadDAO {
       SELECT id, company_name, contact_persons, email, phone, address, business_details,
              is_existing_customer, lead_status, customer_status, assigned_to, broker_id, rice_code_id,
              rice_type, created_by, updated_by, created_at, updated_at, notes, priority,
-             source, estimated_value, expected_close_date, revenue, salesman_latitude, salesman_longitude
+             source, estimated_value, expected_close_date, revenue, salesman_latitude, salesman_longitude,
+             google_location_link
       FROM leads
       WHERE assigned_to = $1
       ORDER BY priority DESC, created_at DESC
@@ -143,12 +147,13 @@ export class LeadDAO {
       INSERT INTO leads (company_name, contact_persons, email, phone, address, business_details,
                         is_existing_customer, lead_status, customer_status, assigned_to, broker_id, rice_code_id,
                         rice_type, created_by, notes, priority, source, estimated_value,
-                        expected_close_date, revenue, salesman_latitude, salesman_longitude)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
+                        expected_close_date, revenue, salesman_latitude, salesman_longitude, google_location_link)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
       RETURNING id, company_name, contact_persons, email, phone, address, business_details,
                 is_existing_customer, lead_status, customer_status, assigned_to, broker_id, rice_code_id,
                 rice_type, created_by, updated_by, created_at, updated_at, notes, priority,
-                source, estimated_value, expected_close_date, revenue, salesman_latitude, salesman_longitude
+                source, estimated_value, expected_close_date, revenue, salesman_latitude, salesman_longitude,
+                google_location_link
     `;
     
     const values = [
@@ -173,7 +178,8 @@ export class LeadDAO {
       leadData.expected_close_date || null,
       leadData.revenue || null,
       leadData.salesman_latitude || null,
-      leadData.salesman_longitude || null
+      leadData.salesman_longitude || null,
+      leadData.google_location_link || null
     ];
 
     const result = await db.query<any>(query, values);
@@ -282,6 +288,10 @@ export class LeadDAO {
       fields.push(`salesman_longitude = $${paramCount++}`);
       values.push(leadData.salesman_longitude || null);
     }
+    if (leadData.google_location_link !== undefined) {
+      fields.push(`google_location_link = $${paramCount++}`);
+      values.push(leadData.google_location_link || null);
+    }
 
     if (fields.length === 0) {
       return this.findById(id);
@@ -297,7 +307,8 @@ export class LeadDAO {
       RETURNING id, company_name, contact_persons, email, phone, address, business_details,
                 is_existing_customer, lead_status, customer_status, assigned_to, broker_id, rice_code_id,
                 rice_type, created_by, updated_by, created_at, updated_at, notes, priority,
-                source, estimated_value, expected_close_date, revenue, salesman_latitude, salesman_longitude
+                source, estimated_value, expected_close_date, revenue, salesman_latitude, salesman_longitude,
+                google_location_link
     `;
 
     const result = await db.query<any>(query, values);

@@ -24,6 +24,7 @@ import { AuthRequest } from '../middleware/auth.middleware';
 import { VendorDAO } from '../dao/vendor.dao';
 import { UserDAO } from '../dao/user.dao';
 import { SalesmanDAO } from '../dao/salesman.dao';
+import { extractCoordinates } from '../utils/location-parser';
 
 const leadDAO = new LeadDAO();
 const leadEventDAO = new LeadEventDAO();
@@ -76,6 +77,7 @@ export class LeadController {
         revenue: lead.revenue,
         salesman_latitude: lead.salesman_latitude,
         salesman_longitude: lead.salesman_longitude,
+        google_location_link: lead.google_location_link,
       }));
 
       return ResponseHandler.success(res, leadResponses);
@@ -120,6 +122,7 @@ export class LeadController {
         revenue: lead.revenue,
         salesman_latitude: lead.salesman_latitude,
         salesman_longitude: lead.salesman_longitude,
+        google_location_link: lead.google_location_link,
       };
 
       return ResponseHandler.success(res, leadResponse);
@@ -167,6 +170,17 @@ export class LeadController {
         // If user exists, it's already a valid user_id, so we can proceed
       }
 
+      // Parse Google Maps location link and extract coordinates if provided
+      // If google_location_link is provided, extract lat/long and set salesman_latitude/longitude
+      // Only override if coordinates weren't explicitly provided
+      if (leadData.google_location_link && (!leadData.salesman_latitude || !leadData.salesman_longitude)) {
+        const coordinates = extractCoordinates(leadData.google_location_link);
+        if (coordinates) {
+          leadData.salesman_latitude = coordinates.latitude;
+          leadData.salesman_longitude = coordinates.longitude;
+        }
+      }
+
       // Set created_by from authenticated user
       if (req.user) {
         leadData.created_by = req.user.userId;
@@ -211,9 +225,10 @@ export class LeadController {
         source: lead.source,
         estimated_value: lead.estimated_value,
         expected_close_date: lead.expected_close_date?.toISOString() || null,
-        revenue: lead.revenue,
-        salesman_latitude: lead.salesman_latitude,
-        salesman_longitude: lead.salesman_longitude,
+      revenue: lead.revenue,
+      salesman_latitude: lead.salesman_latitude,
+      salesman_longitude: lead.salesman_longitude,
+      google_location_link: lead.google_location_link,
       };
 
       return ResponseHandler.created(res, leadResponse, 'Lead created successfully');
@@ -266,6 +281,17 @@ export class LeadController {
           }
         }
         // If user exists, it's already a valid user_id, so we can proceed
+      }
+
+      // Parse Google Maps location link and extract coordinates if provided
+      // If google_location_link is provided, extract lat/long and set salesman_latitude/longitude
+      // Only override if coordinates weren't explicitly provided
+      if (leadData.google_location_link && (!leadData.salesman_latitude || !leadData.salesman_longitude)) {
+        const coordinates = extractCoordinates(leadData.google_location_link);
+        if (coordinates) {
+          leadData.salesman_latitude = coordinates.latitude;
+          leadData.salesman_longitude = coordinates.longitude;
+        }
       }
 
       // Set updated_by from authenticated user
@@ -333,6 +359,7 @@ export class LeadController {
         revenue: lead.revenue,
         salesman_latitude: lead.salesman_latitude,
         salesman_longitude: lead.salesman_longitude,
+        google_location_link: lead.google_location_link,
       };
 
       return ResponseHandler.success(res, leadResponse, 'Lead updated successfully');

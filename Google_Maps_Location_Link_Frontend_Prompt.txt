@@ -1,0 +1,280 @@
+================================================================================
+GOOGLE MAPS LOCATION LINK FEATURE - FRONTEND IMPLEMENTATION
+================================================================================
+
+OVERVIEW:
+The backend now supports storing Google Maps location links/Plus Codes for leads and vendors.
+When a Google Maps link is provided, the backend automatically extracts latitude/longitude
+coordinates from it. This allows users to paste a Google Maps URL instead of manually
+entering coordinates.
+
+================================================================================
+BACKEND API CHANGES
+================================================================================
+
+1. NEW FIELD:
+   - Field name: `google_location_link` (string, optional, max 500 chars)
+   - Available in: Lead create/update, Vendor create/update endpoints
+
+2. BEHAVIOR:
+   - For LEADS: If `google_location_link` is provided AND `salesman_latitude`/`salesman_longitude`
+     are NOT provided, the backend automatically extracts coordinates from the link and sets
+     `salesman_latitude` and `salesman_longitude`.
+   - For VENDORS: The `google_location_link` is stored as-is (no coordinate extraction yet).
+
+3. RESPONSE:
+   - All lead/vendor responses now include `google_location_link: string | null`
+
+================================================================================
+FRONTEND IMPLEMENTATION REQUIREMENTS
+================================================================================
+
+1. LEAD CREATE/UPDATE FORMS
+================================================================================
+
+CURRENT STATE:
+- Forms likely have fields for `salesman_latitude` and `salesman_longitude`
+- These are probably number inputs or GPS coordinate inputs
+
+REQUIRED CHANGES:
+
+A. Add Google Maps Link Input Field:
+   - Add a new input field: "Google Maps Location Link" or "Location Link"
+   - Field type: text/url input
+   - Placeholder: "Paste Google Maps link or Plus Code"
+   - Optional field (not required)
+   - Max length: 500 characters
+   - Field name: `google_location_link`
+
+B. Coordinate Input Logic:
+   - Keep existing `salesman_latitude` and `salesman_longitude` fields
+   - Add logic: If user provides `google_location_link`, show a message:
+     "Coordinates will be automatically extracted from the link"
+   - If user manually enters coordinates, those take priority
+   - If user provides both link AND coordinates, coordinates take priority (backend behavior)
+
+C. Validation:
+   - If `google_location_link` is provided, validate it's a valid URL or Plus Code format
+   - Optional: Show a preview/validation message when user pastes a link
+   - Optional: Extract and display coordinates from link on frontend for preview
+
+D. Form Submission:
+   - Include `google_location_link` in the request payload
+   - If user provided link but not coordinates, send only `google_location_link`
+   - If user provided both, send both (coordinates will be used)
+
+E. Form Display:
+   - Show `google_location_link` in lead detail/view pages
+   - If link exists, make it clickable to open in Google Maps
+   - Display format: "Location: [Link]" or show as a button "Open in Google Maps"
+
+================================================================================
+
+2. VENDOR CREATE/UPDATE FORMS
+================================================================================
+
+REQUIRED CHANGES:
+
+A. Add Google Maps Link Input Field:
+   - Same as leads: Add "Google Maps Location Link" input field
+   - Optional field
+   - Max length: 500 characters
+   - Field name: `google_location_link`
+
+B. Form Submission:
+   - Include `google_location_link` in vendor create/update payloads
+
+C. Form Display:
+   - Show `google_location_link` in vendor detail/view pages
+   - Make it clickable to open in Google Maps
+
+================================================================================
+
+3. API INTEGRATION
+================================================================================
+
+LEAD ENDPOINTS:
+- POST /api/v1/leads/createLead
+- PUT /api/v1/leads/updateLead/:id
+
+Request Body (add to existing):
+{
+  ...existing fields...,
+  "google_location_link": "https://maps.google.com/?q=28.46764925,77.0816261" // optional
+}
+
+Response (already includes):
+{
+  ...existing fields...,
+  "google_location_link": "https://maps.google.com/?q=28.46764925,77.0816261" | null,
+  "salesman_latitude": 28.46764925, // auto-extracted if link provided
+  "salesman_longitude": 77.0816261  // auto-extracted if link provided
+}
+
+VENDOR ENDPOINTS:
+- POST /api/v1/vendors/createVendor
+- PUT /api/v1/vendors/updateVendor/:id
+
+Request Body (add to existing):
+{
+  ...existing fields...,
+  "google_location_link": "https://maps.google.com/?q=28.46764925,77.0816261" // optional
+}
+
+Response (already includes):
+{
+  ...existing fields...,
+  "google_location_link": "https://maps.google.com/?q=28.46764925,77.0816261" | null
+}
+
+================================================================================
+
+4. USER EXPERIENCE FLOW
+================================================================================
+
+SCENARIO 1: User provides Google Maps link only
+- User pastes link in "Google Maps Location Link" field
+- System shows: "Coordinates will be extracted automatically"
+- User submits form
+- Backend extracts coordinates and stores both link and coordinates
+- Response includes both `google_location_link` and `salesman_latitude`/`salesman_longitude`
+
+SCENARIO 2: User provides both link and coordinates
+- User pastes link AND manually enters coordinates
+- Coordinates take priority (backend behavior)
+- Both are stored, but coordinates are used for location
+
+SCENARIO 3: User provides coordinates only
+- User manually enters coordinates (existing behavior)
+- No link stored
+- Works as before
+
+SCENARIO 4: User provides neither
+- Both fields optional
+- No location data stored
+
+================================================================================
+
+5. UI COMPONENTS NEEDED
+================================================================================
+
+A. Input Field Component:
+   - Text/URL input for Google Maps link
+   - Optional validation for URL format
+   - Helper text: "Paste a Google Maps share link or Plus Code"
+
+B. Link Display Component:
+   - Show stored `google_location_link` in detail views
+   - Make it clickable (opens in new tab)
+   - Format: Button or link text "Open Location in Google Maps"
+
+C. Coordinate Preview (Optional Enhancement):
+   - If user pastes a link, optionally extract and show coordinates on frontend
+   - Display: "Detected coordinates: 28.46764925, 77.0816261"
+   - This is just for preview - backend will do the actual extraction
+
+================================================================================
+
+6. VALIDATION RULES
+================================================================================
+
+- `google_location_link`: 
+  - Optional field
+  - If provided, should be a valid URL or Plus Code format
+  - Max length: 500 characters
+  - Common formats to accept:
+    * https://maps.google.com/?q=lat,lng
+    * https://www.google.com/maps/place/.../@lat,lng
+    * https://goo.gl/maps/...
+    * https://maps.app.goo.gl/...
+    * Plus Code format: "8FVC+2X Mumbai" or similar
+
+================================================================================
+
+7. ERROR HANDLING
+================================================================================
+
+- If backend fails to extract coordinates from link:
+  - Backend will still store the link
+  - Coordinates will remain null
+  - Frontend should handle this gracefully (show link but no coordinates)
+
+- If invalid link format:
+  - Frontend validation should catch this before submission
+  - Show error: "Invalid Google Maps link format"
+
+================================================================================
+
+8. TESTING CHECKLIST
+================================================================================
+
+- [ ] Lead create form accepts `google_location_link`
+- [ ] Lead update form accepts `google_location_link`
+- [ ] Vendor create form accepts `google_location_link`
+- [ ] Vendor update form accepts `google_location_link`
+- [ ] Link is displayed in lead detail view
+- [ ] Link is displayed in vendor detail view
+- [ ] Link opens correctly in Google Maps when clicked
+- [ ] Coordinates are auto-extracted when only link is provided (for leads)
+- [ ] Manual coordinates take priority when both are provided
+- [ ] Form validation works for invalid link formats
+- [ ] Empty/null link is handled correctly
+
+================================================================================
+
+9. EXAMPLE IMPLEMENTATION
+================================================================================
+
+LEAD CREATE FORM:
+```typescript
+// Add to form state
+const [googleLocationLink, setGoogleLocationLink] = useState<string>('');
+
+// Add to form JSX
+<TextField
+  label="Google Maps Location Link"
+  name="google_location_link"
+  value={googleLocationLink}
+  onChange={(e) => setGoogleLocationLink(e.target.value)}
+  placeholder="Paste Google Maps link or Plus Code"
+  helperText="Coordinates will be automatically extracted from the link"
+  fullWidth
+  optional
+/>
+
+// Add to submit payload
+const payload = {
+  ...otherFields,
+  google_location_link: googleLocationLink || undefined,
+  // salesman_latitude and salesman_longitude can still be provided manually
+};
+```
+
+LEAD DETAIL VIEW:
+```typescript
+{lead.google_location_link && (
+  <Button
+    href={lead.google_location_link}
+    target="_blank"
+    rel="noopener noreferrer"
+  >
+    Open Location in Google Maps
+  </Button>
+)}
+```
+
+================================================================================
+
+10. NOTES
+================================================================================
+
+- The backend automatically handles coordinate extraction - frontend doesn't need to do this
+- Both `google_location_link` and manual coordinates can coexist
+- For leads, coordinates are extracted automatically if link is provided and coordinates aren't already set
+- The link is stored for reference even if coordinates are extracted
+- Plus Code support is prepared in backend but may need additional library for full support
+
+================================================================================
+END OF PROMPT
+================================================================================
+

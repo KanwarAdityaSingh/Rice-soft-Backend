@@ -6,7 +6,8 @@ export class VendorDAO {
   async findAll(includeInactive = false, type?: VendorType): Promise<Vendor[]> {
     let query = `
       SELECT id, business_name, contact_person, email, phone, address, business_details, 
-             bank_details, type, is_active, user_id, created_at, updated_at, created_by, updated_by
+             bank_details, type, is_active, user_id, created_at, updated_at, created_by, updated_by,
+             last_enquiry_date, google_location_link
       FROM vendors
       WHERE 1=1
     `;
@@ -33,7 +34,7 @@ export class VendorDAO {
     const query = `
       SELECT id, business_name, contact_person, email, phone, address, business_details,
              bank_details, type, is_active, user_id, created_at, updated_at, created_by, updated_by,
-             last_enquiry_date
+             last_enquiry_date, google_location_link
       FROM vendors
       WHERE id = $1
     `;
@@ -44,7 +45,8 @@ export class VendorDAO {
   async findByEmail(email: string): Promise<Vendor | null> {
     const query = `
       SELECT id, business_name, contact_person, email, phone, address, business_details,
-             bank_details, type, is_active, created_at, updated_at, created_by, updated_by
+             bank_details, type, is_active, created_at, updated_at, created_by, updated_by,
+             last_enquiry_date, google_location_link
       FROM vendors
       WHERE email = $1
     `;
@@ -55,7 +57,8 @@ export class VendorDAO {
   async findByGST(gstNumber: string): Promise<Vendor | null> {
     const query = `
       SELECT id, business_name, contact_person, email, phone, address, business_details,
-             bank_details, type, is_active, created_at, updated_at, created_by, updated_by
+             bank_details, type, is_active, created_at, updated_at, created_by, updated_by,
+             last_enquiry_date, google_location_link
       FROM vendors
       WHERE business_details->>'gst_number' = $1
     `;
@@ -66,7 +69,8 @@ export class VendorDAO {
   async findByPAN(panNumber: string): Promise<Vendor | null> {
     const query = `
       SELECT id, business_name, contact_person, email, phone, address, business_details,
-             bank_details, type, is_active, created_at, updated_at, created_by, updated_by
+             bank_details, type, is_active, created_at, updated_at, created_by, updated_by,
+             last_enquiry_date, google_location_link
       FROM vendors
       WHERE business_details->>'pan_number' = $1
     `;
@@ -77,10 +81,11 @@ export class VendorDAO {
   async create(vendorData: CreateVendorDTO & { user_id?: string }): Promise<Vendor> {
     const query = `
       INSERT INTO vendors (business_name, contact_person, email, phone, address, business_details, 
-                          bank_details, type, is_active, created_by, user_id)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                          bank_details, type, is_active, created_by, user_id, google_location_link)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
       RETURNING id, business_name, contact_person, email, phone, address, business_details,
-                bank_details, type, is_active, user_id, created_at, updated_at, created_by, updated_by
+                bank_details, type, is_active, user_id, created_at, updated_at, created_by, updated_by,
+                last_enquiry_date, google_location_link
     `;
     
     const values = [
@@ -94,7 +99,8 @@ export class VendorDAO {
       vendorData.type,
       vendorData.is_active !== undefined ? vendorData.is_active : true,
       vendorData.created_by || null,
-      vendorData.user_id || null
+      vendorData.user_id || null,
+      vendorData.google_location_link || null
     ];
 
     const result = await db.query<Vendor>(query, values);
@@ -164,6 +170,11 @@ export class VendorDAO {
       values.push(vendorData.updated_by);
     }
 
+    if (vendorData.google_location_link !== undefined) {
+      updateFields.push(`google_location_link = $${paramCount++}`);
+      values.push(vendorData.google_location_link || null);
+    }
+
     if (updateFields.length === 0) {
       return await this.findById(id);
     }
@@ -176,7 +187,8 @@ export class VendorDAO {
       SET ${updateFields.join(', ')}
       WHERE id = $${paramCount}
       RETURNING id, business_name, contact_person, email, phone, address, business_details,
-                bank_details, type, is_active, created_at, updated_at, created_by, updated_by
+                bank_details, type, is_active, created_at, updated_at, created_by, updated_by,
+                last_enquiry_date, google_location_link
     `;
 
     const result = await db.query<Vendor>(query, values);

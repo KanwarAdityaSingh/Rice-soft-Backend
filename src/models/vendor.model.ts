@@ -40,6 +40,7 @@ export interface Vendor {
   created_by: string | null;
   updated_by: string | null;
   last_enquiry_date: Date | null;
+  google_location_link: string | null;
 }
 
 
@@ -56,6 +57,7 @@ export interface CreateVendorDTO {
   created_by?: string;
   user_id?: string;
   lead_id?: string;
+  google_location_link?: string;
 }
 
 export interface UpdateVendorDTO {
@@ -70,6 +72,7 @@ export interface UpdateVendorDTO {
   is_active?: boolean;
   lead_id?: string;
   updated_by?: string;
+  google_location_link?: string;
 }
 
 export interface VendorResponse {
@@ -86,5 +89,6 @@ export interface VendorResponse {
   created_at: string;
   updated_at: string;
   last_enquiry_date: string | null;
+  google_location_link: string | null;
 }
 

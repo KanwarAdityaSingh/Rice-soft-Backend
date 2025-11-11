@@ -40,6 +40,7 @@ export class VendorController {
         created_at: vendor.created_at.toISOString(),
         updated_at: vendor.updated_at.toISOString(),
         last_enquiry_date: vendor.last_enquiry_date?.toISOString() || null,
+        google_location_link: vendor.google_location_link,
       }));
 
       return ResponseHandler.success(res, vendorResponses);
@@ -71,6 +72,7 @@ export class VendorController {
         created_at: vendor.created_at.toISOString(),
         updated_at: vendor.updated_at.toISOString(),
         last_enquiry_date: vendor.last_enquiry_date?.toISOString() || null,
+        google_location_link: vendor.google_location_link,
       };
 
       return ResponseHandler.success(res, vendorResponse);
@@ -172,6 +174,7 @@ export class VendorController {
         created_at: vendor.created_at.toISOString(),
         updated_at: vendor.updated_at.toISOString(),
         last_enquiry_date: vendor.last_enquiry_date?.toISOString() || null,
+        google_location_link: vendor.google_location_link,
       };
 
       return ResponseHandler.created(res, vendorResponse, 'Vendor created successfully');
@@ -239,6 +242,7 @@ export class VendorController {
         created_at: vendor.created_at.toISOString(),
         updated_at: vendor.updated_at.toISOString(),
         last_enquiry_date: vendor.last_enquiry_date?.toISOString() || null,
+        google_location_link: vendor.google_location_link,
       };
 
       return ResponseHandler.success(res, vendorResponse, 'Vendor updated successfully');
@@ -398,6 +402,7 @@ export class VendorController {
         created_at: vendor.created_at.toISOString(),
         updated_at: vendor.updated_at.toISOString(),
         last_enquiry_date: vendor.last_enquiry_date?.toISOString() || null,
+        google_location_link: vendor.google_location_link,
       };
 
       return ResponseHandler.created(res, vendorResponse, 'Vendor created from GST successfully');
@@ -488,6 +493,7 @@ export class VendorController {
         created_at: vendor.created_at.toISOString(),
         updated_at: vendor.updated_at.toISOString(),
         last_enquiry_date: vendor.last_enquiry_date?.toISOString() || null,
+        google_location_link: vendor.google_location_link,
       };
 
       return ResponseHandler.created(res, vendorResponse, 'Vendor created from PAN successfully');
@@ -544,6 +550,7 @@ export class VendorController {
           created_at: vendor.created_at.toISOString(),
           updated_at: vendor.updated_at.toISOString(),
           last_enquiry_date: vendor.last_enquiry_date?.toISOString() || null,
+          google_location_link: vendor.google_location_link,
         };
 
         return ResponseHandler.success(res, {
