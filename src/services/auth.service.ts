@@ -5,6 +5,7 @@ import * as UAParser from 'ua-parser-js';
 import { UnauthorizedError, NotFoundError, BadRequestError } from '../utils/errors';
 import { LoginDTO, User } from '../models/user.model';
 import { logger } from '../utils/logger';
+import { randomUUID } from 'crypto';
 
 export interface LoginContext {
   userAgent: string;
@@ -49,6 +50,12 @@ export class AuthService {
       throw new UnauthorizedError('Invalid credentials');
     }
 
+    // Generate unique session ID
+    const sessionId = randomUUID();
+
+    // Update active session - invalidates all previous sessions
+    await userDAO.updateActiveSession(user.id, sessionId);
+
     // Log successful login
     await this.logLoginAttempt(user.id, context, 'success');
 
@@ -61,10 +68,11 @@ export class AuthService {
       throw new UnauthorizedError('User not found');
     }
 
-    // Generate JWT token
+    // Generate JWT token with session ID
     const token = JWTService.generateToken({
       userId: userInfo.id,
       username: userInfo.username,
+      sessionId,
     });
 
     logger.info('User logged in', { userId: user.id, username: user.username });

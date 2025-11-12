@@ -140,15 +140,17 @@ export class LeadService {
     leadId: string,
     businessData: any,
     userType: string,
-    createdBy: string
+    createdBy: string,
+    businessCardUrl?: string
   ): Promise<{ user: any; vendor: any; conversion: any }> {
     const lead = await leadDAO.findById(leadId);
     if (!lead) {
       throw new NotFoundError('Lead not found');
     }
 
-    // Generate username from contact_person (first part before space, lowercase, remove special chars)
-    let baseUsername = lead.contact_person
+    // Generate username from first contact_person (first part before space, lowercase, remove special chars)
+    const firstContactPerson = lead.contact_persons?.[0]?.name || lead.company_name;
+    let baseUsername = firstContactPerson
       .toLowerCase()
       .split(' ')[0]
       .replace(/[^a-z0-9]/g, '');
@@ -166,7 +168,7 @@ export class LeadService {
       username: username,
       email: lead.email || undefined,
       password: 'TempPassword123!',
-      full_name: lead.contact_person,
+      full_name: firstContactPerson,
       phone: lead.phone || '',
       user_type: userType as any,
       is_active: true,
@@ -178,7 +180,7 @@ export class LeadService {
     // Create vendor
     const vendorData = {
       business_name: businessData.business_name || lead.company_name,
-      contact_person: lead.contact_person,
+      contact_person: firstContactPerson,
       email: lead.email || undefined,
       phone: lead.phone || '',
       address: lead.address || businessData.address,
@@ -189,6 +191,7 @@ export class LeadService {
       user_id: user.id,
       lead_id: leadId,
       created_by: createdBy,
+      business_card_url: businessCardUrl || undefined,
     };
 
     const vendor = await vendorDAO.create(vendorData);

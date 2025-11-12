@@ -10,7 +10,7 @@ export class UserDAO {
       SELECT 
         id, username, email, password_hash, full_name, phone, user_type,
         is_active, last_login, created_at, updated_at, created_by, updated_by,
-        custom_permissions
+        custom_permissions, active_session_id
       FROM users
       WHERE 1=1
     `;
@@ -38,7 +38,7 @@ export class UserDAO {
       SELECT 
         id, username, email, password_hash, full_name, phone, user_type,
         is_active, last_login, created_at, updated_at, created_by, updated_by,
-        custom_permissions
+        custom_permissions, active_session_id
       FROM users
       WHERE id = $1
     `;
@@ -50,7 +50,7 @@ export class UserDAO {
     const query = `
       SELECT id, username, email, password_hash, full_name, phone, user_type,
              is_active, last_login, created_at, updated_at, created_by, updated_by,
-             custom_permissions
+             custom_permissions, active_session_id
       FROM users
       WHERE username = $1
     `;
@@ -62,7 +62,7 @@ export class UserDAO {
     const query = `
       SELECT id, username, email, password_hash, full_name, phone, user_type,
              is_active, last_login, created_at, updated_at, created_by, updated_by,
-             custom_permissions
+             custom_permissions, active_session_id
       FROM users
       WHERE email = $1
     `;
@@ -76,7 +76,7 @@ export class UserDAO {
     const query = `
       SELECT id, username, email, password_hash, full_name, phone, user_type,
              is_active, last_login, created_at, updated_at, created_by, updated_by,
-             custom_permissions
+             custom_permissions, active_session_id
       FROM users
       WHERE is_active = true
         AND regexp_replace(COALESCE(phone, ''), '[^0-9]', '', 'g') IN ($1, $2)
@@ -94,7 +94,7 @@ export class UserDAO {
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
       RETURNING id, username, email, password_hash, full_name, phone, user_type,
                 is_active, last_login, created_at, updated_at, created_by, updated_by,
-                custom_permissions
+                custom_permissions, active_session_id
     `;
     
     const values = [
@@ -172,9 +172,9 @@ export class UserDAO {
       UPDATE users 
       SET ${updateFields.join(', ')}
       WHERE id = $${paramCount}
-      RETURNING id, username, email, password_hash, full_name, phone,
+      RETURNING id, username, email, password_hash, full_name, phone, user_type,
                 is_active, last_login, created_at, updated_at, created_by, updated_by,
-                custom_permissions
+                custom_permissions, active_session_id
     `;
 
     const result = await db.query<User>(query, values);
@@ -232,6 +232,13 @@ export class UserDAO {
     await db.query(query, [hashedPassword, id]);
     
     logger.info('Password updated', { userId: id });
+  }
+
+  async updateActiveSession(userId: string, sessionId: string | null): Promise<void> {
+    const query = 'UPDATE users SET active_session_id = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2';
+    await db.query(query, [sessionId, userId]);
+    
+    logger.info('Active session updated', { userId, sessionId: sessionId ? 'set' : 'cleared' });
   }
 
   async updateCustomPermissions(id: string, permissions: any, updatedBy?: string): Promise<void> {

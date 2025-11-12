@@ -20,6 +20,7 @@ export interface User {
   created_by: string | null;
   updated_by: string | null;
   custom_permissions?: CustomPermissions | null;
+  active_session_id?: string | null;
 }
 
 export interface CreateUserDTO {

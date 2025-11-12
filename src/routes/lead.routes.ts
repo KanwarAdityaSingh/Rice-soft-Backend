@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { LeadController } from '../controllers/lead.controller';
 import { authenticate } from '../middleware/auth.middleware';
+import { businessCardUpload } from '../middleware/upload.middleware';
 
 const router = Router();
 const leadController = new LeadController();
@@ -22,6 +23,6 @@ router.post('/addLeadEvent', leadController.addEvent.bind(leadController));
 
 // Lead conversion routes
 router.post('/convertLead', leadController.convert.bind(leadController));
-router.post('/convertLeadToVendor', leadController.convertLeadToVendor.bind(leadController));
+router.post('/convertLeadToVendor', businessCardUpload.single('business_card'), leadController.convertLeadToVendor.bind(leadController));
 
 export default router;

@@ -10,6 +10,7 @@ import { LoginDTO, LoginResponse, UserResponse } from '../models/user.model';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { logger } from '../utils/logger';
 import { otpService } from '../services/otp.service';
+import { randomUUID } from 'crypto';
 
 export class AuthController {
   private loginHistoryDAO = new LoginHistoryDAO();
@@ -82,6 +83,12 @@ export class AuthController {
         login_status: 'success',
       });
 
+      // Generate unique session ID
+      const sessionId = randomUUID();
+
+      // Update active session - invalidates all previous sessions
+      await userDAO.updateActiveSession(user.id, sessionId);
+
       // Update last login
       await userDAO.updateLastLogin(user.id);
 
@@ -91,10 +98,11 @@ export class AuthController {
         throw new UnauthorizedError('User not found');
       }
 
-      // Generate JWT token
+      // Generate JWT token with session ID
       const token = JWTService.generateToken({
         userId: userInfo.id,
         username: userInfo.username,
+        sessionId,
       });
 
       const userResponse: UserResponse = {
@@ -129,9 +137,9 @@ export class AuthController {
 
   async logout(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      // In a stateless JWT system, logout is handled client-side
-      // Here we just log the action
+      // Clear active session from database
       if (req.user) {
+        await userDAO.updateActiveSession(req.user.userId, null);
         logger.info('User logged out', { userId: req.user.userId });
       }
 
@@ -269,6 +277,12 @@ export class AuthController {
         throw new UnauthorizedError('User not found');
       }
 
+      // Generate unique session ID
+      const sessionId = randomUUID();
+
+      // Update active session - invalidates all previous sessions
+      await userDAO.updateActiveSession(userInfo.id, sessionId);
+
       // Log successful login
       await this.loginHistoryDAO.create({
         user_id: userInfo.id,
@@ -283,10 +297,11 @@ export class AuthController {
       // Update last login
       await userDAO.updateLastLogin(userInfo.id);
 
-      // Generate JWT token
+      // Generate JWT token with session ID
       const token = JWTService.generateToken({
         userId: userInfo.id,
         username: userInfo.username,
+        sessionId,
       });
 
       const userResponse: UserResponse = {

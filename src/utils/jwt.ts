@@ -5,6 +5,7 @@ import { UnauthorizedError } from './errors';
 export interface TokenPayload {
   userId: string;
   username: string;
+  sessionId: string;
 }
 
 export class JWTService {

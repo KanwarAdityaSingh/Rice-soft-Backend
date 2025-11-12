@@ -57,6 +57,16 @@ export const appConfig = {
     maxAttempts: parseInt(process.env.OTP_MAX_ATTEMPTS || '5', 10),
     resendCooldownSec: parseInt(process.env.OTP_RESEND_COOLDOWN_SEC || '45', 10),
   },
+  
+  aws: {
+    region: process.env.AWS_REGION || 'ap-south-1',
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || '',
+    s3: {
+      bucketName: process.env.AWS_S3_BUCKET_NAME || 'rice-soft-uploads',
+      businessCardsFolder: process.env.AWS_S3_BUSINESS_CARDS_FOLDER || 'business-cards',
+    },
+  },
 };
 
 export const isDevelopment = appConfig.env === 'development';

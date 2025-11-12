@@ -25,6 +25,7 @@ import { VendorDAO } from '../dao/vendor.dao';
 import { UserDAO } from '../dao/user.dao';
 import { SalesmanDAO } from '../dao/salesman.dao';
 import { extractCoordinates } from '../utils/location-parser';
+import { uploadToS3, validateFileSize, validateFileType } from '../utils/s3-upload';
 
 const leadDAO = new LeadDAO();
 const leadEventDAO = new LeadEventDAO();
@@ -526,6 +527,22 @@ export class LeadController {
         throw new ValidationError('Email is required to convert lead to vendor');
       }
 
+      // Handle business card upload if provided
+      let businessCardUrl: string | undefined;
+      if (req.file) {
+        try {
+          // Validate file
+          validateFileSize(req.file.size, 5); // 5MB max
+          validateFileType(req.file.mimetype, ['image/jpeg', 'image/jpg', 'image/png', 'image/gif']);
+
+          // Upload to S3
+          const uploadResult = await uploadToS3(req.file.buffer, req.file.originalname);
+          businessCardUrl = uploadResult.url;
+        } catch (uploadError) {
+          throw new ValidationError(`Business card upload failed: ${uploadError instanceof Error ? uploadError.message : 'Unknown error'}`);
+        }
+      }
+
       // 1. Create a new user for the vendor (if not already existing via is_existing_customer)
       let vendorUser;
       const existingVendor = await vendorDAO.findByEmail(lead.email);
@@ -600,6 +617,7 @@ export class LeadController {
           created_by: req.user?.userId,
           user_id: vendorUser?.id, // Link to the newly created or found user
           lead_id: lead.id, // Link to the lead
+          business_card_url: businessCardUrl, // Add business card URL
         };
         vendor = await vendorDAO.create(newVendorData);
       }

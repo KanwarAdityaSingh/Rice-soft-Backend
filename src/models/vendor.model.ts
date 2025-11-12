@@ -42,6 +42,7 @@ export interface Vendor {
   updated_by: string | null;
   last_enquiry_date: Date | null;
   google_location_link: string | null;
+  business_card_url: string | null;
 }
 
 
@@ -59,6 +60,7 @@ export interface CreateVendorDTO {
   user_id?: string;
   lead_id?: string;
   google_location_link?: string;
+  business_card_url?: string;
 }
 
 export interface UpdateVendorDTO {
@@ -74,6 +76,7 @@ export interface UpdateVendorDTO {
   lead_id?: string;
   updated_by?: string;
   google_location_link?: string;
+  business_card_url?: string;
 }
 
 export interface VendorResponse {
@@ -87,10 +90,12 @@ export interface VendorResponse {
   bank_details: BankDetails | null;
   type: VendorType;
   is_active: boolean;
+  user_id: string | null;
   lead_id: string | null;
   created_at: string;
   updated_at: string;
   last_enquiry_date: string | null;
   google_location_link: string | null;
+  business_card_url: string | null;
 }
 
