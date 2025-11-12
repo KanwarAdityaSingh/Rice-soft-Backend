@@ -35,6 +35,7 @@ export interface Vendor {
   type: VendorType;
   is_active: boolean;
   user_id: string | null;
+  lead_id: string | null;
   created_at: Date;
   updated_at: Date;
   created_by: string | null;
@@ -83,6 +84,7 @@ export interface VendorResponse {
   bank_details: BankDetails | null;
   type: VendorType;
   is_active: boolean;
+  lead_id: string | null;
   created_at: string;
   updated_at: string;
   last_enquiry_date: string | null;

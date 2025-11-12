@@ -8,6 +8,7 @@ import leadRoutes from './lead.routes';
 import leaderboardRoutes from './leaderboard.routes';
 import documentRoutes from './document.routes';
 import riceCodeRoutes from './rice-code.routes';
+import pincodeRoutes from './pincode.routes';
 
 const router = Router();
 
@@ -30,6 +31,7 @@ router.use('/leads', leadRoutes);
 router.use('/leaderboard', leaderboardRoutes);
 router.use('/documents', documentRoutes);
 router.use('/riceCodes', riceCodeRoutes);
+router.use('/pincode', pincodeRoutes);
 
 export default router;
 
