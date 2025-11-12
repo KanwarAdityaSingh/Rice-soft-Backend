@@ -51,6 +51,7 @@ export interface Lead {
   revenue: number | null;
   salesman_latitude: number | null;
   salesman_longitude: number | null;
+  google_location_link: string | null;
 }
 //next follow up key and value pair -epoch`
 
@@ -77,6 +78,7 @@ export interface CreateLeadDTO {
   revenue?: number;
   salesman_latitude?: number;
   salesman_longitude?: number;
+  google_location_link?: string;
 }
 
 export interface UpdateLeadDTO {
@@ -102,6 +104,7 @@ export interface UpdateLeadDTO {
   revenue?: number;
   salesman_latitude?: number;
   salesman_longitude?: number;
+  google_location_link?: string;
 }
 
 export interface LeadResponse {
@@ -131,6 +134,7 @@ export interface LeadResponse {
   revenue: number | null;
   salesman_latitude: number | null;
   salesman_longitude: number | null;
+  google_location_link: string | null;
 }
 
 export interface LeadAnalytics {

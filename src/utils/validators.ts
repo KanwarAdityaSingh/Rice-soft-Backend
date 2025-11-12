@@ -149,6 +149,7 @@ export const createVendorSchema = Joi.object({
   bank_details: bankDetailsSchema.optional(),
   type: Joi.string().required().valid('purchaser', 'seller', 'both'),
   is_active: Joi.boolean().optional(),
+  google_location_link: Joi.string().optional().allow(null, '').max(500),
 });
 
 export const updateVendorSchema = Joi.object({
@@ -161,6 +162,7 @@ export const updateVendorSchema = Joi.object({
   bank_details: bankDetailsSchema.optional(),
   type: Joi.string().optional().valid('purchaser', 'seller', 'both'),
   is_active: Joi.boolean().optional(),
+  google_location_link: Joi.string().optional().allow(null, '').max(500),
 }).min(1);
 
 // Broker details validation schema
@@ -272,6 +274,7 @@ export const createLeadSchema = Joi.object({
   expected_close_date: Joi.date().optional(),
   salesman_latitude: Joi.number().optional().allow(null, '').precision(8),
   salesman_longitude: Joi.number().optional().allow(null, '').precision(8),
+  google_location_link: Joi.string().optional().allow(null, '').max(500),
 });
 
 export const updateLeadSchema = Joi.object({
@@ -313,6 +316,7 @@ export const updateLeadSchema = Joi.object({
   revenue: Joi.number().optional().allow(null).min(0),
   salesman_latitude: Joi.number().optional().allow(null).precision(8),
   salesman_longitude: Joi.number().optional().allow(null).precision(8),
+  google_location_link: Joi.string().optional().allow(null, '').max(500),
 }).min(1);
 
 // Lead Event validation schemas
