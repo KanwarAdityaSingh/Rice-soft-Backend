@@ -108,3 +108,5 @@ export class RiceCodeDAO {
   }
 }
 
+export const riceCodeDAO = new RiceCodeDAO();
+

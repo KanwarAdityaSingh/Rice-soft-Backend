@@ -7,6 +7,7 @@ import { logger } from '../utils/logger';
 export interface AuthRequest extends Request {
   user?: TokenPayload;
   isSessionValid?: boolean;
+  file?: Express.Multer.File;
 }
 
 export const authenticate = async (

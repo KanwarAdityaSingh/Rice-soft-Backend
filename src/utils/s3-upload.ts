@@ -66,8 +66,13 @@ export async function uploadToS3(
       bucket: appConfig.aws.s3.bucketName,
     };
   } catch (error) {
-    logger.error('S3 upload failed', { error, originalFilename });
-    throw new Error(`Failed to upload file to S3: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorName = error instanceof Error ? error.name : 'Error';
+    logger.error('S3 upload failed', { 
+      error: { name: errorName, message: errorMessage },
+      originalFilename 
+    });
+    throw new Error(`Failed to upload file to S3: ${errorMessage}`);
   }
 }
 
@@ -87,8 +92,13 @@ export async function deleteFromS3(key: string): Promise<void> {
 
     logger.info('File deleted from S3', { key });
   } catch (error) {
-    logger.error('S3 deletion failed', { error, key });
-    throw new Error(`Failed to delete file from S3: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorName = error instanceof Error ? error.name : 'Error';
+    logger.error('S3 deletion failed', { 
+      error: { name: errorName, message: errorMessage },
+      key 
+    });
+    throw new Error(`Failed to delete file from S3: ${errorMessage}`);
   }
 }
 
@@ -103,7 +113,11 @@ export function extractKeyFromUrl(url: string): string | null {
     // Remove leading slash
     return urlObj.pathname.substring(1);
   } catch (error) {
-    logger.error('Failed to extract key from URL', { error, url });
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    logger.error('Failed to extract key from URL', { 
+      error: errorMessage,
+      url 
+    });
     return null;
   }
 }

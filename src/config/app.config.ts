@@ -65,6 +65,13 @@ export const appConfig = {
     s3: {
       bucketName: process.env.AWS_S3_BUCKET_NAME || 'rice-soft-uploads',
       businessCardsFolder: process.env.AWS_S3_BUSINESS_CARDS_FOLDER || 'business-cards',
+      purchaseBillsFolder: process.env.AWS_S3_PURCHASE_BILLS_FOLDER || 'purchase-bills',
+      transportationBillsFolder: process.env.AWS_S3_TRANSPORTATION_BILLS_FOLDER || 'transportation-bills',
+      biltiFolder: process.env.AWS_S3_BILTI_FOLDER || 'bilti',
+      ewayBillsFolder: process.env.AWS_S3_EWAY_BILLS_FOLDER || 'eway-bills',
+      paymentSlipsFolder: process.env.AWS_S3_PAYMENT_SLIPS_FOLDER || 'payment-slips',
+      riceImagesFolder: process.env.AWS_S3_RICE_IMAGES_FOLDER || 'rice-images',
+      inwardSlipBillsFolder: process.env.AWS_S3_INWARD_SLIP_BILLS_FOLDER || 'inward-slip-bills',
     },
   },
 };
