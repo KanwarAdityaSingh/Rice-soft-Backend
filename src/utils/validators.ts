@@ -178,7 +178,8 @@ export const createBrokerSchema = Joi.object({
   contact_persons: Joi.array().items(
     Joi.object({
       name: Joi.string().required().min(2).max(255),
-      phones: Joi.array().items(Joi.string().max(20)).required().min(1)
+      phones: Joi.array().items(Joi.string().max(20)).required().min(1),
+      emails: Joi.array().items(Joi.string().email()).optional()
     })
   ).optional().min(1),
   // Legacy field - will be converted to contact_persons
@@ -215,7 +216,8 @@ export const updateBrokerSchema = Joi.object({
   contact_persons: Joi.array().items(
     Joi.object({
       name: Joi.string().required().min(2).max(255),
-      phones: Joi.array().items(Joi.string().max(20)).required().min(1)
+      phones: Joi.array().items(Joi.string().max(20)).required().min(1),
+      emails: Joi.array().items(Joi.string().email()).optional()
     })
   ).optional().min(1),
   // Legacy field - will be converted to contact_persons
@@ -247,7 +249,8 @@ export const createLeadSchema = Joi.object({
   contact_persons: Joi.array().items(
     Joi.object({
       name: Joi.string().required().min(2).max(255),
-      phones: Joi.array().items(Joi.string().max(20)).required().min(1)
+      phones: Joi.array().items(Joi.string().max(20)).required().min(1),
+      emails: Joi.array().items(Joi.string().email()).optional()
     })
   ).required().min(1),
   email: Joi.string().optional().allow(null, '').email(),
@@ -282,7 +285,8 @@ export const updateLeadSchema = Joi.object({
   contact_persons: Joi.array().items(
     Joi.object({
       name: Joi.string().required().min(2).max(255),
-      phones: Joi.array().items(Joi.string().max(20)).required().min(1)
+      phones: Joi.array().items(Joi.string().max(20)).required().min(1),
+      emails: Joi.array().items(Joi.string().email()).optional()
     })
   ).optional().min(1),
   email: Joi.string().optional().allow(null, '').email(),
@@ -306,8 +310,8 @@ export const updateLeadSchema = Joi.object({
     Joi.string().uuid(),
     Joi.valid(null, '')
   ).optional(),
-  rice_code_id: Joi.string().optional().uuid(),
-  rice_type: Joi.string().optional().valid('basmati', 'non_basmati', 'parboiled', 'raw'),
+  rice_code_id: Joi.string().optional().uuid().allow(null, ''),
+  rice_type: Joi.string().optional().valid('basmati', 'non_basmati', 'parboiled', 'raw').allow(null, ''),
   notes: Joi.string().optional().allow(null, '').max(1000),
   priority: Joi.string().optional().valid('low', 'medium', 'high', 'urgent'),
   source: Joi.string().optional().allow(null, '').max(100),
@@ -418,8 +422,6 @@ export const createSaudaSchema = Joi.object({
   broker_id: Joi.string().optional().uuid().allow(null),
   broker_commission: Joi.number().optional().min(0).max(100).precision(2),
   quantity: Joi.number().optional().min(0).precision(2),
-  transporter_id: Joi.string().optional().uuid().allow(null),
-  transportation_cost: Joi.number().optional().min(0).precision(2),
   cash_discount: Joi.number().optional().min(0).precision(2),
   estimated_delivery_time: Joi.number().optional().integer().min(0),
   purchaser_id: Joi.string().required().uuid(),
@@ -438,8 +440,6 @@ export const updateSaudaSchema = Joi.object({
   broker_id: Joi.string().optional().uuid().allow(null),
   broker_commission: Joi.number().optional().min(0).max(100).precision(2),
   quantity: Joi.number().optional().min(0).precision(2),
-  transporter_id: Joi.string().optional().uuid().allow(null),
-  transportation_cost: Joi.number().optional().min(0).precision(2),
   cash_discount: Joi.number().optional().min(0).precision(2),
   estimated_delivery_time: Joi.number().optional().integer().min(0),
   purchaser_id: Joi.string().optional().uuid(),
@@ -451,7 +451,8 @@ export const updateSaudaSchema = Joi.object({
 }).min(1);
 
 // Inward Slip Pass validation schemas
-const inwardSlipLotSchema = Joi.object({
+export const createLotSchema = Joi.object({
+  sauda_id: Joi.string().required().uuid(),
   lot_number: Joi.string().required().max(255),
   item_name: Joi.string().required().max(255),
   no_of_bags: Joi.number().required().integer().min(1),
@@ -460,9 +461,10 @@ const inwardSlipLotSchema = Joi.object({
   received_weight: Joi.number().required().min(0).precision(2),
   bardana: Joi.string().optional().allow(null, '').max(100),
   rate: Joi.number().required().min(0).precision(2),
+  created_by: Joi.string().optional().uuid(),
 });
 
-export const updateInwardSlipLotSchema = Joi.object({
+export const updateLotSchema = Joi.object({
   lot_number: Joi.string().optional().max(255),
   item_name: Joi.string().optional().max(255),
   no_of_bags: Joi.number().optional().integer().min(1),
@@ -475,29 +477,45 @@ export const updateInwardSlipLotSchema = Joi.object({
 }).min(1);
 
 export const createInwardSlipPassSchema = Joi.object({
-  sauda_id: Joi.string().required().uuid(),
+  sauda_ids: Joi.array().items(Joi.string().uuid()).optional().min(1),
   slip_number: Joi.string().required().max(255),
   date: Joi.string().required().isoDate(),
   vehicle_number: Joi.string().required().max(50),
   party_name: Joi.string().required().max(255),
   party_address: Joi.string().optional().allow(null, ''),
   party_gst_number: Joi.string().optional().allow(null, '').length(15),
+  transporter_id: Joi.string().optional().uuid().allow(null),
+  transportation_cost: Joi.number().optional().min(0).precision(2),
   status: Joi.string().optional().valid('pending', 'completed'),
   inward_slip_bill_image_url: Joi.string().optional().allow(null, '').uri(),
+  transportation_bill_image_url: Joi.string().optional().allow(null, '').uri(),
+  bill_pdf_url: Joi.string().optional().allow(null, '').uri(),
+  bilti_image_url: Joi.string().optional().allow(null, '').uri(),
+  bilti_pdf_url: Joi.string().optional().allow(null, '').uri(),
+  eway_bill_number: Joi.string().optional().allow(null, '').max(255),
+  eway_bill_url: Joi.string().optional().allow(null, '').uri(),
   notes: Joi.string().optional().allow(null, '').max(1000),
-  lots: Joi.array().items(inwardSlipLotSchema).optional(),
   created_by: Joi.string().optional().uuid(),
 });
 
 export const updateInwardSlipPassSchema = Joi.object({
+  sauda_ids: Joi.array().items(Joi.string().uuid()).optional().min(0),
   slip_number: Joi.string().optional().max(255),
   date: Joi.string().optional().isoDate(),
   vehicle_number: Joi.string().optional().max(50),
   party_name: Joi.string().optional().max(255),
   party_address: Joi.string().optional().allow(null, ''),
   party_gst_number: Joi.string().optional().allow(null, '').length(15),
+  transporter_id: Joi.string().optional().uuid().allow(null),
+  transportation_cost: Joi.number().optional().min(0).precision(2),
   status: Joi.string().optional().valid('pending', 'completed'),
   inward_slip_bill_image_url: Joi.string().optional().allow(null, '').uri(),
+  transportation_bill_image_url: Joi.string().optional().allow(null, '').uri(),
+  bill_pdf_url: Joi.string().optional().allow(null, '').uri(),
+  bilti_image_url: Joi.string().optional().allow(null, '').uri(),
+  bilti_pdf_url: Joi.string().optional().allow(null, '').uri(),
+  eway_bill_number: Joi.string().optional().allow(null, '').max(255),
+  eway_bill_url: Joi.string().optional().allow(null, '').uri(),
   notes: Joi.string().optional().allow(null, '').max(1000),
   updated_by: Joi.string().optional().uuid(),
 }).min(1);
@@ -505,9 +523,13 @@ export const updateInwardSlipPassSchema = Joi.object({
 // Purchase validation schemas
 export const createPurchaseSchema = Joi.object({
   vendor_id: Joi.string().required().uuid(),
-  sauda_id: Joi.string().required().uuid(),
+  sauda_ids: Joi.array().items(Joi.string().uuid()).optional(),
+  inward_slip_pass_ids: Joi.array().items(Joi.string().uuid()).optional(),
+  lot_ids: Joi.array().items(Joi.string().uuid()).optional(),
   broker_id: Joi.string().optional().uuid().allow(null),
   broker_commission: Joi.number().optional().min(0).max(100).precision(2),
+  cash_discount: Joi.number().optional().min(0).precision(2),
+  transportation_cost: Joi.number().optional().min(0).precision(2),
   invoice_number: Joi.string().optional().allow(null, '').max(255),
   invoice_date: Joi.string().optional().allow(null, '').isoDate(),
   rate: Joi.number().optional().min(0).precision(2),
@@ -530,6 +552,8 @@ export const updatePurchaseSchema = Joi.object({
   broker_id: Joi.string().optional().uuid().allow(null),
   broker_commission: Joi.number().optional().min(0).max(100).precision(2),
   payment_advice_id: Joi.string().optional().uuid().allow(null),
+  cash_discount: Joi.number().optional().min(0).precision(2),
+  transportation_cost: Joi.number().optional().min(0).precision(2),
   invoice_number: Joi.string().optional().allow(null, '').max(255),
   invoice_date: Joi.string().optional().allow(null, '').isoDate(),
   rate: Joi.number().optional().min(0).precision(2),
@@ -538,12 +562,6 @@ export const updatePurchaseSchema = Joi.object({
   igst_amount: Joi.number().optional().min(0).precision(2),
   igst_percentage: Joi.number().optional().min(0).max(100).precision(2),
   freight_status: Joi.string().optional().allow(null, '').max(50),
-  transportation_bill_image_url: Joi.string().optional().allow(null, '').uri(),
-  bill_pdf_url: Joi.string().optional().allow(null, '').uri(),
-  bilti_image_url: Joi.string().optional().allow(null, '').uri(),
-  bilti_pdf_url: Joi.string().optional().allow(null, '').uri(),
-  eway_bill_number: Joi.string().optional().allow(null, '').max(255),
-  eway_bill_url: Joi.string().optional().allow(null, '').uri(),
   truck_number: Joi.string().optional().allow(null, '').max(50),
   transport_name: Joi.string().optional().allow(null, '').max(255),
   goods_dispatched_from: Joi.string().optional().allow(null, '').max(255),

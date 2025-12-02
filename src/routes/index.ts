@@ -12,6 +12,7 @@ import pincodeRoutes from './pincode.routes';
 import transporterRoutes from './transporter.routes';
 import saudaRoutes from './sauda.routes';
 import inwardSlipPassRoutes from './inward-slip-pass.routes';
+import lotRoutes from './lot.routes';
 import purchaseRoutes from './purchase.routes';
 import paymentAdviceRoutes from './payment-advice.routes';
 
@@ -40,6 +41,7 @@ router.use('/pincode', pincodeRoutes);
 router.use('/transporters', transporterRoutes);
 router.use('/saudas', saudaRoutes);
 router.use('/inward-slip-passes', inwardSlipPassRoutes);
+router.use('/lots', lotRoutes);
 router.use('/purchases', purchaseRoutes);
 router.use('/payment-advices', paymentAdviceRoutes);
 

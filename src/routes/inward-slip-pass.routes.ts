@@ -16,14 +16,14 @@ router.get('/', authenticate, inwardSlipPassController.getAll.bind(inwardSlipPas
 
 /**
  * @route   GET /api/v1/inward-slip-passes/:id
- * @desc    Get inward slip pass by ID with lots
+ * @desc    Get inward slip pass by ID
  * @access  Private
  */
 router.get('/:id', authenticate, inwardSlipPassController.getById.bind(inwardSlipPassController));
 
 /**
  * @route   POST /api/v1/inward-slip-passes
- * @desc    Create new inward slip pass with lots
+ * @desc    Create new inward slip pass
  * @access  Private
  */
 router.post(
@@ -71,6 +71,58 @@ router.post(
 );
 
 /**
+ * @route   POST /api/v1/inward-slip-passes/:id/upload-transportation-bill
+ * @desc    Upload transportation bill (image or PDF)
+ * @access  Private
+ */
+router.post(
+  '/:id/upload-transportation-bill',
+  authenticate,
+  documentUpload.single('file'),
+  auditLog('UPDATE', 'inward_slip_passes'),
+  inwardSlipPassController.uploadTransportationBill.bind(inwardSlipPassController)
+);
+
+/**
+ * @route   POST /api/v1/inward-slip-passes/:id/upload-purchase-bill
+ * @desc    Upload purchase bill (image or PDF)
+ * @access  Private
+ */
+router.post(
+  '/:id/upload-purchase-bill',
+  authenticate,
+  documentUpload.single('file'),
+  auditLog('UPDATE', 'inward_slip_passes'),
+  inwardSlipPassController.uploadPurchaseBill.bind(inwardSlipPassController)
+);
+
+/**
+ * @route   POST /api/v1/inward-slip-passes/:id/upload-bilti
+ * @desc    Upload bilti (image or PDF)
+ * @access  Private
+ */
+router.post(
+  '/:id/upload-bilti',
+  authenticate,
+  documentUpload.single('file'),
+  auditLog('UPDATE', 'inward_slip_passes'),
+  inwardSlipPassController.uploadBilti.bind(inwardSlipPassController)
+);
+
+/**
+ * @route   POST /api/v1/inward-slip-passes/:id/upload-eway-bill
+ * @desc    Upload e-way bill (image or PDF)
+ * @access  Private
+ */
+router.post(
+  '/:id/upload-eway-bill',
+  authenticate,
+  documentUpload.single('file'),
+  auditLog('UPDATE', 'inward_slip_passes'),
+  inwardSlipPassController.uploadEwayBill.bind(inwardSlipPassController)
+);
+
+/**
  * @route   DELETE /api/v1/inward-slip-passes/:id
  * @desc    Delete inward slip pass
  * @access  Private
@@ -80,30 +132,6 @@ router.delete(
   authenticate,
   auditLog('DELETE', 'inward_slip_passes'),
   inwardSlipPassController.delete.bind(inwardSlipPassController)
-);
-
-/**
- * @route   PUT /api/v1/inward-slip-passes/:id/lots/:lotId
- * @desc    Update inward slip lot
- * @access  Private
- */
-router.put(
-  '/:id/lots/:lotId',
-  authenticate,
-  auditLog('UPDATE', 'inward_slip_lots'),
-  inwardSlipPassController.updateLot.bind(inwardSlipPassController)
-);
-
-/**
- * @route   DELETE /api/v1/inward-slip-passes/:id/lots/:lotId
- * @desc    Delete inward slip lot
- * @access  Private
- */
-router.delete(
-  '/:id/lots/:lotId',
-  authenticate,
-  auditLog('DELETE', 'inward_slip_lots'),
-  inwardSlipPassController.deleteLot.bind(inwardSlipPassController)
 );
 
 export default router;

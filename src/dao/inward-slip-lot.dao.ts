@@ -3,21 +3,35 @@ import { InwardSlipLot, CreateInwardSlipLotDTO, UpdateInwardSlipLotDTO } from '.
 import { logger } from '../utils/logger';
 
 export class InwardSlipLotDAO {
-  async findByInwardSlipPassId(inwardSlipPassId: string): Promise<InwardSlipLot[]> {
-    const query = `
-      SELECT id, inward_slip_pass_id, lot_number, item_name, no_of_bags, bag_weight, total_weight,
+  async findAll(saudaId?: string): Promise<InwardSlipLot[]> {
+    let query = `
+      SELECT id, sauda_id, lot_number, item_name, no_of_bags, bag_weight, total_weight,
              bill_weight, received_weight, bardana, rate, amount, created_at, updated_at, created_by, updated_by
       FROM inward_slip_lots
-      WHERE inward_slip_pass_id = $1
-      ORDER BY lot_number ASC
+      WHERE 1=1
     `;
-    const result = await db.query<InwardSlipLot>(query, [inwardSlipPassId]);
+    
+    const params: any[] = [];
+    let paramCount = 1;
+
+    if (saudaId) {
+      query += ` AND sauda_id = $${paramCount++}`;
+      params.push(saudaId);
+    }
+
+    query += ` ORDER BY lot_number ASC`;
+
+    const result = await db.query<InwardSlipLot>(query, params);
     return result.rows;
+  }
+
+  async findBySaudaId(saudaId: string): Promise<InwardSlipLot[]> {
+    return this.findAll(saudaId);
   }
 
   async findById(id: string): Promise<InwardSlipLot | null> {
     const query = `
-      SELECT id, inward_slip_pass_id, lot_number, item_name, no_of_bags, bag_weight, total_weight,
+      SELECT id, sauda_id, lot_number, item_name, no_of_bags, bag_weight, total_weight,
              bill_weight, received_weight, bardana, rate, amount, created_at, updated_at, created_by, updated_by
       FROM inward_slip_lots
       WHERE id = $1
@@ -26,17 +40,17 @@ export class InwardSlipLotDAO {
     return result.rows[0] || null;
   }
 
-  async create(inwardSlipLotData: CreateInwardSlipLotDTO & { inward_slip_pass_id: string }): Promise<InwardSlipLot> {
+  async create(inwardSlipLotData: CreateInwardSlipLotDTO): Promise<InwardSlipLot> {
     const query = `
-      INSERT INTO inward_slip_lots (inward_slip_pass_id, lot_number, item_name, no_of_bags, bag_weight,
+      INSERT INTO inward_slip_lots (sauda_id, lot_number, item_name, no_of_bags, bag_weight,
                                    bill_weight, received_weight, bardana, rate, created_by)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-      RETURNING id, inward_slip_pass_id, lot_number, item_name, no_of_bags, bag_weight, total_weight,
+      RETURNING id, sauda_id, lot_number, item_name, no_of_bags, bag_weight, total_weight,
                 bill_weight, received_weight, bardana, rate, amount, created_at, updated_at, created_by, updated_by
     `;
     
     const values = [
-      inwardSlipLotData.inward_slip_pass_id,
+      inwardSlipLotData.sauda_id,
       inwardSlipLotData.lot_number,
       inwardSlipLotData.item_name,
       inwardSlipLotData.no_of_bags,
@@ -58,7 +72,7 @@ export class InwardSlipLotDAO {
     }
   }
 
-  async createMany(lots: (CreateInwardSlipLotDTO & { inward_slip_pass_id: string })[]): Promise<InwardSlipLot[]> {
+  async createMany(lots: CreateInwardSlipLotDTO[]): Promise<InwardSlipLot[]> {
     if (lots.length === 0) {
       return [];
     }
@@ -124,7 +138,7 @@ export class InwardSlipLotDAO {
       UPDATE inward_slip_lots
       SET ${fields.join(', ')}
       WHERE id = $${paramCount}
-      RETURNING id, inward_slip_pass_id, lot_number, item_name, no_of_bags, bag_weight, total_weight,
+      RETURNING id, sauda_id, lot_number, item_name, no_of_bags, bag_weight, total_weight,
                 bill_weight, received_weight, bardana, rate, amount, created_at, updated_at, created_by, updated_by
     `;
 
@@ -150,17 +164,6 @@ export class InwardSlipLotDAO {
     }
     return deleted;
   }
-
-  async deleteByInwardSlipPassId(inwardSlipPassId: string): Promise<boolean> {
-    const query = `DELETE FROM inward_slip_lots WHERE inward_slip_pass_id = $1`;
-    const result = await db.query(query, [inwardSlipPassId]);
-    const deleted = (result.rowCount || 0) > 0;
-    if (deleted) {
-      logger.info('Inward slip lots deleted', { inwardSlipPassId });
-    }
-    return deleted;
-  }
 }
 
 export const inwardSlipLotDAO = new InwardSlipLotDAO();
-

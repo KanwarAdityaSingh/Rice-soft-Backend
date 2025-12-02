@@ -11,7 +11,7 @@ export class SaudaDAO {
   ): Promise<Sauda[]> {
     let query = `
       SELECT id, sauda_type, rice_quality, rice_code_id, rate, broker_id, broker_commission,
-             quantity, transporter_id, transportation_cost, cash_discount, estimated_delivery_time,
+             quantity, cash_discount, estimated_delivery_time,
              purchaser_id, cooked_rice_image_url, uncooked_rice_image_url, status, notes,
              created_at, updated_at, created_by, updated_by
       FROM saudas
@@ -49,7 +49,7 @@ export class SaudaDAO {
   async findById(id: string): Promise<Sauda | null> {
     const query = `
       SELECT id, sauda_type, rice_quality, rice_code_id, rate, broker_id, broker_commission,
-             quantity, transporter_id, transportation_cost, cash_discount, estimated_delivery_time,
+             quantity, cash_discount, estimated_delivery_time,
              purchaser_id, cooked_rice_image_url, uncooked_rice_image_url, status, notes,
              created_at, updated_at, created_by, updated_by
       FROM saudas
@@ -62,11 +62,11 @@ export class SaudaDAO {
   async create(saudaData: CreateSaudaDTO): Promise<Sauda> {
     const query = `
       INSERT INTO saudas (sauda_type, rice_quality, rice_code_id, rate, broker_id, broker_commission,
-                         quantity, transporter_id, transportation_cost, cash_discount, estimated_delivery_time,
+                         quantity, cash_discount, estimated_delivery_time,
                          purchaser_id, cooked_rice_image_url, uncooked_rice_image_url, status, notes, created_by)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
       RETURNING id, sauda_type, rice_quality, rice_code_id, rate, broker_id, broker_commission,
-                quantity, transporter_id, transportation_cost, cash_discount, estimated_delivery_time,
+                quantity, cash_discount, estimated_delivery_time,
                 purchaser_id, cooked_rice_image_url, uncooked_rice_image_url, status, notes,
                 created_at, updated_at, created_by, updated_by
     `;
@@ -79,8 +79,6 @@ export class SaudaDAO {
       saudaData.broker_id || null,
       saudaData.broker_commission || null,
       saudaData.quantity || null,
-      saudaData.transporter_id || null,
-      saudaData.transportation_cost || null,
       saudaData.cash_discount || null,
       saudaData.estimated_delivery_time || null,
       saudaData.purchaser_id,
@@ -134,14 +132,6 @@ export class SaudaDAO {
       fields.push(`quantity = $${paramCount++}`);
       values.push(saudaData.quantity || null);
     }
-    if (saudaData.transporter_id !== undefined) {
-      fields.push(`transporter_id = $${paramCount++}`);
-      values.push(saudaData.transporter_id || null);
-    }
-    if (saudaData.transportation_cost !== undefined) {
-      fields.push(`transportation_cost = $${paramCount++}`);
-      values.push(saudaData.transportation_cost || null);
-    }
     if (saudaData.cash_discount !== undefined) {
       fields.push(`cash_discount = $${paramCount++}`);
       values.push(saudaData.cash_discount || null);
@@ -187,7 +177,7 @@ export class SaudaDAO {
       SET ${fields.join(', ')}
       WHERE id = $${paramCount}
       RETURNING id, sauda_type, rice_quality, rice_code_id, rate, broker_id, broker_commission,
-                quantity, transporter_id, transportation_cost, cash_discount, estimated_delivery_time,
+                quantity, cash_discount, estimated_delivery_time,
                 purchaser_id, cooked_rice_image_url, uncooked_rice_image_url, status, notes,
                 created_at, updated_at, created_by, updated_by
     `;
@@ -239,10 +229,12 @@ export class SaudaDAO {
     const deletePurchasesQuery = `DELETE FROM purchases WHERE sauda_id = $1`;
     await db.query(deletePurchasesQuery, [id]);
 
-    // 4. Delete inward slip passes linked to this sauda
-    //    (Inward slip lots will be automatically deleted due to ON DELETE CASCADE)
-    const deleteInwardSlipPassesQuery = `DELETE FROM inward_slip_passes WHERE sauda_id = $1`;
-    await db.query(deleteInwardSlipPassesQuery, [id]);
+    // 4. Unlink inward slip passes from this sauda (via junction table)
+    //    Note: ISPs are not deleted as they can be linked to multiple saudas
+    //    The junction table uses ON DELETE RESTRICT, so this will fail if there are ISPs linked
+    //    Inward slip lots linked to this sauda will be automatically deleted due to ON DELETE CASCADE
+    const unlinkInwardSlipPassesQuery = `DELETE FROM inward_slip_pass_saudas WHERE sauda_id = $1`;
+    await db.query(unlinkInwardSlipPassesQuery, [id]);
 
     // 5. Now delete the sauda
     const query = `DELETE FROM saudas WHERE id = $1`;

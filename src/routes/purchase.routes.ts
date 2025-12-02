@@ -2,7 +2,6 @@ import { Router } from 'express';
 import { purchaseController } from '../controllers/purchase.controller';
 import { authenticate } from '../middleware/auth.middleware';
 import { auditLog } from '../middleware/audit.middleware';
-import { documentUpload } from '../middleware/upload.middleware';
 
 const router = Router();
 
@@ -10,7 +9,7 @@ const router = Router();
  * @route   GET /api/v1/purchases
  * @desc    Get all purchases
  * @access  Private
- * @query   vendor_id: UUID, sauda_id: UUID
+ * @query   vendor_id: UUID
  */
 router.get('/', authenticate, purchaseController.getAll.bind(purchaseController));
 
@@ -46,58 +45,6 @@ router.put(
 );
 
 /**
- * @route   POST /api/v1/purchases/:id/upload-transportation-bill
- * @desc    Upload transportation bill (image or PDF)
- * @access  Private
- */
-router.post(
-  '/:id/upload-transportation-bill',
-  authenticate,
-  documentUpload.single('file'),
-  auditLog('UPDATE', 'purchases'),
-  purchaseController.uploadTransportationBill.bind(purchaseController)
-);
-
-/**
- * @route   POST /api/v1/purchases/:id/upload-purchase-bill
- * @desc    Upload purchase bill (image or PDF)
- * @access  Private
- */
-router.post(
-  '/:id/upload-purchase-bill',
-  authenticate,
-  documentUpload.single('file'),
-  auditLog('UPDATE', 'purchases'),
-  purchaseController.uploadPurchaseBill.bind(purchaseController)
-);
-
-/**
- * @route   POST /api/v1/purchases/:id/upload-bilti
- * @desc    Upload bilti (image or PDF)
- * @access  Private
- */
-router.post(
-  '/:id/upload-bilti',
-  authenticate,
-  documentUpload.single('file'),
-  auditLog('UPDATE', 'purchases'),
-  purchaseController.uploadBilti.bind(purchaseController)
-);
-
-/**
- * @route   POST /api/v1/purchases/:id/upload-eway-bill
- * @desc    Upload e-way bill (image or PDF)
- * @access  Private
- */
-router.post(
-  '/:id/upload-eway-bill',
-  authenticate,
-  documentUpload.single('file'),
-  auditLog('UPDATE', 'purchases'),
-  purchaseController.uploadEwayBill.bind(purchaseController)
-);
-
-/**
  * @route   DELETE /api/v1/purchases/:id
  * @desc    Delete purchase
  * @access  Private
@@ -107,6 +54,101 @@ router.delete(
   authenticate,
   auditLog('DELETE', 'purchases'),
   purchaseController.delete.bind(purchaseController)
+);
+
+/**
+ * @route   POST /api/v1/purchases/:id/link-saudas
+ * @desc    Link saudas to purchase
+ * @access  Private
+ */
+router.post(
+  '/:id/link-saudas',
+  authenticate,
+  auditLog('UPDATE', 'purchases'),
+  purchaseController.linkSaudas.bind(purchaseController)
+);
+
+/**
+ * @route   POST /api/v1/purchases/:id/link-inward-slip-passes
+ * @desc    Link inward slip passes to purchase
+ * @access  Private
+ */
+router.post(
+  '/:id/link-inward-slip-passes',
+  authenticate,
+  auditLog('UPDATE', 'purchases'),
+  purchaseController.linkInwardSlipPasses.bind(purchaseController)
+);
+
+/**
+ * @route   POST /api/v1/purchases/:id/link-lots
+ * @desc    Link lots to purchase
+ * @access  Private
+ */
+router.post(
+  '/:id/link-lots',
+  authenticate,
+  auditLog('UPDATE', 'purchases'),
+  purchaseController.linkLots.bind(purchaseController)
+);
+
+/**
+ * @route   DELETE /api/v1/purchases/:id/unlink-sauda/:saudaId
+ * @desc    Unlink sauda from purchase
+ * @access  Private
+ */
+router.delete(
+  '/:id/unlink-sauda/:saudaId',
+  authenticate,
+  auditLog('UPDATE', 'purchases'),
+  purchaseController.unlinkSauda.bind(purchaseController)
+);
+
+/**
+ * @route   DELETE /api/v1/purchases/:id/unlink-inward-slip-pass/:ispId
+ * @desc    Unlink inward slip pass from purchase
+ * @access  Private
+ */
+router.delete(
+  '/:id/unlink-inward-slip-pass/:ispId',
+  authenticate,
+  auditLog('UPDATE', 'purchases'),
+  purchaseController.unlinkInwardSlipPass.bind(purchaseController)
+);
+
+/**
+ * @route   DELETE /api/v1/purchases/:id/unlink-lot/:lotId
+ * @desc    Unlink lot from purchase
+ * @access  Private
+ */
+router.delete(
+  '/:id/unlink-lot/:lotId',
+  authenticate,
+  auditLog('UPDATE', 'purchases'),
+  purchaseController.unlinkLot.bind(purchaseController)
+);
+
+/**
+ * @route   GET /api/v1/purchases/:id/linked-entities
+ * @desc    Get all linked entities for a purchase
+ * @access  Private
+ */
+router.get(
+  '/:id/linked-entities',
+  authenticate,
+  purchaseController.getLinkedEntities.bind(purchaseController)
+);
+
+/**
+ * @route   POST /api/v1/purchases/:id/recalculate-totals
+ * @desc    Recalculate purchase totals from linked lots
+ * @access  Private
+ */
+router.post(
+  '/:id/recalculate-totals',
+  authenticate,
+  auditLog('UPDATE', 'purchases'),
+  purchaseController.recalculateTotals.bind(purchaseController)
 );
 
 export default router;

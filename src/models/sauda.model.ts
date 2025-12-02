@@ -10,8 +10,6 @@ export interface Sauda {
   broker_id: string | null;
   broker_commission: number | null;
   quantity: number | null;
-  transporter_id: string | null;
-  transportation_cost: number | null;
   cash_discount: number | null;
   estimated_delivery_time: number | null;
   purchaser_id: string;
@@ -33,8 +31,6 @@ export interface CreateSaudaDTO {
   broker_id?: string;
   broker_commission?: number;
   quantity?: number;
-  transporter_id?: string;
-  transportation_cost?: number;
   cash_discount?: number;
   estimated_delivery_time?: number;
   purchaser_id: string;
@@ -53,8 +49,6 @@ export interface UpdateSaudaDTO {
   broker_id?: string;
   broker_commission?: number;
   quantity?: number;
-  transporter_id?: string;
-  transportation_cost?: number;
   cash_discount?: number;
   estimated_delivery_time?: number;
   purchaser_id?: string;
@@ -74,8 +68,6 @@ export interface SaudaResponse {
   broker_id: string | null;
   broker_commission: number | null;
   quantity: number | null;
-  transporter_id: string | null;
-  transportation_cost: number | null;
   cash_discount: number | null;
   estimated_delivery_time: number | null;
   purchaser_id: string;

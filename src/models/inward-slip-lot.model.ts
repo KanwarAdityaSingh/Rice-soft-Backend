@@ -1,6 +1,6 @@
 export interface InwardSlipLot {
   id: string;
-  inward_slip_pass_id: string;
+  sauda_id: string;
   lot_number: string;
   item_name: string;
   no_of_bags: number;
@@ -18,6 +18,7 @@ export interface InwardSlipLot {
 }
 
 export interface CreateInwardSlipLotDTO {
+  sauda_id: string;
   lot_number: string;
   item_name: string;
   no_of_bags: number;
@@ -43,7 +44,7 @@ export interface UpdateInwardSlipLotDTO {
 
 export interface InwardSlipLotResponse {
   id: string;
-  inward_slip_pass_id: string;
+  sauda_id: string;
   lot_number: string;
   item_name: string;
   no_of_bags: number;

@@ -1,17 +1,16 @@
 import { db } from '../database/connection';
 import { Purchase, CreatePurchaseDTO, UpdatePurchaseDTO } from '../models/purchase.model';
 import { logger } from '../utils/logger';
+import { purchaseSaudaDAO } from './purchase-sauda.dao';
+import { purchaseInwardSlipPassDAO } from './purchase-inward-slip-pass.dao';
+import { purchaseLotDAO } from './purchase-lot.dao';
 
 export class PurchaseDAO {
-  async findAll(
-    vendorId?: string,
-    saudaId?: string
-  ): Promise<Purchase[]> {
+  async findAll(vendorId?: string): Promise<Purchase[]> {
     let query = `
-      SELECT id, vendor_id, sauda_id, broker_id, broker_commission, payment_advice_id,
-             invoice_number, invoice_date, rate, total_weight, total_amount,
-             igst_amount, igst_percentage, freight_status, transportation_bill_image_url,
-             bill_pdf_url, bilti_image_url, bilti_pdf_url, eway_bill_number, eway_bill_url,
+      SELECT id, vendor_id, broker_id, broker_commission, payment_advice_id,
+             cash_discount, transportation_cost, invoice_number, invoice_date, rate, total_weight, total_amount,
+             igst_amount, igst_percentage, freight_status,
              truck_number, transport_name, goods_dispatched_from, goods_dispatched_to,
              purchase_date, expected_quantity, notes, created_at, updated_at, created_by, updated_by
       FROM purchases
@@ -26,11 +25,6 @@ export class PurchaseDAO {
       params.push(vendorId);
     }
 
-    if (saudaId) {
-      query += ` AND sauda_id = $${paramCount++}`;
-      params.push(saudaId);
-    }
-
     query += ` ORDER BY purchase_date DESC, created_at DESC`;
 
     const result = await db.query<Purchase>(query, params);
@@ -39,10 +33,9 @@ export class PurchaseDAO {
 
   async findById(id: string): Promise<Purchase | null> {
     const query = `
-      SELECT id, vendor_id, sauda_id, broker_id, broker_commission, payment_advice_id,
-             invoice_number, invoice_date, rate, total_weight, total_amount,
-             igst_amount, igst_percentage, freight_status, transportation_bill_image_url,
-             bill_pdf_url, bilti_image_url, bilti_pdf_url, eway_bill_number, eway_bill_url,
+      SELECT id, vendor_id, broker_id, broker_commission, payment_advice_id,
+             cash_discount, transportation_cost, invoice_number, invoice_date, rate, total_weight, total_amount,
+             igst_amount, igst_percentage, freight_status,
              truck_number, transport_name, goods_dispatched_from, goods_dispatched_to,
              purchase_date, expected_quantity, notes, created_at, updated_at, created_by, updated_by
       FROM purchases
@@ -54,25 +47,27 @@ export class PurchaseDAO {
 
   async create(purchaseData: CreatePurchaseDTO & { rate: number }): Promise<Purchase> {
     const query = `
-      INSERT INTO purchases (vendor_id, sauda_id, broker_id, broker_commission, invoice_number,
+      INSERT INTO purchases (vendor_id, broker_id, broker_commission, payment_advice_id,
+                            cash_discount, transportation_cost, invoice_number,
                             invoice_date, rate, total_weight, total_amount, igst_amount,
                             igst_percentage, freight_status, truck_number, transport_name,
                             goods_dispatched_from, goods_dispatched_to, purchase_date,
                             expected_quantity, notes, created_by)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
-      RETURNING id, vendor_id, sauda_id, broker_id, broker_commission, payment_advice_id,
-                invoice_number, invoice_date, rate, total_weight, total_amount,
-                igst_amount, igst_percentage, freight_status, transportation_bill_image_url,
-                bill_pdf_url, bilti_image_url, bilti_pdf_url, eway_bill_number, eway_bill_url,
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
+      RETURNING id, vendor_id, broker_id, broker_commission, payment_advice_id,
+                cash_discount, transportation_cost, invoice_number, invoice_date, rate, total_weight, total_amount,
+                igst_amount, igst_percentage, freight_status,
                 truck_number, transport_name, goods_dispatched_from, goods_dispatched_to,
                 purchase_date, expected_quantity, notes, created_at, updated_at, created_by, updated_by
     `;
     
     const values = [
       purchaseData.vendor_id,
-      purchaseData.sauda_id,
       purchaseData.broker_id || null,
       purchaseData.broker_commission || null,
+      null, // payment_advice_id - set later via update
+      purchaseData.cash_discount || null,
+      purchaseData.transportation_cost || null,
       purchaseData.invoice_number || null,
       purchaseData.invoice_date || null,
       purchaseData.rate,
@@ -118,6 +113,14 @@ export class PurchaseDAO {
       fields.push(`payment_advice_id = $${paramCount++}`);
       values.push(purchaseData.payment_advice_id || null);
     }
+    if (purchaseData.cash_discount !== undefined) {
+      fields.push(`cash_discount = $${paramCount++}`);
+      values.push(purchaseData.cash_discount || null);
+    }
+    if (purchaseData.transportation_cost !== undefined) {
+      fields.push(`transportation_cost = $${paramCount++}`);
+      values.push(purchaseData.transportation_cost || null);
+    }
     if (purchaseData.invoice_number !== undefined) {
       fields.push(`invoice_number = $${paramCount++}`);
       values.push(purchaseData.invoice_number || null);
@@ -149,30 +152,6 @@ export class PurchaseDAO {
     if (purchaseData.freight_status !== undefined) {
       fields.push(`freight_status = $${paramCount++}`);
       values.push(purchaseData.freight_status || null);
-    }
-    if (purchaseData.transportation_bill_image_url !== undefined) {
-      fields.push(`transportation_bill_image_url = $${paramCount++}`);
-      values.push(purchaseData.transportation_bill_image_url || null);
-    }
-    if (purchaseData.bill_pdf_url !== undefined) {
-      fields.push(`bill_pdf_url = $${paramCount++}`);
-      values.push(purchaseData.bill_pdf_url || null);
-    }
-    if (purchaseData.bilti_image_url !== undefined) {
-      fields.push(`bilti_image_url = $${paramCount++}`);
-      values.push(purchaseData.bilti_image_url || null);
-    }
-    if (purchaseData.bilti_pdf_url !== undefined) {
-      fields.push(`bilti_pdf_url = $${paramCount++}`);
-      values.push(purchaseData.bilti_pdf_url || null);
-    }
-    if (purchaseData.eway_bill_number !== undefined) {
-      fields.push(`eway_bill_number = $${paramCount++}`);
-      values.push(purchaseData.eway_bill_number || null);
-    }
-    if (purchaseData.eway_bill_url !== undefined) {
-      fields.push(`eway_bill_url = $${paramCount++}`);
-      values.push(purchaseData.eway_bill_url || null);
     }
     if (purchaseData.truck_number !== undefined) {
       fields.push(`truck_number = $${paramCount++}`);
@@ -218,10 +197,9 @@ export class PurchaseDAO {
       UPDATE purchases
       SET ${fields.join(', ')}
       WHERE id = $${paramCount}
-      RETURNING id, vendor_id, sauda_id, broker_id, broker_commission, payment_advice_id,
-                invoice_number, invoice_date, rate, total_weight, total_amount,
-                igst_amount, igst_percentage, freight_status, transportation_bill_image_url,
-                bill_pdf_url, bilti_image_url, bilti_pdf_url, eway_bill_number, eway_bill_url,
+      RETURNING id, vendor_id, broker_id, broker_commission, payment_advice_id,
+                cash_discount, transportation_cost, invoice_number, invoice_date, rate, total_weight, total_amount,
+                igst_amount, igst_percentage, freight_status,
                 truck_number, transport_name, goods_dispatched_from, goods_dispatched_to,
                 purchase_date, expected_quantity, notes, created_at, updated_at, created_by, updated_by
     `;
@@ -237,6 +215,45 @@ export class PurchaseDAO {
       logger.error('Error updating purchase', { error, id });
       throw error;
     }
+  }
+
+  // Junction table methods - Delegated to separate DAOs for better separation of concerns
+  // These methods maintain backward compatibility with existing controller code
+  
+  async linkSaudas(purchaseId: string, saudaIds: string[]): Promise<void> {
+    return purchaseSaudaDAO.linkSaudas(purchaseId, saudaIds);
+  }
+
+  async linkInwardSlipPasses(purchaseId: string, ispIds: string[]): Promise<void> {
+    return purchaseInwardSlipPassDAO.linkInwardSlipPasses(purchaseId, ispIds);
+  }
+
+  async linkLots(purchaseId: string, lotIds: string[]): Promise<void> {
+    return purchaseLotDAO.linkLots(purchaseId, lotIds);
+  }
+
+  async unlinkSauda(purchaseId: string, saudaId: string): Promise<boolean> {
+    return purchaseSaudaDAO.unlinkSauda(purchaseId, saudaId);
+  }
+
+  async unlinkInwardSlipPass(purchaseId: string, ispId: string): Promise<boolean> {
+    return purchaseInwardSlipPassDAO.unlinkInwardSlipPass(purchaseId, ispId);
+  }
+
+  async unlinkLot(purchaseId: string, lotId: string): Promise<boolean> {
+    return purchaseLotDAO.unlinkLot(purchaseId, lotId);
+  }
+
+  async getLinkedSaudaIds(purchaseId: string): Promise<string[]> {
+    return purchaseSaudaDAO.getLinkedSaudaIds(purchaseId);
+  }
+
+  async getLinkedInwardSlipPassIds(purchaseId: string): Promise<string[]> {
+    return purchaseInwardSlipPassDAO.getLinkedInwardSlipPassIds(purchaseId);
+  }
+
+  async getLinkedLotIds(purchaseId: string): Promise<string[]> {
+    return purchaseLotDAO.getLinkedLotIds(purchaseId);
   }
 
   async delete(id: string): Promise<boolean> {

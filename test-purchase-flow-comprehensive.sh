@@ -784,15 +784,25 @@ test_status_transitions() {
     PURCHASE_ID=$(curl -s -X GET "$BASE_URL/purchases" -H "Authorization: Bearer $TOKEN" | \
         jq -r '.data[-1].id')
     
-    RESPONSE=$(curl -s -X PUT "$BASE_URL/purchases/$PURCHASE_ID" \
+    # Get inward slip pass ID for this purchase's sauda
+    SAUDA_ID=$(curl -s -X GET "$BASE_URL/purchases/$PURCHASE_ID" -H "Authorization: Bearer $TOKEN" | \
+        jq -r '.data.sauda_id')
+    INWARD_SLIP_PASS_ID=$(curl -s -X GET "$BASE_URL/inward-slip-passes?sauda_id=$SAUDA_ID" -H "Authorization: Bearer $TOKEN" | \
+        jq -r '.data[0].id')
+    
+    if [ -n "$INWARD_SLIP_PASS_ID" ] && [ "$INWARD_SLIP_PASS_ID" != "null" ]; then
+        RESPONSE=$(curl -s -X PUT "$BASE_URL/inward-slip-passes/$INWARD_SLIP_PASS_ID" \
         -H "Authorization: Bearer $TOKEN" \
         -H "Content-Type: application/json" \
         -d '{"transportation_bill_image_url": "https://example.com/bill.jpg"}')
-    STATUS=$(echo "$RESPONSE" | jq -r '.data.status')
-    if [ "$STATUS" = "received" ]; then
-        log_pass "Purchase status auto-updated to 'received' on transportation bill upload"
+        URL=$(echo "$RESPONSE" | jq -r '.data.transportation_bill_image_url')
+        if [ "$URL" = "https://example.com/bill.jpg" ]; then
+            log_pass "Transportation bill URL updated in inward slip pass"
     else
-        log_fail "Purchase status auto-update (Expected: received, Got: $STATUS)"
+            log_fail "Transportation bill URL update (Expected: https://example.com/bill.jpg, Got: $URL)"
+        fi
+    else
+        log_skip "No inward slip pass found for testing transportation bill upload"
     fi
     
     # Test payment advice status auto-update

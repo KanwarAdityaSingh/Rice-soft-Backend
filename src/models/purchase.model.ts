@@ -1,10 +1,11 @@
 export interface Purchase {
   id: string;
   vendor_id: string;
-  sauda_id: string;
   broker_id: string | null;
   broker_commission: number | null;
   payment_advice_id: string | null;
+  cash_discount: number | null;
+  transportation_cost: number | null;
   invoice_number: string | null;
   invoice_date: Date | null;
   rate: number;
@@ -13,12 +14,6 @@ export interface Purchase {
   igst_amount: number | null;
   igst_percentage: number | null;
   freight_status: string | null;
-  transportation_bill_image_url: string | null;
-  bill_pdf_url: string | null;
-  bilti_image_url: string | null;
-  bilti_pdf_url: string | null;
-  eway_bill_number: string | null;
-  eway_bill_url: string | null;
   truck_number: string | null;
   transport_name: string | null;
   goods_dispatched_from: string | null;
@@ -34,12 +29,16 @@ export interface Purchase {
 
 export interface CreatePurchaseDTO {
   vendor_id: string;
-  sauda_id: string;
+  sauda_ids?: string[];
+  inward_slip_pass_ids?: string[];
+  lot_ids?: string[];
   broker_id?: string;
   broker_commission?: number;
+  cash_discount?: number;
+  transportation_cost?: number;
   invoice_number?: string;
   invoice_date?: string;
-  rate?: number; // Auto-filled from sauda if not provided
+  rate?: number;
   total_weight?: number;
   total_amount?: number;
   igst_amount?: number;
@@ -59,6 +58,8 @@ export interface UpdatePurchaseDTO {
   broker_id?: string;
   broker_commission?: number;
   payment_advice_id?: string | null;
+  cash_discount?: number;
+  transportation_cost?: number;
   invoice_number?: string;
   invoice_date?: string;
   rate?: number;
@@ -67,12 +68,6 @@ export interface UpdatePurchaseDTO {
   igst_amount?: number;
   igst_percentage?: number;
   freight_status?: string;
-  transportation_bill_image_url?: string;
-  bill_pdf_url?: string;
-  bilti_image_url?: string;
-  bilti_pdf_url?: string;
-  eway_bill_number?: string;
-  eway_bill_url?: string;
   truck_number?: string;
   transport_name?: string;
   goods_dispatched_from?: string;
@@ -86,10 +81,11 @@ export interface UpdatePurchaseDTO {
 export interface PurchaseResponse {
   id: string;
   vendor_id: string;
-  sauda_id: string;
   broker_id: string | null;
   broker_commission: number | null;
   payment_advice_id: string | null;
+  cash_discount: number | null;
+  transportation_cost: number | null;
   invoice_number: string | null;
   invoice_date: string | null;
   rate: number;
@@ -98,12 +94,6 @@ export interface PurchaseResponse {
   igst_amount: number | null;
   igst_percentage: number | null;
   freight_status: string | null;
-  transportation_bill_image_url: string | null;
-  bill_pdf_url: string | null;
-  bilti_image_url: string | null;
-  bilti_pdf_url: string | null;
-  eway_bill_number: string | null;
-  eway_bill_url: string | null;
   truck_number: string | null;
   transport_name: string | null;
   goods_dispatched_from: string | null;

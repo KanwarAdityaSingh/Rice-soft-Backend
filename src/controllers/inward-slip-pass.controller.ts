@@ -1,13 +1,13 @@
 import { Response, NextFunction } from 'express';
 import { inwardSlipPassDAO } from '../dao/inward-slip-pass.dao';
-import { inwardSlipLotDAO } from '../dao/inward-slip-lot.dao';
+import { inwardSlipPassSaudaDAO } from '../dao/inward-slip-pass-sauda.dao';
 import { saudaDAO } from '../dao/sauda.dao';
+import { transporterDAO } from '../dao/transporter.dao';
 import { ResponseHandler } from '../utils/response';
 import {
   validate,
   createInwardSlipPassSchema,
   updateInwardSlipPassSchema,
-  updateInwardSlipLotSchema,
   uuidSchema,
 } from '../utils/validators';
 import {
@@ -15,7 +15,6 @@ import {
   ValidationError,
 } from '../utils/errors';
 import { CreateInwardSlipPassDTO, UpdateInwardSlipPassDTO, InwardSlipPassResponse, InwardSlipStatus } from '../models/inward-slip-pass.model';
-import { UpdateInwardSlipLotDTO, InwardSlipLotResponse } from '../models/inward-slip-lot.model';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { uploadToS3, validateFileSize, validateFileType } from '../utils/s3-upload';
 import { appConfig } from '../config/app.config';
@@ -27,39 +26,32 @@ export class InwardSlipPassController {
       
       const inwardSlipPasses = await inwardSlipPassDAO.findAll(saudaId);
 
+      // Fetch sauda_ids for each inward slip pass
       const responses: InwardSlipPassResponse[] = await Promise.all(
         inwardSlipPasses.map(async (pass) => {
-          const lots = await inwardSlipLotDAO.findByInwardSlipPassId(pass.id);
+          const saudaIds = await inwardSlipPassSaudaDAO.getLinkedSaudaIds(pass.id);
           return {
             id: pass.id,
-            sauda_id: pass.sauda_id,
+            sauda_ids: saudaIds,
             slip_number: pass.slip_number,
             date: pass.date.toISOString().split('T')[0],
             vehicle_number: pass.vehicle_number,
             party_name: pass.party_name,
             party_address: pass.party_address,
             party_gst_number: pass.party_gst_number,
+            transporter_id: pass.transporter_id,
+            transportation_cost: pass.transportation_cost ? parseFloat(pass.transportation_cost.toString()) : null,
             status: pass.status,
             inward_slip_bill_image_url: pass.inward_slip_bill_image_url,
+            transportation_bill_image_url: pass.transportation_bill_image_url,
+            bill_pdf_url: pass.bill_pdf_url,
+            bilti_image_url: pass.bilti_image_url,
+            bilti_pdf_url: pass.bilti_pdf_url,
+            eway_bill_number: pass.eway_bill_number,
+            eway_bill_url: pass.eway_bill_url,
             notes: pass.notes,
             created_at: pass.created_at.toISOString(),
             updated_at: pass.updated_at.toISOString(),
-            lots: lots.map(lot => ({
-              id: lot.id,
-              inward_slip_pass_id: lot.inward_slip_pass_id,
-              lot_number: lot.lot_number,
-              item_name: lot.item_name,
-              no_of_bags: lot.no_of_bags,
-              bag_weight: lot.bag_weight ? parseFloat(lot.bag_weight.toString()) : null,
-              total_weight: lot.total_weight ? parseFloat(lot.total_weight.toString()) : null,
-              bill_weight: parseFloat(lot.bill_weight.toString()),
-              received_weight: parseFloat(lot.received_weight.toString()),
-              bardana: lot.bardana,
-              rate: parseFloat(lot.rate.toString()),
-              amount: lot.amount ? parseFloat(lot.amount.toString()) : null,
-              created_at: lot.created_at.toISOString(),
-              updated_at: lot.updated_at.toISOString(),
-            })),
           };
         })
       );
@@ -79,38 +71,30 @@ export class InwardSlipPassController {
         throw new NotFoundError('Inward slip pass not found');
       }
 
-      const lots = await inwardSlipLotDAO.findByInwardSlipPassId(id);
+      const saudaIds = await inwardSlipPassSaudaDAO.getLinkedSaudaIds(id);
 
       const response: InwardSlipPassResponse = {
         id: inwardSlipPass.id,
-        sauda_id: inwardSlipPass.sauda_id,
+        sauda_ids: saudaIds,
         slip_number: inwardSlipPass.slip_number,
         date: inwardSlipPass.date.toISOString().split('T')[0],
         vehicle_number: inwardSlipPass.vehicle_number,
         party_name: inwardSlipPass.party_name,
         party_address: inwardSlipPass.party_address,
         party_gst_number: inwardSlipPass.party_gst_number,
+        transporter_id: inwardSlipPass.transporter_id,
+        transportation_cost: inwardSlipPass.transportation_cost ? parseFloat(inwardSlipPass.transportation_cost.toString()) : null,
         status: inwardSlipPass.status,
         inward_slip_bill_image_url: inwardSlipPass.inward_slip_bill_image_url,
+        transportation_bill_image_url: inwardSlipPass.transportation_bill_image_url,
+        bill_pdf_url: inwardSlipPass.bill_pdf_url,
+        bilti_image_url: inwardSlipPass.bilti_image_url,
+        bilti_pdf_url: inwardSlipPass.bilti_pdf_url,
+        eway_bill_number: inwardSlipPass.eway_bill_number,
+        eway_bill_url: inwardSlipPass.eway_bill_url,
         notes: inwardSlipPass.notes,
         created_at: inwardSlipPass.created_at.toISOString(),
         updated_at: inwardSlipPass.updated_at.toISOString(),
-        lots: lots.map(lot => ({
-          id: lot.id,
-          inward_slip_pass_id: lot.inward_slip_pass_id,
-          lot_number: lot.lot_number,
-          item_name: lot.item_name,
-          no_of_bags: lot.no_of_bags,
-          bag_weight: lot.bag_weight ? parseFloat(lot.bag_weight.toString()) : null,
-          total_weight: lot.total_weight ? parseFloat(lot.total_weight.toString()) : null,
-          bill_weight: parseFloat(lot.bill_weight.toString()),
-          received_weight: parseFloat(lot.received_weight.toString()),
-          bardana: lot.bardana,
-          rate: parseFloat(lot.rate.toString()),
-          amount: lot.amount ? parseFloat(lot.amount.toString()) : null,
-          created_at: lot.created_at.toISOString(),
-          updated_at: lot.updated_at.toISOString(),
-        })),
       };
 
       return ResponseHandler.success(res, response);
@@ -123,10 +107,22 @@ export class InwardSlipPassController {
     try {
       const inwardSlipPassData = validate<CreateInwardSlipPassDTO>(createInwardSlipPassSchema, req.body);
 
-      // Validate sauda exists
-      const sauda = await saudaDAO.findById(inwardSlipPassData.sauda_id);
+      // Validate saudas exist if provided
+      if (inwardSlipPassData.sauda_ids && inwardSlipPassData.sauda_ids.length > 0) {
+        for (const saudaId of inwardSlipPassData.sauda_ids) {
+          const sauda = await saudaDAO.findById(saudaId);
       if (!sauda) {
-        throw new NotFoundError('Sauda not found');
+            throw new NotFoundError(`Sauda not found: ${saudaId}`);
+          }
+        }
+      }
+
+      // Validate transporter if provided
+      if (inwardSlipPassData.transporter_id) {
+        const transporter = await transporterDAO.findById(inwardSlipPassData.transporter_id);
+        if (!transporter) {
+          throw new NotFoundError('Transporter not found');
+        }
       }
 
       // Set created_by from authenticated user
@@ -134,50 +130,42 @@ export class InwardSlipPassController {
         inwardSlipPassData.created_by = req.user.userId;
       }
 
+      // Extract sauda_ids before creating (they're not part of the table)
+      const saudaIds = inwardSlipPassData.sauda_ids || [];
+      delete (inwardSlipPassData as any).sauda_ids;
+
       // Create inward slip pass
       const inwardSlipPass = await inwardSlipPassDAO.create(inwardSlipPassData);
 
-      // Create lots if provided
-      let lots: any[] = [];
-      if (inwardSlipPassData.lots && inwardSlipPassData.lots.length > 0) {
-        const lotsToCreate = inwardSlipPassData.lots.map(lot => ({
-          ...lot,
-          inward_slip_pass_id: inwardSlipPass.id,
-          created_by: req.user?.userId,
-        }));
-        lots = await inwardSlipLotDAO.createMany(lotsToCreate);
+      // Link saudas if provided
+      if (saudaIds.length > 0) {
+        await inwardSlipPassSaudaDAO.linkSaudas(inwardSlipPass.id, saudaIds);
       }
+
+      const linkedSaudaIds = await inwardSlipPassSaudaDAO.getLinkedSaudaIds(inwardSlipPass.id);
 
       const response: InwardSlipPassResponse = {
         id: inwardSlipPass.id,
-        sauda_id: inwardSlipPass.sauda_id,
+        sauda_ids: linkedSaudaIds,
         slip_number: inwardSlipPass.slip_number,
         date: inwardSlipPass.date.toISOString().split('T')[0],
         vehicle_number: inwardSlipPass.vehicle_number,
         party_name: inwardSlipPass.party_name,
         party_address: inwardSlipPass.party_address,
         party_gst_number: inwardSlipPass.party_gst_number,
+        transporter_id: inwardSlipPass.transporter_id,
+        transportation_cost: inwardSlipPass.transportation_cost ? parseFloat(inwardSlipPass.transportation_cost.toString()) : null,
         status: inwardSlipPass.status,
         inward_slip_bill_image_url: inwardSlipPass.inward_slip_bill_image_url,
+        transportation_bill_image_url: inwardSlipPass.transportation_bill_image_url,
+        bill_pdf_url: inwardSlipPass.bill_pdf_url,
+        bilti_image_url: inwardSlipPass.bilti_image_url,
+        bilti_pdf_url: inwardSlipPass.bilti_pdf_url,
+        eway_bill_number: inwardSlipPass.eway_bill_number,
+        eway_bill_url: inwardSlipPass.eway_bill_url,
         notes: inwardSlipPass.notes,
         created_at: inwardSlipPass.created_at.toISOString(),
         updated_at: inwardSlipPass.updated_at.toISOString(),
-        lots: lots.map(lot => ({
-          id: lot.id,
-          inward_slip_pass_id: lot.inward_slip_pass_id,
-          lot_number: lot.lot_number,
-          item_name: lot.item_name,
-          no_of_bags: lot.no_of_bags,
-          bag_weight: lot.bag_weight ? parseFloat(lot.bag_weight.toString()) : null,
-          total_weight: lot.total_weight ? parseFloat(lot.total_weight.toString()) : null,
-          bill_weight: parseFloat(lot.bill_weight.toString()),
-          received_weight: parseFloat(lot.received_weight.toString()),
-          bardana: lot.bardana,
-          rate: parseFloat(lot.rate.toString()),
-          amount: lot.amount ? parseFloat(lot.amount.toString()) : null,
-          created_at: lot.created_at.toISOString(),
-          updated_at: lot.updated_at.toISOString(),
-        })),
       };
 
       return ResponseHandler.created(res, response, 'Inward slip pass created successfully');
@@ -190,11 +178,7 @@ export class InwardSlipPassController {
     try {
       const id = validate<string>(uuidSchema, req.params.id);
       
-      // Remove sauda_id and lots from request body if present
-      // sauda_id cannot be changed after creation, and lots are managed via separate endpoints
-      const { sauda_id: _saudaId, lots: _lots, ...updateData } = req.body;
-      
-      const inwardSlipPassData = validate<UpdateInwardSlipPassDTO>(updateInwardSlipPassSchema, updateData);
+      const inwardSlipPassData = validate<UpdateInwardSlipPassDTO>(updateInwardSlipPassSchema, req.body);
 
       // Check if inward slip pass exists
       const existingPass = await inwardSlipPassDAO.findById(id);
@@ -202,48 +186,71 @@ export class InwardSlipPassController {
         throw new NotFoundError('Inward slip pass not found');
       }
 
+      // Validate saudas if provided
+      if (inwardSlipPassData.sauda_ids !== undefined) {
+        for (const saudaId of inwardSlipPassData.sauda_ids) {
+          const sauda = await saudaDAO.findById(saudaId);
+          if (!sauda) {
+            throw new NotFoundError(`Sauda not found: ${saudaId}`);
+          }
+        }
+      }
+
+      // Validate transporter if provided
+      if (inwardSlipPassData.transporter_id) {
+        const transporter = await transporterDAO.findById(inwardSlipPassData.transporter_id);
+        if (!transporter) {
+          throw new NotFoundError('Transporter not found');
+        }
+      }
+
       // Set updated_by from authenticated user
       if (req.user) {
         inwardSlipPassData.updated_by = req.user.userId;
       }
+
+      // Extract sauda_ids before updating (they're not part of the table)
+      const saudaIds = inwardSlipPassData.sauda_ids;
+      delete (inwardSlipPassData as any).sauda_ids;
 
       const inwardSlipPass = await inwardSlipPassDAO.update(id, inwardSlipPassData);
       if (!inwardSlipPass) {
         throw new NotFoundError('Inward slip pass not found after update');
       }
 
-      const lots = await inwardSlipLotDAO.findByInwardSlipPassId(id);
+      // Update linked saudas if sauda_ids was provided
+      if (saudaIds !== undefined) {
+        // Replace all existing links with the new array
+        await inwardSlipPassSaudaDAO.unlinkAllSaudas(id);
+        if (saudaIds.length > 0) {
+          await inwardSlipPassSaudaDAO.linkSaudas(id, saudaIds);
+        }
+      }
+
+      const linkedSaudaIds = await inwardSlipPassSaudaDAO.getLinkedSaudaIds(id);
 
       const response: InwardSlipPassResponse = {
         id: inwardSlipPass.id,
-        sauda_id: inwardSlipPass.sauda_id,
+        sauda_ids: linkedSaudaIds,
         slip_number: inwardSlipPass.slip_number,
         date: inwardSlipPass.date.toISOString().split('T')[0],
         vehicle_number: inwardSlipPass.vehicle_number,
         party_name: inwardSlipPass.party_name,
         party_address: inwardSlipPass.party_address,
         party_gst_number: inwardSlipPass.party_gst_number,
+        transporter_id: inwardSlipPass.transporter_id,
+        transportation_cost: inwardSlipPass.transportation_cost ? parseFloat(inwardSlipPass.transportation_cost.toString()) : null,
         status: inwardSlipPass.status,
         inward_slip_bill_image_url: inwardSlipPass.inward_slip_bill_image_url,
+        transportation_bill_image_url: inwardSlipPass.transportation_bill_image_url,
+        bill_pdf_url: inwardSlipPass.bill_pdf_url,
+        bilti_image_url: inwardSlipPass.bilti_image_url,
+        bilti_pdf_url: inwardSlipPass.bilti_pdf_url,
+        eway_bill_number: inwardSlipPass.eway_bill_number,
+        eway_bill_url: inwardSlipPass.eway_bill_url,
         notes: inwardSlipPass.notes,
         created_at: inwardSlipPass.created_at.toISOString(),
         updated_at: inwardSlipPass.updated_at.toISOString(),
-        lots: lots.map(lot => ({
-          id: lot.id,
-          inward_slip_pass_id: lot.inward_slip_pass_id,
-          lot_number: lot.lot_number,
-          item_name: lot.item_name,
-          no_of_bags: lot.no_of_bags,
-          bag_weight: lot.bag_weight ? parseFloat(lot.bag_weight.toString()) : null,
-          total_weight: lot.total_weight ? parseFloat(lot.total_weight.toString()) : null,
-          bill_weight: parseFloat(lot.bill_weight.toString()),
-          received_weight: parseFloat(lot.received_weight.toString()),
-          bardana: lot.bardana,
-          rate: parseFloat(lot.rate.toString()),
-          amount: lot.amount ? parseFloat(lot.amount.toString()) : null,
-          created_at: lot.created_at.toISOString(),
-          updated_at: lot.updated_at.toISOString(),
-        })),
       };
 
       return ResponseHandler.success(res, response, 'Inward slip pass updated successfully');
@@ -270,38 +277,30 @@ export class InwardSlipPassController {
         throw new NotFoundError('Inward slip pass not found');
       }
 
-      const lots = await inwardSlipLotDAO.findByInwardSlipPassId(id);
+      const saudaIds = await inwardSlipPassSaudaDAO.getLinkedSaudaIds(id);
 
       const response: InwardSlipPassResponse = {
         id: inwardSlipPass.id,
-        sauda_id: inwardSlipPass.sauda_id,
+        sauda_ids: saudaIds,
         slip_number: inwardSlipPass.slip_number,
         date: inwardSlipPass.date.toISOString().split('T')[0],
         vehicle_number: inwardSlipPass.vehicle_number,
         party_name: inwardSlipPass.party_name,
         party_address: inwardSlipPass.party_address,
         party_gst_number: inwardSlipPass.party_gst_number,
+        transporter_id: inwardSlipPass.transporter_id,
+        transportation_cost: inwardSlipPass.transportation_cost ? parseFloat(inwardSlipPass.transportation_cost.toString()) : null,
         status: inwardSlipPass.status,
         inward_slip_bill_image_url: inwardSlipPass.inward_slip_bill_image_url,
+        transportation_bill_image_url: inwardSlipPass.transportation_bill_image_url,
+        bill_pdf_url: inwardSlipPass.bill_pdf_url,
+        bilti_image_url: inwardSlipPass.bilti_image_url,
+        bilti_pdf_url: inwardSlipPass.bilti_pdf_url,
+        eway_bill_number: inwardSlipPass.eway_bill_number,
+        eway_bill_url: inwardSlipPass.eway_bill_url,
         notes: inwardSlipPass.notes,
         created_at: inwardSlipPass.created_at.toISOString(),
         updated_at: inwardSlipPass.updated_at.toISOString(),
-        lots: lots.map(lot => ({
-          id: lot.id,
-          inward_slip_pass_id: lot.inward_slip_pass_id,
-          lot_number: lot.lot_number,
-          item_name: lot.item_name,
-          no_of_bags: lot.no_of_bags,
-          bag_weight: lot.bag_weight ? parseFloat(lot.bag_weight.toString()) : null,
-          total_weight: lot.total_weight ? parseFloat(lot.total_weight.toString()) : null,
-          bill_weight: parseFloat(lot.bill_weight.toString()),
-          received_weight: parseFloat(lot.received_weight.toString()),
-          bardana: lot.bardana,
-          rate: parseFloat(lot.rate.toString()),
-          amount: lot.amount ? parseFloat(lot.amount.toString()) : null,
-          created_at: lot.created_at.toISOString(),
-          updated_at: lot.updated_at.toISOString(),
-        })),
       };
 
       return ResponseHandler.success(res, response, 'Inward slip pass status updated successfully');
@@ -347,6 +346,153 @@ export class InwardSlipPassController {
     }
   }
 
+  async uploadTransportationBill(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const id = validate<string>(uuidSchema, req.params.id);
+
+      if (!req.file) {
+        throw new ValidationError('File is required');
+      }
+
+      validateFileSize(req.file.size, 10);
+      validateFileType(req.file.mimetype, ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'application/pdf']);
+
+      const uploadResult = await uploadToS3(
+        req.file.buffer,
+        req.file.originalname,
+        appConfig.aws.s3.transportationBillsFolder
+      );
+
+      const inwardSlipPass = await inwardSlipPassDAO.update(id, {
+        transportation_bill_image_url: uploadResult.url,
+        updated_by: req.user?.userId,
+      });
+
+      if (!inwardSlipPass) {
+        throw new NotFoundError('Inward slip pass not found');
+      }
+
+      return ResponseHandler.success(res, { url: uploadResult.url }, 'Transportation bill uploaded successfully');
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async uploadPurchaseBill(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const id = validate<string>(uuidSchema, req.params.id);
+
+      if (!req.file) {
+        throw new ValidationError('File is required');
+      }
+
+      validateFileSize(req.file.size, 10);
+      validateFileType(req.file.mimetype, ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'application/pdf']);
+
+      const uploadResult = await uploadToS3(
+        req.file.buffer,
+        req.file.originalname,
+        appConfig.aws.s3.purchaseBillsFolder
+      );
+
+      const isPdf = req.file.mimetype === 'application/pdf';
+      const updateData: UpdateInwardSlipPassDTO = {
+        updated_by: req.user?.userId,
+      };
+
+      if (isPdf) {
+        updateData.bill_pdf_url = uploadResult.url;
+      } else {
+        // For images, storing in bill_pdf_url as well
+        updateData.bill_pdf_url = uploadResult.url;
+      }
+
+      const inwardSlipPass = await inwardSlipPassDAO.update(id, updateData);
+
+      if (!inwardSlipPass) {
+        throw new NotFoundError('Inward slip pass not found');
+      }
+
+      return ResponseHandler.success(res, { url: uploadResult.url }, 'Purchase bill uploaded successfully');
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async uploadBilti(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const id = validate<string>(uuidSchema, req.params.id);
+
+      if (!req.file) {
+        throw new ValidationError('File is required');
+      }
+
+      validateFileSize(req.file.size, 10);
+      validateFileType(req.file.mimetype, ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'application/pdf']);
+
+      const uploadResult = await uploadToS3(
+        req.file.buffer,
+        req.file.originalname,
+        appConfig.aws.s3.biltiFolder
+      );
+
+      const isPdf = req.file.mimetype === 'application/pdf';
+      const updateData: UpdateInwardSlipPassDTO = {
+        updated_by: req.user?.userId,
+      };
+
+      if (isPdf) {
+        updateData.bilti_pdf_url = uploadResult.url;
+      } else {
+        updateData.bilti_image_url = uploadResult.url;
+      }
+
+      const inwardSlipPass = await inwardSlipPassDAO.update(id, updateData);
+
+      if (!inwardSlipPass) {
+        throw new NotFoundError('Inward slip pass not found');
+      }
+
+      return ResponseHandler.success(res, { url: uploadResult.url }, 'Bilti uploaded successfully');
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async uploadEwayBill(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const id = validate<string>(uuidSchema, req.params.id);
+      const { eway_bill_number } = req.body;
+
+      if (!req.file) {
+        throw new ValidationError('File is required');
+      }
+
+      validateFileSize(req.file.size, 10);
+      validateFileType(req.file.mimetype, ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'application/pdf']);
+
+      const uploadResult = await uploadToS3(
+        req.file.buffer,
+        req.file.originalname,
+        appConfig.aws.s3.ewayBillsFolder
+      );
+
+      const inwardSlipPass = await inwardSlipPassDAO.update(id, {
+        eway_bill_number: eway_bill_number || null,
+        eway_bill_url: uploadResult.url,
+        updated_by: req.user?.userId,
+      });
+
+      if (!inwardSlipPass) {
+        throw new NotFoundError('Inward slip pass not found');
+      }
+
+      return ResponseHandler.success(res, { url: uploadResult.url }, 'E-way bill uploaded successfully');
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async delete(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const id = validate<string>(uuidSchema, req.params.id);
@@ -367,81 +513,7 @@ export class InwardSlipPassController {
     }
   }
 
-  async updateLot(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
-    try {
-      const id = validate<string>(uuidSchema, req.params.id);
-      const lotId = validate<string>(uuidSchema, req.params.lotId);
-      
-      const lotData = validate<UpdateInwardSlipLotDTO>(updateInwardSlipLotSchema, req.body);
 
-      // Check if lot exists and belongs to the inward slip pass
-      const existingLot = await inwardSlipLotDAO.findById(lotId);
-      if (!existingLot) {
-        throw new NotFoundError('Inward slip lot not found');
-      }
-
-      if (existingLot.inward_slip_pass_id !== id) {
-        throw new ValidationError('Lot does not belong to this inward slip pass');
-      }
-
-      // Set updated_by from authenticated user
-      if (req.user) {
-        lotData.updated_by = req.user.userId;
-      }
-
-      const lot = await inwardSlipLotDAO.update(lotId, lotData);
-      if (!lot) {
-        throw new NotFoundError('Inward slip lot not found after update');
-      }
-
-      const lotResponse: InwardSlipLotResponse = {
-        id: lot.id,
-        inward_slip_pass_id: lot.inward_slip_pass_id,
-        lot_number: lot.lot_number,
-        item_name: lot.item_name,
-        no_of_bags: lot.no_of_bags,
-        bag_weight: lot.bag_weight ? parseFloat(lot.bag_weight.toString()) : null,
-        total_weight: lot.total_weight ? parseFloat(lot.total_weight.toString()) : null,
-        bill_weight: parseFloat(lot.bill_weight.toString()),
-        received_weight: parseFloat(lot.received_weight.toString()),
-        bardana: lot.bardana,
-        rate: parseFloat(lot.rate.toString()),
-        amount: lot.amount ? parseFloat(lot.amount.toString()) : null,
-        created_at: lot.created_at.toISOString(),
-        updated_at: lot.updated_at.toISOString(),
-      };
-
-      return ResponseHandler.success(res, lotResponse, 'Inward slip lot updated successfully');
-    } catch (error) {
-      next(error);
-    }
-  }
-
-  async deleteLot(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
-    try {
-      const id = validate<string>(uuidSchema, req.params.id);
-      const lotId = validate<string>(uuidSchema, req.params.lotId);
-
-      // Check if lot exists and belongs to the inward slip pass
-      const existingLot = await inwardSlipLotDAO.findById(lotId);
-      if (!existingLot) {
-        throw new NotFoundError('Inward slip lot not found');
-      }
-
-      if (existingLot.inward_slip_pass_id !== id) {
-        throw new ValidationError('Lot does not belong to this inward slip pass');
-      }
-
-      const deleted = await inwardSlipLotDAO.delete(lotId);
-      if (!deleted) {
-        throw new NotFoundError('Inward slip lot not found');
-      }
-
-      return ResponseHandler.success(res, null, 'Inward slip lot deleted successfully');
-    } catch (error) {
-      next(error);
-    }
-  }
 }
 
 export const inwardSlipPassController = new InwardSlipPassController();

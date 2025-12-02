@@ -6,8 +6,10 @@ import { calculatePurchaseAmount } from '../utils/purchase-calculations';
 export class InwardSlipPassDAO {
   async findAll(saudaId?: string): Promise<InwardSlipPass[]> {
     let query = `
-      SELECT id, sauda_id, slip_number, date, vehicle_number, party_name, party_address,
-             party_gst_number, status, inward_slip_bill_image_url, notes, created_at, updated_at, created_by, updated_by
+      SELECT id, slip_number, date, vehicle_number, party_name, party_address,
+             party_gst_number, transporter_id, transportation_cost, status, inward_slip_bill_image_url, transportation_bill_image_url,
+             bill_pdf_url, bilti_image_url, bilti_pdf_url, eway_bill_number, eway_bill_url,
+             notes, created_at, updated_at, created_by, updated_by
       FROM inward_slip_passes
       WHERE 1=1
     `;
@@ -15,7 +17,11 @@ export class InwardSlipPassDAO {
     const params: any[] = [];
 
     if (saudaId) {
-      query += ` AND sauda_id = $1`;
+      query += ` AND id IN (
+        SELECT inward_slip_pass_id 
+        FROM inward_slip_pass_saudas 
+        WHERE sauda_id = $1
+      )`;
       params.push(saudaId);
     }
 
@@ -27,8 +33,10 @@ export class InwardSlipPassDAO {
 
   async findById(id: string): Promise<InwardSlipPass | null> {
     const query = `
-      SELECT id, sauda_id, slip_number, date, vehicle_number, party_name, party_address,
-             party_gst_number, status, inward_slip_bill_image_url, notes, created_at, updated_at, created_by, updated_by
+      SELECT id, slip_number, date, vehicle_number, party_name, party_address,
+             party_gst_number, transporter_id, transportation_cost, status, inward_slip_bill_image_url, transportation_bill_image_url,
+             bill_pdf_url, bilti_image_url, bilti_pdf_url, eway_bill_number, eway_bill_url,
+             notes, created_at, updated_at, created_by, updated_by
       FROM inward_slip_passes
       WHERE id = $1
     `;
@@ -38,23 +46,34 @@ export class InwardSlipPassDAO {
 
   async create(inwardSlipPassData: CreateInwardSlipPassDTO): Promise<InwardSlipPass> {
     const query = `
-      INSERT INTO inward_slip_passes (sauda_id, slip_number, date, vehicle_number, party_name,
-                                      party_address, party_gst_number, status, inward_slip_bill_image_url, notes, created_by)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-      RETURNING id, sauda_id, slip_number, date, vehicle_number, party_name, party_address,
-                party_gst_number, status, inward_slip_bill_image_url, notes, created_at, updated_at, created_by, updated_by
+      INSERT INTO inward_slip_passes (slip_number, date, vehicle_number, party_name,
+                                      party_address, party_gst_number, transporter_id, transportation_cost, status, inward_slip_bill_image_url,
+                                      transportation_bill_image_url, bill_pdf_url, bilti_image_url,
+                                      bilti_pdf_url, eway_bill_number, eway_bill_url, notes, created_by)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+      RETURNING id, slip_number, date, vehicle_number, party_name, party_address,
+                party_gst_number, transporter_id, transportation_cost, status, inward_slip_bill_image_url, transportation_bill_image_url,
+                bill_pdf_url, bilti_image_url, bilti_pdf_url, eway_bill_number, eway_bill_url,
+                notes, created_at, updated_at, created_by, updated_by
     `;
     
     const values = [
-      inwardSlipPassData.sauda_id,
       inwardSlipPassData.slip_number,
       inwardSlipPassData.date,
       inwardSlipPassData.vehicle_number,
       inwardSlipPassData.party_name,
       inwardSlipPassData.party_address || null,
       inwardSlipPassData.party_gst_number || null,
+      inwardSlipPassData.transporter_id || null,
+      inwardSlipPassData.transportation_cost || null,
       inwardSlipPassData.status || 'pending',
       inwardSlipPassData.inward_slip_bill_image_url || null,
+      inwardSlipPassData.transportation_bill_image_url || null,
+      inwardSlipPassData.bill_pdf_url || null,
+      inwardSlipPassData.bilti_image_url || null,
+      inwardSlipPassData.bilti_pdf_url || null,
+      inwardSlipPassData.eway_bill_number || null,
+      inwardSlipPassData.eway_bill_url || null,
       inwardSlipPassData.notes || null,
       inwardSlipPassData.created_by || null,
     ];
@@ -98,6 +117,14 @@ export class InwardSlipPassDAO {
       fields.push(`party_gst_number = $${paramCount++}`);
       values.push(inwardSlipPassData.party_gst_number || null);
     }
+    if (inwardSlipPassData.transporter_id !== undefined) {
+      fields.push(`transporter_id = $${paramCount++}`);
+      values.push(inwardSlipPassData.transporter_id || null);
+    }
+    if (inwardSlipPassData.transportation_cost !== undefined) {
+      fields.push(`transportation_cost = $${paramCount++}`);
+      values.push(inwardSlipPassData.transportation_cost || null);
+    }
     if (inwardSlipPassData.status !== undefined) {
       fields.push(`status = $${paramCount++}`);
       values.push(inwardSlipPassData.status);
@@ -105,6 +132,30 @@ export class InwardSlipPassDAO {
     if (inwardSlipPassData.inward_slip_bill_image_url !== undefined) {
       fields.push(`inward_slip_bill_image_url = $${paramCount++}`);
       values.push(inwardSlipPassData.inward_slip_bill_image_url || null);
+    }
+    if (inwardSlipPassData.transportation_bill_image_url !== undefined) {
+      fields.push(`transportation_bill_image_url = $${paramCount++}`);
+      values.push(inwardSlipPassData.transportation_bill_image_url || null);
+    }
+    if (inwardSlipPassData.bill_pdf_url !== undefined) {
+      fields.push(`bill_pdf_url = $${paramCount++}`);
+      values.push(inwardSlipPassData.bill_pdf_url || null);
+    }
+    if (inwardSlipPassData.bilti_image_url !== undefined) {
+      fields.push(`bilti_image_url = $${paramCount++}`);
+      values.push(inwardSlipPassData.bilti_image_url || null);
+    }
+    if (inwardSlipPassData.bilti_pdf_url !== undefined) {
+      fields.push(`bilti_pdf_url = $${paramCount++}`);
+      values.push(inwardSlipPassData.bilti_pdf_url || null);
+    }
+    if (inwardSlipPassData.eway_bill_number !== undefined) {
+      fields.push(`eway_bill_number = $${paramCount++}`);
+      values.push(inwardSlipPassData.eway_bill_number || null);
+    }
+    if (inwardSlipPassData.eway_bill_url !== undefined) {
+      fields.push(`eway_bill_url = $${paramCount++}`);
+      values.push(inwardSlipPassData.eway_bill_url || null);
     }
     if (inwardSlipPassData.notes !== undefined) {
       fields.push(`notes = $${paramCount++}`);
@@ -126,8 +177,10 @@ export class InwardSlipPassDAO {
       UPDATE inward_slip_passes
       SET ${fields.join(', ')}
       WHERE id = $${paramCount}
-      RETURNING id, sauda_id, slip_number, date, vehicle_number, party_name, party_address,
-                party_gst_number, status, inward_slip_bill_image_url, notes, created_at, updated_at, created_by, updated_by
+      RETURNING id, slip_number, date, vehicle_number, party_name, party_address,
+                party_gst_number, transporter_id, transportation_cost, status, inward_slip_bill_image_url, transportation_bill_image_url,
+                bill_pdf_url, bilti_image_url, bilti_pdf_url, eway_bill_number, eway_bill_url,
+                notes, created_at, updated_at, created_by, updated_by
     `;
 
     try {
@@ -144,24 +197,27 @@ export class InwardSlipPassDAO {
   }
 
   async delete(id: string): Promise<boolean> {
-    // Get the sauda_id before deletion to recalculate purchases
-    const inwardSlipPass = await this.findById(id);
-    if (!inwardSlipPass) {
-      return false;
-    }
-
-    const saudaId = inwardSlipPass.sauda_id;
+    // Get the linked sauda_ids before deletion to recalculate purchases
+    const saudaIdsQuery = `
+      SELECT sauda_id
+      FROM inward_slip_pass_saudas
+      WHERE inward_slip_pass_id = $1
+    `;
+    const saudaIdsResult = await db.query<{ sauda_id: string }>(saudaIdsQuery, [id]);
+    const saudaIds = saudaIdsResult.rows.map(row => row.sauda_id);
 
     const query = `DELETE FROM inward_slip_passes WHERE id = $1`;
     const result = await db.query(query, [id]);
     const deleted = (result.rowCount || 0) > 0;
     
     if (deleted) {
-      logger.info('Inward slip pass deleted', { id, saudaId });
+      logger.info('Inward slip pass deleted', { id, saudaIds });
       
-      // Recalculate purchase totals from remaining inward slip passes for this sauda
+      // Recalculate purchase totals from remaining inward slip passes for each linked sauda
       // This aggregates total_weight and total_amount from all inward slip lots
+      for (const saudaId of saudaIds) {
       await this.recalculatePurchaseTotals(saudaId);
+      }
     }
     
     return deleted;

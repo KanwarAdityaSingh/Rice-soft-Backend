@@ -17,13 +17,15 @@ export class BrokerDAO {
         if (item.phone !== undefined && !item.phones) {
           return {
             name: item.name || '',
-            phones: item.phone ? [item.phone] : []
+            phones: item.phone ? [item.phone] : [],
+            emails: Array.isArray(item.emails) ? item.emails : undefined
           };
         }
         // If item already has phones array, ensure it's valid
         return {
           name: item.name || '',
-          phones: Array.isArray(item.phones) ? item.phones : []
+          phones: Array.isArray(item.phones) ? item.phones : [],
+          emails: Array.isArray(item.emails) ? item.emails : undefined
         };
       });
     }

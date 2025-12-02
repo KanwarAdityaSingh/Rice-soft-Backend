@@ -2,7 +2,6 @@ import { Response, NextFunction } from 'express';
 import { saudaDAO } from '../dao/sauda.dao';
 import { vendorDAO } from '../dao/vendor.dao';
 import { brokerDAO } from '../dao/broker.dao';
-import { transporterDAO } from '../dao/transporter.dao';
 import { riceCodeDAO } from '../dao/rice-code.dao';
 import { ResponseHandler } from '../utils/response';
 import {
@@ -37,8 +36,6 @@ export class SaudaController {
         broker_id: sauda.broker_id,
         broker_commission: sauda.broker_commission ? parseFloat(sauda.broker_commission.toString()) : null,
         quantity: sauda.quantity ? parseFloat(sauda.quantity.toString()) : null,
-        transporter_id: sauda.transporter_id,
-        transportation_cost: sauda.transportation_cost ? parseFloat(sauda.transportation_cost.toString()) : null,
         cash_discount: sauda.cash_discount ? parseFloat(sauda.cash_discount.toString()) : null,
         estimated_delivery_time: sauda.estimated_delivery_time,
         purchaser_id: sauda.purchaser_id,
@@ -74,8 +71,6 @@ export class SaudaController {
         broker_id: sauda.broker_id,
         broker_commission: sauda.broker_commission ? parseFloat(sauda.broker_commission.toString()) : null,
         quantity: sauda.quantity ? parseFloat(sauda.quantity.toString()) : null,
-        transporter_id: sauda.transporter_id,
-        transportation_cost: sauda.transportation_cost ? parseFloat(sauda.transportation_cost.toString()) : null,
         cash_discount: sauda.cash_discount ? parseFloat(sauda.cash_discount.toString()) : null,
         estimated_delivery_time: sauda.estimated_delivery_time,
         purchaser_id: sauda.purchaser_id,
@@ -111,25 +106,12 @@ export class SaudaController {
         }
       }
 
-      // Validate transporter if provided
-      if (saudaData.transporter_id) {
-        const transporter = await transporterDAO.findById(saudaData.transporter_id);
-        if (!transporter) {
-          throw new NotFoundError('Transporter not found');
-        }
-      }
-
       // Validate rice_code if provided
       if (saudaData.rice_code_id) {
         const riceCode = await riceCodeDAO.findById(saudaData.rice_code_id);
         if (!riceCode) {
           throw new NotFoundError('Rice code not found');
         }
-      }
-
-      // Validate transportation_cost only for xgodown type
-      if (saudaData.sauda_type === 'for' && saudaData.transportation_cost) {
-        throw new ValidationError('Transportation cost is not applicable for "for" type sauda');
       }
 
       // Set created_by from authenticated user
@@ -148,8 +130,6 @@ export class SaudaController {
         broker_id: sauda.broker_id,
         broker_commission: sauda.broker_commission ? parseFloat(sauda.broker_commission.toString()) : null,
         quantity: sauda.quantity ? parseFloat(sauda.quantity.toString()) : null,
-        transporter_id: sauda.transporter_id,
-        transportation_cost: sauda.transportation_cost ? parseFloat(sauda.transportation_cost.toString()) : null,
         cash_discount: sauda.cash_discount ? parseFloat(sauda.cash_discount.toString()) : null,
         estimated_delivery_time: sauda.estimated_delivery_time,
         purchaser_id: sauda.purchaser_id,
@@ -194,26 +174,12 @@ export class SaudaController {
         }
       }
 
-      // Validate transporter if being updated
-      if (saudaData.transporter_id !== undefined && saudaData.transporter_id !== null) {
-        const transporter = await transporterDAO.findById(saudaData.transporter_id);
-        if (!transporter) {
-          throw new NotFoundError('Transporter not found');
-        }
-      }
-
       // Validate rice_code if being updated
       if (saudaData.rice_code_id !== undefined && saudaData.rice_code_id !== null) {
         const riceCode = await riceCodeDAO.findById(saudaData.rice_code_id);
         if (!riceCode) {
           throw new NotFoundError('Rice code not found');
         }
-      }
-
-      // Validate transportation_cost only for xgodown type
-      const saudaType = saudaData.sauda_type || existingSauda.sauda_type;
-      if (saudaType === 'for' && saudaData.transportation_cost) {
-        throw new ValidationError('Transportation cost is not applicable for "for" type sauda');
       }
 
       // Set updated_by from authenticated user
@@ -235,8 +201,6 @@ export class SaudaController {
         broker_id: sauda.broker_id,
         broker_commission: sauda.broker_commission ? parseFloat(sauda.broker_commission.toString()) : null,
         quantity: sauda.quantity ? parseFloat(sauda.quantity.toString()) : null,
-        transporter_id: sauda.transporter_id,
-        transportation_cost: sauda.transportation_cost ? parseFloat(sauda.transportation_cost.toString()) : null,
         cash_discount: sauda.cash_discount ? parseFloat(sauda.cash_discount.toString()) : null,
         estimated_delivery_time: sauda.estimated_delivery_time,
         purchaser_id: sauda.purchaser_id,
@@ -281,8 +245,6 @@ export class SaudaController {
         broker_id: sauda.broker_id,
         broker_commission: sauda.broker_commission ? parseFloat(sauda.broker_commission.toString()) : null,
         quantity: sauda.quantity ? parseFloat(sauda.quantity.toString()) : null,
-        transporter_id: sauda.transporter_id,
-        transportation_cost: sauda.transportation_cost ? parseFloat(sauda.transportation_cost.toString()) : null,
         cash_discount: sauda.cash_discount ? parseFloat(sauda.cash_discount.toString()) : null,
         estimated_delivery_time: sauda.estimated_delivery_time,
         purchaser_id: sauda.purchaser_id,

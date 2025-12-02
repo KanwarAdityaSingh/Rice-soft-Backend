@@ -357,35 +357,42 @@ An Inward Slip Pass records the entry of goods with multiple lots. Each lot has 
 
 ### Step 3.1: Upload Purchase Documents (Optional)
 
-You can upload various documents for the purchase:
+You can upload various documents for the inward slip pass:
 
 #### Upload Transportation Bill
-**Endpoint:** `POST /api/v1/purchases/:id/upload-transportation-bill`
+**Endpoint:** `POST /api/v1/inward-slip-passes/:id/upload-transportation-bill`
 
 **Request:** `multipart/form-data`
 - `file`: Image or PDF file
-
-**Auto-Status Update:** When transportation bill is uploaded, purchase status automatically changes to `"received"`.
 
 **Response:**
 ```json
 {
   "success": true,
   "data": {
-    "transportation_bill_image_url": "https://s3.amazonaws.com/...",
-    "status": "received"  // Auto-updated
+    "url": "https://s3.amazonaws.com/..."
   }
 }
 ```
 
 #### Upload Purchase Bill
-**Endpoint:** `POST /api/v1/purchases/:id/upload-purchase-bill`
+**Endpoint:** `POST /api/v1/inward-slip-passes/:id/upload-purchase-bill`
+
+**Request:** `multipart/form-data`
+- `file`: Image or PDF file
 
 #### Upload Bilti
-**Endpoint:** `POST /api/v1/purchases/:id/upload-bilti`
+**Endpoint:** `POST /api/v1/inward-slip-passes/:id/upload-bilti`
+
+**Request:** `multipart/form-data`
+- `file`: Image or PDF file
 
 #### Upload E-way Bill
-**Endpoint:** `POST /api/v1/purchases/:id/upload-eway-bill`
+**Endpoint:** `POST /api/v1/inward-slip-passes/:id/upload-eway-bill`
+
+**Request:** `multipart/form-data`
+- `file`: Image or PDF file
+- `eway_bill_number`: (optional) E-way bill number
 
 All follow the same pattern as transportation bill upload.
 
@@ -586,6 +593,10 @@ Then update with transaction ID separately.
 | PUT | `/api/v1/inward-slip-passes/:id` | Update inward slip pass |
 | PATCH | `/api/v1/inward-slip-passes/:id/status` | Update status |
 | POST | `/api/v1/inward-slip-passes/:id/upload-bill-image` | Upload inward slip bill image |
+| POST | `/api/v1/inward-slip-passes/:id/upload-transportation-bill` | Upload transportation bill |
+| POST | `/api/v1/inward-slip-passes/:id/upload-purchase-bill` | Upload purchase bill |
+| POST | `/api/v1/inward-slip-passes/:id/upload-bilti` | Upload bilti |
+| POST | `/api/v1/inward-slip-passes/:id/upload-eway-bill` | Upload e-way bill |
 | DELETE | `/api/v1/inward-slip-passes/:id` | Delete inward slip pass |
 
 **Query Parameters for GET:**
@@ -593,6 +604,10 @@ Then update with transaction ID separately.
 
 **File Upload:**
 - `POST /api/v1/inward-slip-passes/:id/upload-bill-image` - Upload inward slip bill image (image or PDF, max 10MB)
+- `POST /api/v1/inward-slip-passes/:id/upload-transportation-bill` - Upload transportation bill (image or PDF, max 10MB)
+- `POST /api/v1/inward-slip-passes/:id/upload-purchase-bill` - Upload purchase bill (image or PDF, max 10MB)
+- `POST /api/v1/inward-slip-passes/:id/upload-bilti` - Upload bilti (image or PDF, max 10MB)
+- `POST /api/v1/inward-slip-passes/:id/upload-eway-bill` - Upload e-way bill (image or PDF, max 10MB, optional eway_bill_number in body)
 
 ### Purchases
 
@@ -602,11 +617,6 @@ Then update with transaction ID separately.
 | GET | `/api/v1/purchases/:id` | Get purchase by ID |
 | POST | `/api/v1/purchases` | Create purchase |
 | PUT | `/api/v1/purchases/:id` | Update purchase |
-| PATCH | `/api/v1/purchases/:id/status` | Update status |
-| POST | `/api/v1/purchases/:id/upload-transportation-bill` | Upload transportation bill |
-| POST | `/api/v1/purchases/:id/upload-purchase-bill` | Upload purchase bill |
-| POST | `/api/v1/purchases/:id/upload-bilti` | Upload bilti |
-| POST | `/api/v1/purchases/:id/upload-eway-bill` | Upload e-way bill |
 | DELETE | `/api/v1/purchases/:id` | Delete purchase |
 
 **Query Parameters for GET:**
@@ -827,8 +837,11 @@ INWARD_SLIP_ID=$(curl -s -X POST http://localhost:3000/api/v1/inward-slip-passes
 
 # 5.1. Update Purchase with calculated amounts (optional - can be done manually or via frontend)
 
-# 6. Upload Transportation Bill (auto-updates status to 'received')
-curl -X POST "http://localhost:3000/api/v1/purchases/$PURCHASE_ID/upload-transportation-bill" \
+# 6. Upload Transportation Bill to Inward Slip Pass
+INWARD_SLIP_PASS_ID=$(curl -s -X GET "http://localhost:3000/api/v1/inward-slip-passes?sauda_id=$SAUDA_ID" \
+  -H "Authorization: Bearer $TOKEN" | jq -r '.data[0].id')
+
+curl -X POST "http://localhost:3000/api/v1/inward-slip-passes/$INWARD_SLIP_PASS_ID/upload-transportation-bill" \
   -H "Authorization: Bearer $TOKEN" \
   -F "file=@transport_bill.jpg"
 
