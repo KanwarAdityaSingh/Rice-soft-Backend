@@ -5,7 +5,7 @@ import { logger } from '../utils/logger';
 export class InwardSlipLotDAO {
   async findAll(saudaId?: string): Promise<InwardSlipLot[]> {
     let query = `
-      SELECT id, sauda_id, lot_number, item_name, no_of_bags, bag_weight, total_weight,
+      SELECT id, sauda_id, lot_number, rice_code_id, rice_type, no_of_bags, bag_weight, total_weight,
              bill_weight, received_weight, bardana, rate, amount, created_at, updated_at, created_by, updated_by
       FROM inward_slip_lots
       WHERE 1=1
@@ -31,7 +31,7 @@ export class InwardSlipLotDAO {
 
   async findById(id: string): Promise<InwardSlipLot | null> {
     const query = `
-      SELECT id, sauda_id, lot_number, item_name, no_of_bags, bag_weight, total_weight,
+      SELECT id, sauda_id, lot_number, rice_code_id, rice_type, no_of_bags, bag_weight, total_weight,
              bill_weight, received_weight, bardana, rate, amount, created_at, updated_at, created_by, updated_by
       FROM inward_slip_lots
       WHERE id = $1
@@ -42,17 +42,18 @@ export class InwardSlipLotDAO {
 
   async create(inwardSlipLotData: CreateInwardSlipLotDTO): Promise<InwardSlipLot> {
     const query = `
-      INSERT INTO inward_slip_lots (sauda_id, lot_number, item_name, no_of_bags, bag_weight,
+      INSERT INTO inward_slip_lots (sauda_id, lot_number, rice_code_id, rice_type, no_of_bags, bag_weight,
                                    bill_weight, received_weight, bardana, rate, created_by)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-      RETURNING id, sauda_id, lot_number, item_name, no_of_bags, bag_weight, total_weight,
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      RETURNING id, sauda_id, lot_number, rice_code_id, rice_type, no_of_bags, bag_weight, total_weight,
                 bill_weight, received_weight, bardana, rate, amount, created_at, updated_at, created_by, updated_by
     `;
     
     const values = [
       inwardSlipLotData.sauda_id,
       inwardSlipLotData.lot_number,
-      inwardSlipLotData.item_name,
+      inwardSlipLotData.rice_code_id || null,
+      inwardSlipLotData.rice_type || null,
       inwardSlipLotData.no_of_bags,
       inwardSlipLotData.bag_weight || null,
       inwardSlipLotData.bill_weight,
@@ -94,9 +95,13 @@ export class InwardSlipLotDAO {
       fields.push(`lot_number = $${paramCount++}`);
       values.push(inwardSlipLotData.lot_number);
     }
-    if (inwardSlipLotData.item_name !== undefined) {
-      fields.push(`item_name = $${paramCount++}`);
-      values.push(inwardSlipLotData.item_name);
+    if (inwardSlipLotData.rice_code_id !== undefined) {
+      fields.push(`rice_code_id = $${paramCount++}`);
+      values.push(inwardSlipLotData.rice_code_id || null);
+    }
+    if (inwardSlipLotData.rice_type !== undefined) {
+      fields.push(`rice_type = $${paramCount++}`);
+      values.push(inwardSlipLotData.rice_type || null);
     }
     if (inwardSlipLotData.no_of_bags !== undefined) {
       fields.push(`no_of_bags = $${paramCount++}`);
@@ -138,7 +143,7 @@ export class InwardSlipLotDAO {
       UPDATE inward_slip_lots
       SET ${fields.join(', ')}
       WHERE id = $${paramCount}
-      RETURNING id, sauda_id, lot_number, item_name, no_of_bags, bag_weight, total_weight,
+      RETURNING id, sauda_id, lot_number, rice_code_id, rice_type, no_of_bags, bag_weight, total_weight,
                 bill_weight, received_weight, bardana, rate, amount, created_at, updated_at, created_by, updated_by
     `;
 

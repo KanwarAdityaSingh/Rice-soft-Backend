@@ -10,7 +10,7 @@ export class SaudaDAO {
     purchaserId?: string
   ): Promise<Sauda[]> {
     let query = `
-      SELECT id, sauda_type, rice_quality, rice_code_id, rate, broker_id, broker_commission,
+      SELECT id, sauda_type, rice_type, rice_code_id, rate, broker_id, broker_commission,
              quantity, cash_discount, estimated_delivery_time,
              purchaser_id, cooked_rice_image_url, uncooked_rice_image_url, status, notes,
              created_at, updated_at, created_by, updated_by
@@ -48,7 +48,7 @@ export class SaudaDAO {
 
   async findById(id: string): Promise<Sauda | null> {
     const query = `
-      SELECT id, sauda_type, rice_quality, rice_code_id, rate, broker_id, broker_commission,
+      SELECT id, sauda_type, rice_type, rice_code_id, rate, broker_id, broker_commission,
              quantity, cash_discount, estimated_delivery_time,
              purchaser_id, cooked_rice_image_url, uncooked_rice_image_url, status, notes,
              created_at, updated_at, created_by, updated_by
@@ -61,11 +61,11 @@ export class SaudaDAO {
 
   async create(saudaData: CreateSaudaDTO): Promise<Sauda> {
     const query = `
-      INSERT INTO saudas (sauda_type, rice_quality, rice_code_id, rate, broker_id, broker_commission,
+      INSERT INTO saudas (sauda_type, rice_type, rice_code_id, rate, broker_id, broker_commission,
                          quantity, cash_discount, estimated_delivery_time,
                          purchaser_id, cooked_rice_image_url, uncooked_rice_image_url, status, notes, created_by)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-      RETURNING id, sauda_type, rice_quality, rice_code_id, rate, broker_id, broker_commission,
+      RETURNING id, sauda_type, rice_type, rice_code_id, rate, broker_id, broker_commission,
                 quantity, cash_discount, estimated_delivery_time,
                 purchaser_id, cooked_rice_image_url, uncooked_rice_image_url, status, notes,
                 created_at, updated_at, created_by, updated_by
@@ -73,7 +73,7 @@ export class SaudaDAO {
     
     const values = [
       saudaData.sauda_type,
-      saudaData.rice_quality,
+      saudaData.rice_type,
       saudaData.rice_code_id || null,
       saudaData.rate,
       saudaData.broker_id || null,
@@ -108,9 +108,9 @@ export class SaudaDAO {
       fields.push(`sauda_type = $${paramCount++}`);
       values.push(saudaData.sauda_type);
     }
-    if (saudaData.rice_quality !== undefined) {
-      fields.push(`rice_quality = $${paramCount++}`);
-      values.push(saudaData.rice_quality);
+    if (saudaData.rice_type !== undefined) {
+      fields.push(`rice_type = $${paramCount++}`);
+      values.push(saudaData.rice_type);
     }
     if (saudaData.rice_code_id !== undefined) {
       fields.push(`rice_code_id = $${paramCount++}`);
@@ -176,7 +176,7 @@ export class SaudaDAO {
       UPDATE saudas
       SET ${fields.join(', ')}
       WHERE id = $${paramCount}
-      RETURNING id, sauda_type, rice_quality, rice_code_id, rate, broker_id, broker_commission,
+      RETURNING id, sauda_type, rice_type, rice_code_id, rate, broker_id, broker_commission,
                 quantity, cash_discount, estimated_delivery_time,
                 purchaser_id, cooked_rice_image_url, uncooked_rice_image_url, status, notes,
                 created_at, updated_at, created_by, updated_by

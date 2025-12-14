@@ -1,6 +1,7 @@
 import { Response, NextFunction } from 'express';
 import { inwardSlipLotDAO } from '../dao/inward-slip-lot.dao';
 import { saudaDAO } from '../dao/sauda.dao';
+import { riceCodeDAO } from '../dao/rice-code.dao';
 import { ResponseHandler } from '../utils/response';
 import {
   validate,
@@ -25,7 +26,8 @@ export class LotController {
         id: lot.id,
         sauda_id: lot.sauda_id,
         lot_number: lot.lot_number,
-        item_name: lot.item_name,
+        rice_code_id: lot.rice_code_id,
+        rice_type: lot.rice_type,
         no_of_bags: lot.no_of_bags,
         bag_weight: lot.bag_weight ? parseFloat(lot.bag_weight.toString()) : null,
         total_weight: lot.total_weight ? parseFloat(lot.total_weight.toString()) : null,
@@ -57,7 +59,8 @@ export class LotController {
         id: lot.id,
         sauda_id: lot.sauda_id,
         lot_number: lot.lot_number,
-        item_name: lot.item_name,
+        rice_code_id: lot.rice_code_id,
+        rice_type: lot.rice_type,
         no_of_bags: lot.no_of_bags,
         bag_weight: lot.bag_weight ? parseFloat(lot.bag_weight.toString()) : null,
         total_weight: lot.total_weight ? parseFloat(lot.total_weight.toString()) : null,
@@ -86,6 +89,14 @@ export class LotController {
         throw new NotFoundError('Sauda not found');
       }
 
+      // Validate rice_code if provided
+      if (lotData.rice_code_id) {
+        const riceCode = await riceCodeDAO.findById(lotData.rice_code_id);
+        if (!riceCode) {
+          throw new NotFoundError('Rice code not found');
+        }
+      }
+
       // Set created_by from authenticated user
       if (req.user) {
         lotData.created_by = req.user.userId;
@@ -97,7 +108,8 @@ export class LotController {
         id: lot.id,
         sauda_id: lot.sauda_id,
         lot_number: lot.lot_number,
-        item_name: lot.item_name,
+        rice_code_id: lot.rice_code_id,
+        rice_type: lot.rice_type,
         no_of_bags: lot.no_of_bags,
         bag_weight: lot.bag_weight ? parseFloat(lot.bag_weight.toString()) : null,
         total_weight: lot.total_weight ? parseFloat(lot.total_weight.toString()) : null,
@@ -141,7 +153,8 @@ export class LotController {
         id: lot.id,
         sauda_id: lot.sauda_id,
         lot_number: lot.lot_number,
-        item_name: lot.item_name,
+        rice_code_id: lot.rice_code_id,
+        rice_type: lot.rice_type,
         no_of_bags: lot.no_of_bags,
         bag_weight: lot.bag_weight ? parseFloat(lot.bag_weight.toString()) : null,
         total_weight: lot.total_weight ? parseFloat(lot.total_weight.toString()) : null,

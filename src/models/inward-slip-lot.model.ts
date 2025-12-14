@@ -1,8 +1,11 @@
+import { RiceType } from './lead.model';
+
 export interface InwardSlipLot {
   id: string;
   sauda_id: string;
   lot_number: string;
-  item_name: string;
+  rice_code_id: string | null;
+  rice_type: RiceType | null;
   no_of_bags: number;
   bag_weight: number | null;
   total_weight: number | null;
@@ -20,7 +23,8 @@ export interface InwardSlipLot {
 export interface CreateInwardSlipLotDTO {
   sauda_id: string;
   lot_number: string;
-  item_name: string;
+  rice_code_id?: string;
+  rice_type?: RiceType;
   no_of_bags: number;
   bag_weight?: number;
   bill_weight: number;
@@ -32,7 +36,8 @@ export interface CreateInwardSlipLotDTO {
 
 export interface UpdateInwardSlipLotDTO {
   lot_number?: string;
-  item_name?: string;
+  rice_code_id?: string;
+  rice_type?: RiceType;
   no_of_bags?: number;
   bag_weight?: number;
   bill_weight?: number;
@@ -46,7 +51,8 @@ export interface InwardSlipLotResponse {
   id: string;
   sauda_id: string;
   lot_number: string;
-  item_name: string;
+  rice_code_id: string | null;
+  rice_type: RiceType | null;
   no_of_bags: number;
   bag_weight: number | null;
   total_weight: number | null;

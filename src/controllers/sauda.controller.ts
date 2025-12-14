@@ -30,7 +30,7 @@ export class SaudaController {
       const saudaResponses: SaudaResponse[] = saudas.map((sauda) => ({
         id: sauda.id,
         sauda_type: sauda.sauda_type,
-        rice_quality: sauda.rice_quality,
+        rice_type: sauda.rice_type,
         rice_code_id: sauda.rice_code_id,
         rate: parseFloat(sauda.rate.toString()),
         broker_id: sauda.broker_id,
@@ -65,7 +65,7 @@ export class SaudaController {
       const saudaResponse: SaudaResponse = {
         id: sauda.id,
         sauda_type: sauda.sauda_type,
-        rice_quality: sauda.rice_quality,
+        rice_type: sauda.rice_type,
         rice_code_id: sauda.rice_code_id,
         rate: parseFloat(sauda.rate.toString()),
         broker_id: sauda.broker_id,
@@ -124,7 +124,7 @@ export class SaudaController {
       const saudaResponse: SaudaResponse = {
         id: sauda.id,
         sauda_type: sauda.sauda_type,
-        rice_quality: sauda.rice_quality,
+        rice_type: sauda.rice_type,
         rice_code_id: sauda.rice_code_id,
         rate: parseFloat(sauda.rate.toString()),
         broker_id: sauda.broker_id,
@@ -195,7 +195,7 @@ export class SaudaController {
       const saudaResponse: SaudaResponse = {
         id: sauda.id,
         sauda_type: sauda.sauda_type,
-        rice_quality: sauda.rice_quality,
+        rice_type: sauda.rice_type,
         rice_code_id: sauda.rice_code_id,
         rate: parseFloat(sauda.rate.toString()),
         broker_id: sauda.broker_id,
@@ -239,7 +239,7 @@ export class SaudaController {
       const saudaResponse: SaudaResponse = {
         id: sauda.id,
         sauda_type: sauda.sauda_type,
-        rice_quality: sauda.rice_quality,
+        rice_type: sauda.rice_type,
         rice_code_id: sauda.rice_code_id,
         rate: parseFloat(sauda.rate.toString()),
         broker_id: sauda.broker_id,

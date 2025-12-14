@@ -1,10 +1,12 @@
+import { RiceType } from './lead.model';
+
 export type SaudaType = 'xgodown' | 'for';
 export type SaudaStatus = 'draft' | 'active' | 'completed' | 'cancelled';
 
 export interface Sauda {
   id: string;
   sauda_type: SaudaType;
-  rice_quality: string;
+  rice_type: RiceType;
   rice_code_id: string | null;
   rate: number;
   broker_id: string | null;
@@ -25,7 +27,7 @@ export interface Sauda {
 
 export interface CreateSaudaDTO {
   sauda_type: SaudaType;
-  rice_quality: string;
+  rice_type: RiceType;
   rice_code_id?: string;
   rate: number;
   broker_id?: string;
@@ -43,7 +45,7 @@ export interface CreateSaudaDTO {
 
 export interface UpdateSaudaDTO {
   sauda_type?: SaudaType;
-  rice_quality?: string;
+  rice_type?: RiceType;
   rice_code_id?: string;
   rate?: number;
   broker_id?: string;
@@ -62,7 +64,7 @@ export interface UpdateSaudaDTO {
 export interface SaudaResponse {
   id: string;
   sauda_type: SaudaType;
-  rice_quality: string;
+  rice_type: RiceType;
   rice_code_id: string | null;
   rate: number;
   broker_id: string | null;

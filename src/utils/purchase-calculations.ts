@@ -147,16 +147,16 @@ export async function calculatePurchaseAmount(
   const transportationCost = parseFloat(ispTransportResult.rows[0]?.total_transportation_cost || '0');
   
   // Get all lots for this sauda (now directly linked)
-  const lotsQuery = `
-    SELECT 
-      COALESCE(SUM(received_weight), 0) as total_received_weight,
-      COALESCE(SUM(amount), 0) as total_amount,
-      COALESCE(SUM(no_of_bags), 0) as total_bags
-    FROM inward_slip_lots
+    const lotsQuery = `
+      SELECT 
+        COALESCE(SUM(received_weight), 0) as total_received_weight,
+        COALESCE(SUM(amount), 0) as total_amount,
+        COALESCE(SUM(no_of_bags), 0) as total_bags
+      FROM inward_slip_lots
     WHERE sauda_id = $1
-  `;
+    `;
   const lotsResult = await db.query(lotsQuery, [saudaId]);
-  
+    
   const totalWeight = parseFloat(lotsResult.rows[0]?.total_received_weight || '0');
   const baseAmount = parseFloat(lotsResult.rows[0]?.total_amount || '0');
   const totalBags = parseInt(lotsResult.rows[0]?.total_bags || '0', 10);
