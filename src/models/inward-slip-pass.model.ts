@@ -8,6 +8,7 @@ export interface InwardSlipPass {
   party_name: string;
   party_address: string | null;
   party_gst_number: string | null;
+  party_pan_number: string | null;
   transporter_id: string | null;
   transportation_cost: number | null;
   status: InwardSlipStatus;
@@ -33,6 +34,7 @@ export interface CreateInwardSlipPassDTO {
   party_name: string;
   party_address?: string;
   party_gst_number?: string;
+  party_pan_number?: string;
   transporter_id?: string;
   transportation_cost?: number;
   status?: InwardSlipStatus;
@@ -55,6 +57,7 @@ export interface UpdateInwardSlipPassDTO {
   party_name?: string;
   party_address?: string;
   party_gst_number?: string;
+  party_pan_number?: string;
   transporter_id?: string;
   transportation_cost?: number;
   status?: InwardSlipStatus;
@@ -78,6 +81,7 @@ export interface InwardSlipPassResponse {
   party_name: string;
   party_address: string | null;
   party_gst_number: string | null;
+  party_pan_number: string | null;
   transporter_id: string | null;
   transportation_cost: number | null;
   status: InwardSlipStatus;

@@ -7,7 +7,7 @@ export class InwardSlipPassDAO {
   async findAll(saudaId?: string): Promise<InwardSlipPass[]> {
     let query = `
       SELECT id, slip_number, date, vehicle_number, party_name, party_address,
-             party_gst_number, transporter_id, transportation_cost, status, inward_slip_bill_image_url, transportation_bill_image_url,
+             party_gst_number, party_pan_number, transporter_id, transportation_cost, status, inward_slip_bill_image_url, transportation_bill_image_url,
              bill_pdf_url, bilti_image_url, bilti_pdf_url, eway_bill_number, eway_bill_url,
              notes, created_at, updated_at, created_by, updated_by
       FROM inward_slip_passes
@@ -34,7 +34,7 @@ export class InwardSlipPassDAO {
   async findById(id: string): Promise<InwardSlipPass | null> {
     const query = `
       SELECT id, slip_number, date, vehicle_number, party_name, party_address,
-             party_gst_number, transporter_id, transportation_cost, status, inward_slip_bill_image_url, transportation_bill_image_url,
+             party_gst_number, party_pan_number, transporter_id, transportation_cost, status, inward_slip_bill_image_url, transportation_bill_image_url,
              bill_pdf_url, bilti_image_url, bilti_pdf_url, eway_bill_number, eway_bill_url,
              notes, created_at, updated_at, created_by, updated_by
       FROM inward_slip_passes
@@ -47,10 +47,10 @@ export class InwardSlipPassDAO {
   async create(inwardSlipPassData: CreateInwardSlipPassDTO): Promise<InwardSlipPass> {
     const query = `
       INSERT INTO inward_slip_passes (slip_number, date, vehicle_number, party_name,
-                                      party_address, party_gst_number, transporter_id, transportation_cost, status, inward_slip_bill_image_url,
+                                      party_address, party_gst_number, party_pan_number, transporter_id, transportation_cost, status, inward_slip_bill_image_url,
                                       transportation_bill_image_url, bill_pdf_url, bilti_image_url,
                                       bilti_pdf_url, eway_bill_number, eway_bill_url, notes, created_by)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
       RETURNING id, slip_number, date, vehicle_number, party_name, party_address,
                 party_gst_number, transporter_id, transportation_cost, status, inward_slip_bill_image_url, transportation_bill_image_url,
                 bill_pdf_url, bilti_image_url, bilti_pdf_url, eway_bill_number, eway_bill_url,
@@ -64,6 +64,7 @@ export class InwardSlipPassDAO {
       inwardSlipPassData.party_name,
       inwardSlipPassData.party_address || null,
       inwardSlipPassData.party_gst_number || null,
+      inwardSlipPassData.party_pan_number || null,
       inwardSlipPassData.transporter_id || null,
       inwardSlipPassData.transportation_cost || null,
       inwardSlipPassData.status || 'pending',
@@ -116,6 +117,10 @@ export class InwardSlipPassDAO {
     if (inwardSlipPassData.party_gst_number !== undefined) {
       fields.push(`party_gst_number = $${paramCount++}`);
       values.push(inwardSlipPassData.party_gst_number || null);
+    }
+    if (inwardSlipPassData.party_pan_number !== undefined) {
+      fields.push(`party_pan_number = $${paramCount++}`);
+      values.push(inwardSlipPassData.party_pan_number || null);
     }
     if (inwardSlipPassData.transporter_id !== undefined) {
       fields.push(`transporter_id = $${paramCount++}`);
