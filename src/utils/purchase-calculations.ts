@@ -1,10 +1,15 @@
 import { db } from '../database/connection';
 
+export type CashDiscountType = 'rupees' | 'percentage';
+export type BrokerCommissionType = 'rupees' | 'percentage';
+
 /**
  * Calculate purchase total amount from linked lots with Purchase-level accounting factors
  * @param purchaseId - Purchase ID to get linked lots
- * @param cashDiscount - Purchase-level cash discount (fixed amount)
- * @param brokerCommission - Purchase-level broker commission (percentage)
+ * @param cashDiscount - Purchase-level cash discount (fixed amount or percentage based on cashDiscountType)
+ * @param cashDiscountType - Type of cash discount: 'rupees' (fixed amount) or 'percentage'
+ * @param brokerCommission - Purchase-level broker commission (fixed amount or percentage based on brokerCommissionType)
+ * @param brokerCommissionType - Type of broker commission: 'rupees' (fixed amount) or 'percentage' (default)
  * @param transportationCost - Purchase-level transportation cost (fixed amount)
  * @param igstPercentage - Purchase-level IGST percentage
  * @returns Object with calculated amounts
@@ -12,7 +17,9 @@ import { db } from '../database/connection';
 export async function calculatePurchaseAmountFromLinkedLots(
   purchaseId: string,
   cashDiscount?: number | null,
+  cashDiscountType?: CashDiscountType | null,
   brokerCommission?: number | null,
+  brokerCommissionType?: BrokerCommissionType | null,
   transportationCost?: number | null,
   igstPercentage?: number | null
 ): Promise<{
@@ -47,18 +54,36 @@ export async function calculatePurchaseAmountFromLinkedLots(
   // Step 1: Base amount from linked lots
   let calculatedAmount = baseAmount;
   
-  // Step 2: Subtract cash discount (fixed amount from Purchase)
-  const cashDiscountAmount = cashDiscount ? parseFloat(cashDiscount.toString()) : 0;
+  // Step 2: Subtract cash discount (fixed amount or percentage based on type)
+  let cashDiscountAmount = 0;
+  const discountType = cashDiscountType || 'rupees';
+  if (cashDiscount) {
+    const discountValue = parseFloat(cashDiscount.toString());
+    if (discountType === 'percentage') {
+      // Calculate percentage of base amount
+      cashDiscountAmount = calculatedAmount * (discountValue / 100);
+    } else {
+      // Fixed amount in rupees
+      cashDiscountAmount = discountValue;
+    }
+  }
   const amountAfterDiscount = calculatedAmount - cashDiscountAmount;
   calculatedAmount = amountAfterDiscount;
   
-  // Step 3: Apply broker commission (percentage from Purchase)
+  // Step 3: Apply broker commission (fixed amount or percentage based on type)
   let brokerCommissionAmount = 0;
   let amountWithCommission = calculatedAmount;
+  const commissionType = brokerCommissionType || 'percentage';
   if (brokerCommission) {
-    const brokerCommissionPercent = parseFloat(brokerCommission.toString());
-    if (brokerCommissionPercent > 0) {
-      brokerCommissionAmount = calculatedAmount * (brokerCommissionPercent / 100);
+    const commissionValue = parseFloat(brokerCommission.toString());
+    if (commissionValue > 0) {
+      if (commissionType === 'percentage') {
+        // Calculate percentage of amount after discount
+        brokerCommissionAmount = calculatedAmount * (commissionValue / 100);
+      } else {
+        // Fixed amount in rupees
+        brokerCommissionAmount = commissionValue;
+      }
       amountWithCommission = calculatedAmount + brokerCommissionAmount;
       calculatedAmount = amountWithCommission;
     }
@@ -120,7 +145,7 @@ export async function calculatePurchaseAmount(
 }> {
   // Get sauda details
   const saudaQuery = `
-    SELECT id, sauda_type, cash_discount, broker_commission
+    SELECT id, sauda_type, cash_discount, cash_discount_type, broker_commission, broker_commission_type
     FROM saudas
     WHERE id = $1
   `;
@@ -131,9 +156,11 @@ export async function calculatePurchaseAmount(
   }
   
   const sauda = saudaResult.rows[0];
-  const cashDiscount = parseFloat(sauda.cash_discount || '0');
+  const cashDiscountValue = parseFloat(sauda.cash_discount || '0');
+  const cashDiscountType: CashDiscountType = sauda.cash_discount_type || 'rupees';
   const saudaBrokerCommission = parseFloat(sauda.broker_commission || '0');
-  const isXgodown = sauda.sauda_type === 'xgodown';
+  const saudaBrokerCommissionType: BrokerCommissionType = sauda.broker_commission_type || 'percentage';
+  const isXgodown = sauda.sauda_type === 'exgodown';
   
   // Get transportation cost from inward slip passes linked to this sauda
   // Sum all transportation costs from ISPs for this sauda (via junction table)
@@ -164,24 +191,40 @@ export async function calculatePurchaseAmount(
   // Step 1: Base amount from lots
   let calculatedAmount = baseAmount;
   
-  // Step 2: Subtract cash discount (fixed amount)
+  // Step 2: Subtract cash discount (fixed amount or percentage based on type)
+  let cashDiscount = 0;
+  if (cashDiscountValue > 0) {
+    if (cashDiscountType === 'percentage') {
+      // Calculate percentage of base amount
+      cashDiscount = calculatedAmount * (cashDiscountValue / 100);
+    } else {
+      // Fixed amount in rupees
+      cashDiscount = cashDiscountValue;
+    }
+  }
   const amountAfterDiscount = calculatedAmount - cashDiscount;
   calculatedAmount = amountAfterDiscount;
   
-  // Step 3: Apply broker commission (percentage)
-  const brokerCommissionPercent = purchaseBrokerCommission 
+  // Step 3: Apply broker commission (fixed amount or percentage based on type)
+  const brokerCommissionValue = purchaseBrokerCommission 
     ? parseFloat(purchaseBrokerCommission.toString())
     : saudaBrokerCommission;
   
   let brokerCommissionAmount = 0;
   let amountWithCommission = calculatedAmount;
-  if (brokerCommissionPercent > 0) {
-    brokerCommissionAmount = calculatedAmount * (brokerCommissionPercent / 100);
+  if (brokerCommissionValue > 0) {
+    if (saudaBrokerCommissionType === 'percentage') {
+      // Calculate percentage of amount after discount
+      brokerCommissionAmount = calculatedAmount * (brokerCommissionValue / 100);
+    } else {
+      // Fixed amount in rupees
+      brokerCommissionAmount = brokerCommissionValue;
+    }
     amountWithCommission = calculatedAmount + brokerCommissionAmount;
     calculatedAmount = amountWithCommission;
   }
   
-  // Step 4: Add transportation cost (only for xgodown type)
+  // Step 4: Add transportation cost (only for exgodown type)
   let amountWithTransportation = calculatedAmount;
   if (isXgodown && transportationCost > 0) {
     amountWithTransportation = calculatedAmount + transportationCost;

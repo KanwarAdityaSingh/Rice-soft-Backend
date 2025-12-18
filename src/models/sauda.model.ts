@@ -1,7 +1,9 @@
 import { RiceType } from './lead.model';
 
-export type SaudaType = 'xgodown' | 'for';
+export type SaudaType = 'exgodown' | 'for';
 export type SaudaStatus = 'draft' | 'active' | 'completed' | 'cancelled';
+export type CashDiscountType = 'rupees' | 'percentage';
+export type BrokerCommissionType = 'rupees' | 'percentage';
 
 export interface Sauda {
   id: string;
@@ -11,8 +13,10 @@ export interface Sauda {
   rate: number;
   broker_id: string | null;
   broker_commission: number | null;
+  broker_commission_type: BrokerCommissionType;
   quantity: number | null;
   cash_discount: number | null;
+  cash_discount_type: CashDiscountType;
   estimated_delivery_time: number | null;
   purchaser_id: string;
   cooked_rice_image_url: string | null;
@@ -32,8 +36,10 @@ export interface CreateSaudaDTO {
   rate: number;
   broker_id?: string;
   broker_commission?: number;
+  broker_commission_type?: BrokerCommissionType;
   quantity?: number;
   cash_discount?: number;
+  cash_discount_type?: CashDiscountType;
   estimated_delivery_time?: number;
   purchaser_id: string;
   cooked_rice_image_url?: string;
@@ -50,8 +56,10 @@ export interface UpdateSaudaDTO {
   rate?: number;
   broker_id?: string;
   broker_commission?: number;
+  broker_commission_type?: BrokerCommissionType;
   quantity?: number;
   cash_discount?: number;
+  cash_discount_type?: CashDiscountType;
   estimated_delivery_time?: number;
   purchaser_id?: string;
   cooked_rice_image_url?: string;
@@ -69,8 +77,10 @@ export interface SaudaResponse {
   rate: number;
   broker_id: string | null;
   broker_commission: number | null;
+  broker_commission_type: BrokerCommissionType;
   quantity: number | null;
   cash_discount: number | null;
+  cash_discount_type: CashDiscountType;
   estimated_delivery_time: number | null;
   purchaser_id: string;
   cooked_rice_image_url: string | null;

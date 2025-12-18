@@ -100,7 +100,7 @@ The Purchase Flow is a flexible, independent entity-based system that allows for
 ```sql
 CREATE TABLE saudas (
     id UUID PRIMARY KEY,
-    sauda_type VARCHAR(20) CHECK (sauda_type IN ('xgodown', 'for')),
+    sauda_type VARCHAR(20) CHECK (sauda_type IN ('exgodown', 'for')),
     rice_quality VARCHAR(255) NOT NULL,
     rice_code_id UUID REFERENCES rice_codes(rice_code_id),
     rate DECIMAL(10,2) NOT NULL,
@@ -312,7 +312,7 @@ CREATE TABLE purchase_lots (
 **Purpose**: Represents a purchase agreement/contract between vendor and purchaser.
 
 **Key Fields:**
-- `sauda_type`: `'xgodown'` (ex-godown/from warehouse) or `'for'` (Free on Rail/Road)
+- `sauda_type`: `'exgodown'` (ex-godown/from warehouse) or `'for'` (Free on Rail/Road)
 - `rate`: Base rate per unit
 - `purchaser_id`: References vendor (the purchaser)
 - `broker_commission`: Percentage (stored on sauda, can be overridden at purchase level)
@@ -457,7 +457,7 @@ POST /api/v1/saudas
 Content-Type: application/json
 
 {
-  "sauda_type": "xgodown",              // Required: "xgodown" | "for"
+  "sauda_type": "exgodown",              // Required: "exgodown" | "for"
   "rice_quality": "Premium Basmati",    // Required
   "rate": 85.50,                        // Required
   "purchaser_id": "vendor-uuid",        // Required
@@ -471,7 +471,7 @@ Content-Type: application/json
 
 #### Get All Saudas
 ```http
-GET /api/v1/saudas?status=active&sauda_type=xgodown&purchaser_id=uuid
+GET /api/v1/saudas?status=active&sauda_type=exgodown&purchaser_id=uuid
 ```
 
 ### 2. Inward Slip Pass Endpoints
@@ -735,7 +735,7 @@ However, in the new flow, **Purchase-level `transportation_cost`** is used direc
 # Step 1: Create Sauda
 POST /api/v1/saudas
 {
-  "sauda_type": "xgodown",
+  "sauda_type": "exgodown",
   "rice_quality": "Premium Basmati",
   "rate": 85.50,
   "purchaser_id": "vendor-uuid",
@@ -829,7 +829,7 @@ POST /api/v1/payment-advices
 ```bash
 # Step 1: Create Multiple Saudas
 POST /api/v1/saudas
-{ "sauda_type": "xgodown", "rice_quality": "Basmati", "rate": 85.50, "purchaser_id": "vendor-uuid" }
+{ "sauda_type": "exgodown", "rice_quality": "Basmati", "rate": 85.50, "purchaser_id": "vendor-uuid" }
 # Response: { "id": "sauda-1" }
 
 POST /api/v1/saudas

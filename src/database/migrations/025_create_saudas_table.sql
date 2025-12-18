@@ -3,7 +3,7 @@
 
 -- Create sauda_type enum
 DO $$ BEGIN
-    CREATE TYPE sauda_type_enum AS ENUM ('xgodown', 'for');
+    CREATE TYPE sauda_type_enum AS ENUM ('exgodown', 'for');
 EXCEPTION
     WHEN duplicate_object THEN null;
 END $$;
@@ -18,7 +18,7 @@ END $$;
 -- Create saudas table
 CREATE TABLE IF NOT EXISTS saudas (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    sauda_type VARCHAR(20) NOT NULL CHECK (sauda_type IN ('xgodown', 'for')),
+    sauda_type VARCHAR(20) NOT NULL CHECK (sauda_type IN ('exgodown', 'for')),
     rice_quality VARCHAR(255) NOT NULL,
     rice_code_id UUID REFERENCES rice_codes(rice_code_id) ON DELETE SET NULL,
     rate DECIMAL(10,2) NOT NULL,
@@ -57,8 +57,8 @@ CREATE TRIGGER update_saudas_updated_at
 
 -- Add comments for documentation
 COMMENT ON TABLE saudas IS 'Stores purchase agreements/contracts (saudas)';
-COMMENT ON COLUMN saudas.sauda_type IS 'Type of sauda: xgodown (ex-godown/from warehouse) or for (Free on Rail/Road)';
+COMMENT ON COLUMN saudas.sauda_type IS 'Type of sauda: exgodown (ex-godown/from warehouse) or for (Free on Rail/Road)';
 COMMENT ON COLUMN saudas.status IS 'Status of sauda: draft, active, completed, cancelled';
-COMMENT ON COLUMN saudas.transportation_cost IS 'Transportation cost - only applicable for xgodown type';
+COMMENT ON COLUMN saudas.transportation_cost IS 'Transportation cost - only applicable for exgodown type';
 COMMENT ON COLUMN saudas.cash_discount IS 'Cash discount percentage based on estimated_delivery_time';
 

@@ -1,10 +1,15 @@
+export type CashDiscountType = 'rupees' | 'percentage';
+export type BrokerCommissionType = 'rupees' | 'percentage';
+
 export interface Purchase {
   id: string;
   vendor_id: string;
   broker_id: string | null;
   broker_commission: number | null;
+  broker_commission_type: BrokerCommissionType;
   payment_advice_id: string | null;
   cash_discount: number | null;
+  cash_discount_type: CashDiscountType;
   transportation_cost: number | null;
   invoice_number: string | null;
   invoice_date: Date | null;
@@ -34,7 +39,9 @@ export interface CreatePurchaseDTO {
   lot_ids?: string[];
   broker_id?: string;
   broker_commission?: number;
+  broker_commission_type?: BrokerCommissionType;
   cash_discount?: number;
+  cash_discount_type?: CashDiscountType;
   transportation_cost?: number;
   invoice_number?: string;
   invoice_date?: string;
@@ -57,8 +64,10 @@ export interface CreatePurchaseDTO {
 export interface UpdatePurchaseDTO {
   broker_id?: string;
   broker_commission?: number;
+  broker_commission_type?: BrokerCommissionType;
   payment_advice_id?: string | null;
   cash_discount?: number;
+  cash_discount_type?: CashDiscountType;
   transportation_cost?: number;
   invoice_number?: string;
   invoice_date?: string;
@@ -83,8 +92,10 @@ export interface PurchaseResponse {
   vendor_id: string;
   broker_id: string | null;
   broker_commission: number | null;
+  broker_commission_type: BrokerCommissionType;
   payment_advice_id: string | null;
   cash_discount: number | null;
+  cash_discount_type: CashDiscountType;
   transportation_cost: number | null;
   invoice_number: string | null;
   invoice_date: string | null;

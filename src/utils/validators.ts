@@ -382,14 +382,16 @@ export const updateTransporterSchema = Joi.object({
 
 // Sauda validation schemas
 export const createSaudaSchema = Joi.object({
-  sauda_type: Joi.string().required().valid('xgodown', 'for'),
+  sauda_type: Joi.string().required().valid('exgodown', 'for'),
   rice_type: Joi.string().required().valid('basmati', 'non_basmati', 'parboiled', 'raw'),
   rice_code_id: Joi.string().optional().uuid().allow(null),
   rate: Joi.number().required().min(0).precision(2),
   broker_id: Joi.string().optional().uuid().allow(null),
-  broker_commission: Joi.number().optional().min(0).max(100).precision(2).allow(null),
+  broker_commission: Joi.number().optional().min(0).precision(2).allow(null),
+  broker_commission_type: Joi.string().optional().valid('rupees', 'percentage').default('percentage'),
   quantity: Joi.number().optional().min(0).precision(2).allow(null),
   cash_discount: Joi.number().optional().min(0).precision(2).allow(null),
+  cash_discount_type: Joi.string().optional().valid('rupees', 'percentage').default('rupees'),
   estimated_delivery_time: Joi.number().optional().integer().min(0).allow(null),
   purchaser_id: Joi.string().required().uuid(),
   cooked_rice_image_url: Joi.string().optional().allow(null, '').uri(),
@@ -400,14 +402,16 @@ export const createSaudaSchema = Joi.object({
 });
 
 export const updateSaudaSchema = Joi.object({
-  sauda_type: Joi.string().optional().valid('xgodown', 'for'),
+  sauda_type: Joi.string().optional().valid('exgodown', 'for'),
   rice_type: Joi.string().optional().valid('basmati', 'non_basmati', 'parboiled', 'raw'),
   rice_code_id: Joi.string().optional().uuid().allow(null),
   rate: Joi.number().optional().min(0).precision(2),
   broker_id: Joi.string().optional().uuid().allow(null),
-  broker_commission: Joi.number().optional().min(0).max(100).precision(2).allow(null),
+  broker_commission: Joi.number().optional().min(0).precision(2).allow(null),
+  broker_commission_type: Joi.string().optional().valid('rupees', 'percentage'),
   quantity: Joi.number().optional().min(0).precision(2).allow(null),
   cash_discount: Joi.number().optional().min(0).precision(2).allow(null),
+  cash_discount_type: Joi.string().optional().valid('rupees', 'percentage'),
   estimated_delivery_time: Joi.number().optional().integer().min(0).allow(null),
   purchaser_id: Joi.string().optional().uuid(),
   cooked_rice_image_url: Joi.string().optional().allow(null, '').uri(),
@@ -498,8 +502,10 @@ export const createPurchaseSchema = Joi.object({
   inward_slip_pass_ids: Joi.array().items(Joi.string().uuid()).optional(),
   lot_ids: Joi.array().items(Joi.string().uuid()).optional(),
   broker_id: Joi.string().optional().uuid().allow(null),
-  broker_commission: Joi.number().optional().min(0).max(100).precision(2),
+  broker_commission: Joi.number().optional().min(0).precision(2),
+  broker_commission_type: Joi.string().optional().valid('rupees', 'percentage').default('percentage'),
   cash_discount: Joi.number().optional().min(0).precision(2),
+  cash_discount_type: Joi.string().optional().valid('rupees', 'percentage').default('rupees'),
   transportation_cost: Joi.number().optional().min(0).precision(2),
   invoice_number: Joi.string().optional().allow(null, '').max(255),
   invoice_date: Joi.string().optional().allow(null, '').isoDate(),
@@ -521,9 +527,11 @@ export const createPurchaseSchema = Joi.object({
 
 export const updatePurchaseSchema = Joi.object({
   broker_id: Joi.string().optional().uuid().allow(null),
-  broker_commission: Joi.number().optional().min(0).max(100).precision(2),
+  broker_commission: Joi.number().optional().min(0).precision(2),
+  broker_commission_type: Joi.string().optional().valid('rupees', 'percentage'),
   payment_advice_id: Joi.string().optional().uuid().allow(null),
   cash_discount: Joi.number().optional().min(0).precision(2),
+  cash_discount_type: Joi.string().optional().valid('rupees', 'percentage'),
   transportation_cost: Joi.number().optional().min(0).precision(2),
   invoice_number: Joi.string().optional().allow(null, '').max(255),
   invoice_date: Joi.string().optional().allow(null, '').isoDate(),

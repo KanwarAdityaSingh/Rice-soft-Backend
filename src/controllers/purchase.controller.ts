@@ -185,7 +185,9 @@ export class PurchaseController {
         const calculation = await calculatePurchaseAmountFromLinkedLots(
           purchase.id,
           purchaseData.cash_discount,
+          purchaseData.cash_discount_type,
           purchaseData.broker_commission,
+          purchaseData.broker_commission_type,
           purchaseData.transportation_cost,
           purchaseData.igst_percentage
         );
@@ -407,7 +409,9 @@ export class PurchaseController {
       const calculation = await calculatePurchaseAmountFromLinkedLots(
         id,
         purchase.cash_discount,
+        purchase.cash_discount_type,
         purchase.broker_commission,
+        purchase.broker_commission_type,
         purchase.transportation_cost,
         purchase.igst_percentage
       );
@@ -472,7 +476,9 @@ export class PurchaseController {
         const calculation = await calculatePurchaseAmountFromLinkedLots(
           id,
           purchase.cash_discount,
+          purchase.cash_discount_type,
           purchase.broker_commission,
+          purchase.broker_commission_type,
           purchase.transportation_cost,
           purchase.igst_percentage
         );
@@ -525,7 +531,9 @@ export class PurchaseController {
       const calculation = await calculatePurchaseAmountFromLinkedLots(
         id,
         purchase.cash_discount,
+        purchase.cash_discount_type,
         purchase.broker_commission,
+        purchase.broker_commission_type,
         purchase.transportation_cost,
         purchase.igst_percentage
       );
@@ -546,8 +554,10 @@ export class PurchaseController {
         vendor_id: updatedPurchase.vendor_id,
         broker_id: updatedPurchase.broker_id,
         broker_commission: updatedPurchase.broker_commission ? parseFloat(updatedPurchase.broker_commission.toString()) : null,
+        broker_commission_type: updatedPurchase.broker_commission_type,
         payment_advice_id: updatedPurchase.payment_advice_id,
         cash_discount: updatedPurchase.cash_discount ? parseFloat(updatedPurchase.cash_discount.toString()) : null,
+        cash_discount_type: updatedPurchase.cash_discount_type,
         transportation_cost: updatedPurchase.transportation_cost ? parseFloat(updatedPurchase.transportation_cost.toString()) : null,
         invoice_number: updatedPurchase.invoice_number,
         invoice_date: updatedPurchase.invoice_date?.toISOString().split('T')[0] || null,

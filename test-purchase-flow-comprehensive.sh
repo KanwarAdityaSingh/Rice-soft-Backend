@@ -186,12 +186,12 @@ test_sauda_crud() {
     RICE_CODE_ID="adfcd002-ae3a-48f3-8ebd-05f1681902ae"
     
     # Create
-    log_test "Create Sauda (xgodown type)"
+    log_test "Create Sauda (exgodown type)"
     RESPONSE=$(curl -s -X POST "$BASE_URL/saudas" \
         -H "Authorization: Bearer $TOKEN" \
         -H "Content-Type: application/json" \
         -d "{
-            \"sauda_type\": \"xgodown\",
+            \"sauda_type\": \"exgodown\",
             \"rice_quality\": \"Test Rice Quality\",
             \"rice_code_id\": \"$RICE_CODE_ID\",
             \"rate\": 45.50,
@@ -279,7 +279,7 @@ test_inward_slip_pass_crud() {
     
     # Get sauda
     SAUDA_ID=$(curl -s -X GET "$BASE_URL/saudas" -H "Authorization: Bearer $TOKEN" | \
-        jq -r '.data[] | select(.sauda_type == "xgodown") | .id' | head -1)
+        jq -r '.data[] | select(.sauda_type == "exgodown") | .id' | head -1)
     
     # Create
     log_test "Create Inward Slip Pass with lots"
@@ -373,7 +373,7 @@ test_purchase_crud_and_calculations() {
     echo "═══════════════════════════════════════════════════════════"
     
     SAUDA_ID=$(curl -s -X GET "$BASE_URL/saudas" -H "Authorization: Bearer $TOKEN" | \
-        jq -r '.data[] | select(.sauda_type == "xgodown") | .id' | head -1)
+        jq -r '.data[] | select(.sauda_type == "exgodown") | .id' | head -1)
     VENDOR_ID="f6d38f0f-22e6-4b91-85e9-5ffbd36def05"
     
     # Create
@@ -663,7 +663,7 @@ test_multiple_isp_recalculation() {
     echo "═══════════════════════════════════════════════════════════"
     
     SAUDA_ID=$(curl -s -X GET "$BASE_URL/saudas" -H "Authorization: Bearer $TOKEN" | \
-        jq -r '.data[] | select(.sauda_type == "xgodown") | .id' | head -1)
+        jq -r '.data[] | select(.sauda_type == "exgodown") | .id' | head -1)
     
     # Create 3 inward slip passes
     log_test "Create Multiple Inward Slip Passes"
@@ -862,7 +862,7 @@ test_complete_flow() {
         -H "Authorization: Bearer $TOKEN" \
         -H "Content-Type: application/json" \
         -d "{
-            \"sauda_type\": \"xgodown\",
+            \"sauda_type\": \"exgodown\",
             \"rice_quality\": \"Complete Flow Rice\",
             \"rice_code_id\": \"$RICE_CODE_ID\",
             \"rate\": 45.50,
