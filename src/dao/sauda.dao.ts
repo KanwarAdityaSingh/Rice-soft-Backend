@@ -213,14 +213,15 @@ export class SaudaDAO {
     }
 
     // Delete related records in the correct order to avoid foreign key constraint violations
-    // 1. Delete payment advice charges linked to payment advices from purchases of this sauda
-    //    (Payment advice charges have ON DELETE CASCADE, but we'll delete them explicitly for clarity)
+    // Note: Purchases are now linked to saudas via purchase_saudas junction table (many-to-many)
+    
+    // 1. Delete payment advice charges linked to payment advices from purchases linked to this sauda
     const deletePaymentAdviceChargesQuery = `
       DELETE FROM payment_advice_charges
       WHERE payment_advice_id IN (
         SELECT id FROM payment_advices
         WHERE purchase_id IN (
-          SELECT id FROM purchases WHERE sauda_id = $1
+          SELECT purchase_id FROM purchase_saudas WHERE sauda_id = $1
         )
       )
     `;
@@ -230,23 +231,27 @@ export class SaudaDAO {
     const deletePaymentAdvicesQuery = `
       DELETE FROM payment_advices
       WHERE purchase_id IN (
-        SELECT id FROM purchases WHERE sauda_id = $1
+        SELECT purchase_id FROM purchase_saudas WHERE sauda_id = $1
       )
     `;
     await db.query(deletePaymentAdvicesQuery, [id]);
 
-    // 3. Delete purchases linked to this sauda
-    const deletePurchasesQuery = `DELETE FROM purchases WHERE sauda_id = $1`;
-    await db.query(deletePurchasesQuery, [id]);
+    // 3. Unlink purchases from this sauda (via junction table)
+    //    Note: We don't delete purchases as they may be linked to other saudas
+    const unlinkPurchasesQuery = `DELETE FROM purchase_saudas WHERE sauda_id = $1`;
+    await db.query(unlinkPurchasesQuery, [id]);
 
     // 4. Unlink inward slip passes from this sauda (via junction table)
     //    Note: ISPs are not deleted as they can be linked to multiple saudas
-    //    The junction table uses ON DELETE RESTRICT, so this will fail if there are ISPs linked
-    //    Inward slip lots linked to this sauda will be automatically deleted due to ON DELETE CASCADE
     const unlinkInwardSlipPassesQuery = `DELETE FROM inward_slip_pass_saudas WHERE sauda_id = $1`;
     await db.query(unlinkInwardSlipPassesQuery, [id]);
 
-    // 5. Now delete the sauda
+    // 5. Delete inward slip lots linked to this sauda
+    //    (lots have sauda_id directly and use ON DELETE RESTRICT)
+    const deleteLotsQuery = `DELETE FROM inward_slip_lots WHERE sauda_id = $1`;
+    await db.query(deleteLotsQuery, [id]);
+
+    // 6. Now delete the sauda
     const query = `DELETE FROM saudas WHERE id = $1`;
     const result = await db.query(query, [id]);
     const deleted = (result.rowCount || 0) > 0;
