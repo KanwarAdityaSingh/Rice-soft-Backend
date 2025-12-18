@@ -236,7 +236,7 @@ export const createLeadSchema = Joi.object({
   assigned_to: Joi.string().optional().uuid().allow(null, ''),
   broker_id: Joi.string().optional().uuid().allow(null, ''),
   rice_code_id: Joi.string().optional().uuid().allow(null, ''),
-  rice_type: Joi.string().optional().valid('basmati', 'non_basmati', 'parboiled', 'raw').allow(null, ''),
+  rice_type: Joi.string().optional().valid('basmati', 'non_basmati', 'parboiled', 'raw', 'raw_basmati', 'steam_basmati', 'white_sella', 'golden_sella').allow(null, ''),
   notes: Joi.string().optional().max(1000),
   priority: Joi.string().optional().valid('low', 'medium', 'high', 'urgent'),
   source: Joi.string().optional().max(100),
@@ -278,7 +278,7 @@ export const updateLeadSchema = Joi.object({
     Joi.valid(null, '')
   ).optional(),
   rice_code_id: Joi.string().optional().uuid().allow(null, ''),
-  rice_type: Joi.string().optional().valid('basmati', 'non_basmati', 'parboiled', 'raw').allow(null, ''),
+  rice_type: Joi.string().optional().valid('basmati', 'non_basmati', 'parboiled', 'raw', 'raw_basmati', 'steam_basmati', 'white_sella', 'golden_sella').allow(null, ''),
   notes: Joi.string().optional().allow(null, '').max(1000),
   priority: Joi.string().optional().valid('low', 'medium', 'high', 'urgent'),
   source: Joi.string().optional().allow(null, '').max(100),
@@ -383,7 +383,7 @@ export const updateTransporterSchema = Joi.object({
 // Sauda validation schemas
 export const createSaudaSchema = Joi.object({
   sauda_type: Joi.string().required().valid('exgodown', 'for'),
-  rice_type: Joi.string().required().valid('basmati', 'non_basmati', 'parboiled', 'raw'),
+  rice_type: Joi.string().required().valid('basmati', 'non_basmati', 'parboiled', 'raw', 'raw_basmati', 'steam_basmati', 'white_sella', 'golden_sella'),
   rice_code_id: Joi.string().optional().uuid().allow(null),
   rate: Joi.number().required().min(0).precision(2),
   broker_id: Joi.string().optional().uuid().allow(null),
@@ -403,7 +403,7 @@ export const createSaudaSchema = Joi.object({
 
 export const updateSaudaSchema = Joi.object({
   sauda_type: Joi.string().optional().valid('exgodown', 'for'),
-  rice_type: Joi.string().optional().valid('basmati', 'non_basmati', 'parboiled', 'raw'),
+  rice_type: Joi.string().optional().valid('basmati', 'non_basmati', 'parboiled', 'raw', 'raw_basmati', 'steam_basmati', 'white_sella', 'golden_sella'),
   rice_code_id: Joi.string().optional().uuid().allow(null),
   rate: Joi.number().optional().min(0).precision(2),
   broker_id: Joi.string().optional().uuid().allow(null),
@@ -426,7 +426,7 @@ export const createLotSchema = Joi.object({
   sauda_id: Joi.string().required().uuid(),
   lot_number: Joi.string().required().max(255),
   rice_code_id: Joi.string().optional().uuid().allow(null),
-  rice_type: Joi.string().optional().valid('basmati', 'non_basmati', 'parboiled', 'raw').allow(null),
+  rice_type: Joi.string().optional().valid('basmati', 'non_basmati', 'parboiled', 'raw', 'raw_basmati', 'steam_basmati', 'white_sella', 'golden_sella').allow(null),
   no_of_bags: Joi.number().required().integer().min(1),
   bag_weight: Joi.number().optional().min(0).precision(2),
   bill_weight: Joi.number().required().min(0).precision(2),
@@ -439,7 +439,7 @@ export const createLotSchema = Joi.object({
 export const updateLotSchema = Joi.object({
   lot_number: Joi.string().optional().max(255),
   rice_code_id: Joi.string().optional().uuid().allow(null),
-  rice_type: Joi.string().optional().valid('basmati', 'non_basmati', 'parboiled', 'raw').allow(null),
+  rice_type: Joi.string().optional().valid('basmati', 'non_basmati', 'parboiled', 'raw', 'raw_basmati', 'steam_basmati', 'white_sella', 'golden_sella').allow(null),
   no_of_bags: Joi.number().optional().integer().min(1),
   bag_weight: Joi.number().optional().min(0).precision(2).allow(null),
   bill_weight: Joi.number().optional().min(0).precision(2),
