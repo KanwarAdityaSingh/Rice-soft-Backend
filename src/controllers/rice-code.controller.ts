@@ -142,10 +142,10 @@ export class RiceCodeController {
   async getRiceTypes(_req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const riceTypes = [
-        { value: 'basmati', label: 'Basmati' },
-        { value: 'non_basmati', label: 'Non Basmati' },
-        { value: 'parboiled', label: 'Parboiled' },
-        { value: 'raw', label: 'Raw' }
+        { value: 'raw_basmati', label: 'Raw Basmati' },
+        { value: 'steam_basmati', label: 'Steam Basmati' },
+        { value: 'white_sella', label: 'White Sella(Parboiled)' },
+        { value: 'golden_sella', label: 'Golden Sella(Parboiled)' },
       ];
 
       return ResponseHandler.success(res, riceTypes);
