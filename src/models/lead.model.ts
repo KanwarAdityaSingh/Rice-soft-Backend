@@ -23,7 +23,7 @@ export interface BusinessDetails {
 
 export type LeadStatus = 'new' | 'contacted' | 'engaged' | 'converted' | 'rejected';
 export type Priority = 'low' | 'medium' | 'high' | 'urgent';
-export type RiceType = 'basmati' | 'non_basmati' | 'parboiled' | 'raw';
+export type RiceType = 'basmati' | 'non_basmati' | 'parboiled' | 'raw' | 'raw_basmati' | 'steam_basmati' | 'white_sella' | 'golden_sella';
 
 export interface Lead {
   id: string;
