@@ -59,7 +59,7 @@ export class BrokerDAO {
   async findAll(includeInactive = false, type?: BrokerType): Promise<Broker[]> {
     let query = `
       SELECT id, business_name, contact_persons, email, phone, address, business_details, 
-             broker_details, type, is_active, user_id, created_at, updated_at, created_by, updated_by
+             bank_details, broker_details, type, is_active, user_id, created_at, updated_at, created_by, updated_by
       FROM brokers
       WHERE 1=1
     `;
@@ -85,7 +85,7 @@ export class BrokerDAO {
   async findById(id: string): Promise<Broker | null> {
     const query = `
       SELECT id, business_name, contact_persons, email, phone, address, business_details,
-             broker_details, type, is_active, created_at, updated_at, created_by, updated_by
+             bank_details, broker_details, type, is_active, created_at, updated_at, created_by, updated_by
       FROM brokers
       WHERE id = $1
     `;
@@ -96,7 +96,7 @@ export class BrokerDAO {
   async findByEmail(email: string): Promise<Broker | null> {
     const query = `
       SELECT id, business_name, contact_persons, email, phone, address, business_details,
-             broker_details, type, is_active, created_at, updated_at, created_by, updated_by
+             bank_details, broker_details, type, is_active, created_at, updated_at, created_by, updated_by
       FROM brokers
       WHERE email = $1
     `;
@@ -109,7 +109,7 @@ export class BrokerDAO {
     const cleanedAadhaar = aadhaarNumber.replace(/\s/g, '');
     const query = `
       SELECT id, business_name, contact_persons, email, phone, address, business_details,
-             broker_details, type, is_active, created_at, updated_at, created_by, updated_by
+             bank_details, broker_details, type, is_active, created_at, updated_at, created_by, updated_by
       FROM brokers
       WHERE REPLACE(business_details->>'aadhaar_number', ' ', '') = $1
     `;
@@ -120,7 +120,7 @@ export class BrokerDAO {
   async findByPAN(panNumber: string): Promise<Broker | null> {
     const query = `
       SELECT id, business_name, contact_persons, email, phone, address, business_details,
-             broker_details, type, is_active, created_at, updated_at, created_by, updated_by
+             bank_details, broker_details, type, is_active, created_at, updated_at, created_by, updated_by
       FROM brokers
       WHERE business_details->>'pan_number' = $1
     `;
@@ -131,19 +131,20 @@ export class BrokerDAO {
   async create(brokerData: CreateBrokerDTO & { user_id?: string }): Promise<Broker> {
     const query = `
       INSERT INTO brokers (business_name, contact_persons, email, phone, address, business_details, 
-                          broker_details, type, is_active, created_by, user_id)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                          bank_details, broker_details, type, is_active, created_by, user_id)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
       RETURNING id, business_name, contact_persons, email, phone, address, business_details,
-                broker_details, type, is_active, user_id, created_at, updated_at, created_by, updated_by
+                bank_details, broker_details, type, is_active, user_id, created_at, updated_at, created_by, updated_by
     `;
     
     const values = [
-      brokerData.business_name,
+      brokerData.business_name || null,
       JSON.stringify(brokerData.contact_persons),
       brokerData.email,
       brokerData.phone,
       JSON.stringify(brokerData.address),
       JSON.stringify(brokerData.business_details),
+      brokerData.bank_details ? JSON.stringify(brokerData.bank_details) : null,
       brokerData.broker_details ? JSON.stringify(brokerData.broker_details) : null,
       brokerData.type,
       brokerData.is_active !== undefined ? brokerData.is_active : true,
@@ -198,6 +199,11 @@ export class BrokerDAO {
       values.push(JSON.stringify(brokerData.business_details));
     }
 
+    if (brokerData.bank_details !== undefined) {
+      updateFields.push(`bank_details = $${paramCount++}`);
+      values.push(brokerData.bank_details ? JSON.stringify(brokerData.bank_details) : null);
+    }
+
     if (brokerData.broker_details !== undefined) {
       updateFields.push(`broker_details = $${paramCount++}`);
       values.push(JSON.stringify(brokerData.broker_details));
@@ -230,7 +236,7 @@ export class BrokerDAO {
       SET ${updateFields.join(', ')}
       WHERE id = $${paramCount}
       RETURNING id, business_name, contact_persons, email, phone, address, business_details,
-                broker_details, type, is_active, created_at, updated_at, created_by, updated_by
+                bank_details, broker_details, type, is_active, created_at, updated_at, created_by, updated_by
     `;
 
     const result = await db.query<any>(query, values);

@@ -15,8 +15,15 @@ export interface BusinessDetails {
   pan_number?: string;
   aadhaar_number?: string;
   gst_number?: string;
-  registration_number?: string;
   business_type?: 'individual' | 'partnership' | 'company' | 'llp';
+}
+
+export interface BankDetails {
+  account_holder_name?: string;
+  account_number?: string;
+  ifsc_code?: string;
+  bank_name?: string;
+  branch?: string;
 }
 
 export interface BrokerDetails {
@@ -29,12 +36,13 @@ export type BrokerType = 'purchase' | 'sale' | 'both';
 
 export interface Broker {
   id: string;
-  business_name: string;
+  business_name: string | null;
   contact_persons: ContactPerson[];
   email: string;
   phone: string;
   address: Address;
   business_details: BusinessDetails;
+  bank_details: BankDetails | null;
   broker_details: BrokerDetails | null;
   type: BrokerType;
   is_active: boolean;
@@ -46,12 +54,13 @@ export interface Broker {
 }
 
 export interface CreateBrokerDTO {
-  business_name: string;
+  business_name?: string;
   contact_persons: ContactPerson[];
   email: string;
   phone: string;
   address: Address;
   business_details: BusinessDetails;
+  bank_details?: BankDetails;
   broker_details?: BrokerDetails;
   type: BrokerType;
   is_active?: boolean;
@@ -66,6 +75,7 @@ export interface UpdateBrokerDTO {
   phone?: string;
   address?: Address;
   business_details?: BusinessDetails;
+  bank_details?: BankDetails;
   broker_details?: BrokerDetails;
   type?: BrokerType;
   is_active?: boolean;
@@ -74,12 +84,13 @@ export interface UpdateBrokerDTO {
 
 export interface BrokerResponse {
   id: string;
-  business_name: string;
+  business_name: string | null;
   contact_persons: ContactPerson[];
   email: string;
   phone: string;
   address: Address;
   business_details: BusinessDetails;
+  bank_details: BankDetails | null;
   broker_details: BrokerDetails | null;
   type: BrokerType;
   is_active: boolean;
