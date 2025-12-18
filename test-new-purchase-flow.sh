@@ -185,7 +185,7 @@ test_create_saudas() {
         -H "Authorization: Bearer $TOKEN" \
         -H "Content-Type: application/json" \
         -d "{
-            \"sauda_type\": \"xgodown\",
+            \"sauda_type\": \"exgodown\",
             \"rice_quality\": \"Premium Basmati\",
             \"rate\": 85.50,
             \"broker_id\": \"$BROKER_ID\",
@@ -789,7 +789,7 @@ test_complete_flow() {
         -H "Authorization: Bearer $TOKEN" \
         -H "Content-Type: application/json" \
         -d "{
-            \"sauda_type\": \"xgodown\",
+            \"sauda_type\": \"exgodown\",
             \"rice_quality\": \"Complete Flow Test Rice\",
             \"rate\": 90.00,
             \"broker_id\": \"$BROKER_ID\",

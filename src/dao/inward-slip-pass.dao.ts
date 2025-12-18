@@ -231,7 +231,7 @@ export class InwardSlipPassDAO {
   /**
    * Recalculate purchase totals from inward slip passes for a given sauda
    * Aggregates total_weight and total_amount from all inward slip lots
-   * Applies: cash_discount (subtract), broker_commission (add), transportation_cost (add for xgodown), IGST (add)
+   * Applies: cash_discount (subtract), broker_commission (add), transportation_cost (add for exgodown), IGST (add)
    */
   private async recalculatePurchaseTotals(saudaId: string): Promise<void> {
     try {

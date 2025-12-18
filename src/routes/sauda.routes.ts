@@ -9,7 +9,7 @@ const router = Router();
  * @route   GET /api/v1/saudas
  * @desc    Get all saudas
  * @access  Private
- * @query   include_inactive: boolean, status: draft|active|completed|cancelled, sauda_type: xgodown|for, purchaser_id: UUID
+ * @query   include_inactive: boolean, status: draft|active|completed|cancelled, sauda_type: exgodown|for, purchaser_id: UUID
  */
 router.get('/', authenticate, saudaController.getAll.bind(saudaController));
 

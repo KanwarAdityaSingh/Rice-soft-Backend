@@ -103,7 +103,7 @@ GET /api/v1/saudas
 Query Parameters:
   - include_inactive: boolean (optional)
   - status: 'draft' | 'active' | 'completed' | 'cancelled' (optional)
-  - sauda_type: 'xgodown' | 'for' (optional)
+  - sauda_type: 'exgodown' | 'for' (optional)
   - purchaser_id: UUID (optional)
 ```
 
@@ -114,7 +114,7 @@ Query Parameters:
   "data": [
     {
       "id": "uuid",
-      "sauda_type": "xgodown",
+      "sauda_type": "exgodown",
       "rice_quality": "Premium Basmati",
       "rate": 85.50,
       "broker_id": "uuid",
@@ -141,14 +141,14 @@ POST /api/v1/saudas
 Content-Type: application/json
 
 {
-  "sauda_type": "xgodown",              // Required: "xgodown" | "for"
+  "sauda_type": "exgodown",              // Required: "exgodown" | "for"
   "rice_quality": "Premium Basmati",    // Required
   "rate": 85.50,                        // Required
   "purchaser_id": "vendor-uuid",        // Required (vendor ID)
   "broker_id": "uuid",                  // Optional
   "broker_commission": 2.5,             // Optional (percentage)
   "transporter_id": "uuid",             // Optional
-  "transportation_cost": 5000.00,       // Optional (only for xgodown)
+  "transportation_cost": 5000.00,       // Optional (only for exgodown)
   "cash_discount": 1000.00,             // Optional (fixed amount)
   "quantity": 1000,                     // Optional
   "status": "active"                    // Optional: "draft" | "active" | "completed" | "cancelled"
@@ -744,7 +744,7 @@ const saudaResponse = await fetch('/api/v1/saudas', {
     'Content-Type': 'application/json'
   },
   body: JSON.stringify({
-    sauda_type: 'xgodown',
+    sauda_type: 'exgodown',
     rice_quality: 'Premium Basmati',
     rate: 85.50,
     purchaser_id: vendorId,
@@ -971,7 +971,7 @@ async function createCompletePurchaseFlow(vendorId, userId) {
   
   // Step 1: Create Sauda
   const sauda = await createSauda({
-    sauda_type: 'xgodown',
+    sauda_type: 'exgodown',
     rice_quality: 'Premium Basmati',
     rate: 85.50,
     purchaser_id: vendorId,
