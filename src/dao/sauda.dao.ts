@@ -1,5 +1,5 @@
 import { db } from '../database/connection';
-import { Sauda, CreateSaudaDTO, UpdateSaudaDTO, SaudaStatus, SaudaType, CashDiscountType, BrokerCommissionType } from '../models/sauda.model';
+import { Sauda, CreateSaudaDTO, UpdateSaudaDTO, SaudaStatus, SaudaType } from '../models/sauda.model';
 import { logger } from '../utils/logger';
 
 export class SaudaDAO {
