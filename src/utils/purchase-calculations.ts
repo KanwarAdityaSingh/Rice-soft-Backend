@@ -1,15 +1,15 @@
 import { db } from '../database/connection';
 
 export type CashDiscountType = 'rupees' | 'percentage';
-export type BrokerCommissionType = 'rupees' | 'percentage';
+export type BrokerCommissionType = 'rupees' | 'percentage' | 'weight';
 
 /**
  * Calculate purchase total amount from linked lots with Purchase-level accounting factors
  * @param purchaseId - Purchase ID to get linked lots
  * @param cashDiscount - Purchase-level cash discount (fixed amount or percentage based on cashDiscountType)
  * @param cashDiscountType - Type of cash discount: 'rupees' (fixed amount) or 'percentage'
- * @param brokerCommission - Purchase-level broker commission (fixed amount or percentage based on brokerCommissionType)
- * @param brokerCommissionType - Type of broker commission: 'rupees' (fixed amount) or 'percentage' (default)
+ * @param brokerCommission - Purchase-level broker commission (fixed amount, percentage, or per-unit-weight based on brokerCommissionType)
+ * @param brokerCommissionType - Type of broker commission: 'rupees' (fixed amount), 'percentage' (default), or 'weight' (per unit weight)
  * @param transportationCost - Purchase-level transportation cost (fixed amount)
  * @param igstPercentage - Purchase-level IGST percentage
  * @returns Object with calculated amounts
@@ -70,7 +70,7 @@ export async function calculatePurchaseAmountFromLinkedLots(
   const amountAfterDiscount = calculatedAmount - cashDiscountAmount;
   calculatedAmount = amountAfterDiscount;
   
-  // Step 3: Apply broker commission (fixed amount or percentage based on type)
+  // Step 3: Apply broker commission (fixed amount, percentage, or weight-based)
   let brokerCommissionAmount = 0;
   let amountWithCommission = calculatedAmount;
   const commissionType = brokerCommissionType || 'percentage';
@@ -80,6 +80,9 @@ export async function calculatePurchaseAmountFromLinkedLots(
       if (commissionType === 'percentage') {
         // Calculate percentage of amount after discount
         brokerCommissionAmount = calculatedAmount * (commissionValue / 100);
+      } else if (commissionType === 'weight') {
+        // Calculate commission based on total weight (commission per unit weight)
+        brokerCommissionAmount = commissionValue * totalWeight;
       } else {
         // Fixed amount in rupees
         brokerCommissionAmount = commissionValue;
@@ -205,7 +208,7 @@ export async function calculatePurchaseAmount(
   const amountAfterDiscount = calculatedAmount - cashDiscount;
   calculatedAmount = amountAfterDiscount;
   
-  // Step 3: Apply broker commission (fixed amount or percentage based on type)
+  // Step 3: Apply broker commission (fixed amount, percentage, or weight-based)
   const brokerCommissionValue = purchaseBrokerCommission 
     ? parseFloat(purchaseBrokerCommission.toString())
     : saudaBrokerCommission;
@@ -216,6 +219,9 @@ export async function calculatePurchaseAmount(
     if (saudaBrokerCommissionType === 'percentage') {
       // Calculate percentage of amount after discount
       brokerCommissionAmount = calculatedAmount * (brokerCommissionValue / 100);
+    } else if (saudaBrokerCommissionType === 'weight') {
+      // Calculate commission based on total weight (commission per unit weight)
+      brokerCommissionAmount = brokerCommissionValue * totalWeight;
     } else {
       // Fixed amount in rupees
       brokerCommissionAmount = brokerCommissionValue;

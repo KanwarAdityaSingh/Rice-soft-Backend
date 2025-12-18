@@ -3,7 +3,7 @@ import { RiceType } from './lead.model';
 export type SaudaType = 'exgodown' | 'for';
 export type SaudaStatus = 'draft' | 'active' | 'completed' | 'cancelled';
 export type CashDiscountType = 'rupees' | 'percentage';
-export type BrokerCommissionType = 'rupees' | 'percentage';
+export type BrokerCommissionType = 'rupees' | 'percentage' | 'weight';
 
 export interface Sauda {
   id: string;

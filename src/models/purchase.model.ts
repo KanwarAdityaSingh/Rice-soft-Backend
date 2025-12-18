@@ -1,5 +1,5 @@
 export type CashDiscountType = 'rupees' | 'percentage';
-export type BrokerCommissionType = 'rupees' | 'percentage';
+export type BrokerCommissionType = 'rupees' | 'percentage' | 'weight';
 
 export interface Purchase {
   id: string;
