@@ -23,7 +23,7 @@ curl -X POST "https://api.kaleyra.io/v1/HXAP1679900797IN/messages" \
   --data-urlencode "source=API" \
   --data-urlencode "to=${PHONE}" \
   --data-urlencode "sender=SNTKRI" \
-  --data-urlencode "body=${OTP} is the one time password for login on santkripa . This is valid only for 30 minutes. SantKripa Equipments Private Limited" \
+  --data-urlencode "body=-- ${OTP} is your one time password for login on Santkripa. This is valid only for 15 minutes. SantKripa Equipments Private Limited" \
   --data-urlencode "template_id=1007162144526914389" \
   --data-urlencode "type=OTP" \
   -w "\n\nHTTP Status: %{http_code}\n" \
