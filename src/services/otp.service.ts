@@ -72,8 +72,9 @@ export class OtpService {
       expires_at: expiresAt,
     });
 
-    // Compose message
-    const message = `${otp} is the one time password for login on santkripa . This is valid only for 30 minutes.\nSantKripa Equipments Private Limited`;
+    // Compose message - MUST match DLT registered template EXACTLY
+    // DLT Template ID: 1007162144526914389 (from Airtel DLT portal)
+    const message = `-- ${otp} is your one time password for login on Santkripa. This is valid only for 15 minutes. SantKripa Equipments Private Limited`;
     // Log OTP for non-production environments to aid testing (do not enable in production)
     try {
       // Lazy import to avoid circulars
