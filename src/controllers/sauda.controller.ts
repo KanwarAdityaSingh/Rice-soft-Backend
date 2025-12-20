@@ -16,6 +16,8 @@ import {
 } from '../utils/errors';
 import { CreateSaudaDTO, UpdateSaudaDTO, SaudaResponse, SaudaStatus, SaudaType } from '../models/sauda.model';
 import { AuthRequest } from '../middleware/auth.middleware';
+import { uploadToS3, validateFileSize, validateFileType } from '../utils/s3-upload';
+import { appConfig } from '../config/app.config';
 
 export class SaudaController {
   async getAll(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
@@ -287,6 +289,80 @@ export class SaudaController {
       }
 
       return ResponseHandler.success(res, null, 'Sauda deleted successfully');
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async uploadCookedRiceImage(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const id = validate<string>(uuidSchema, req.params.id);
+
+      if (!req.file) {
+        throw new ValidationError('File is required');
+      }
+
+      // Validate file type (images only)
+      validateFileType(req.file.mimetype, ['image/jpeg', 'image/jpg', 'image/png', 'image/gif']);
+
+      // Validate file size (max 5MB for images)
+      validateFileSize(req.file.size, 5);
+
+      // Upload to S3
+      const uploadResult = await uploadToS3(
+        req.file.buffer,
+        req.file.originalname,
+        appConfig.aws.s3.riceImagesFolder
+      );
+
+      // Update sauda with the image URL
+      const sauda = await saudaDAO.update(id, {
+        cooked_rice_image_url: uploadResult.url,
+        updated_by: req.user?.userId,
+      });
+
+      if (!sauda) {
+        throw new NotFoundError('Sauda not found');
+      }
+
+      return ResponseHandler.success(res, { url: uploadResult.url }, 'Cooked rice image uploaded successfully');
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async uploadUncookedRiceImage(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const id = validate<string>(uuidSchema, req.params.id);
+
+      if (!req.file) {
+        throw new ValidationError('File is required');
+      }
+
+      // Validate file type (images only)
+      validateFileType(req.file.mimetype, ['image/jpeg', 'image/jpg', 'image/png', 'image/gif']);
+
+      // Validate file size (max 5MB for images)
+      validateFileSize(req.file.size, 5);
+
+      // Upload to S3
+      const uploadResult = await uploadToS3(
+        req.file.buffer,
+        req.file.originalname,
+        appConfig.aws.s3.riceImagesFolder
+      );
+
+      // Update sauda with the image URL
+      const sauda = await saudaDAO.update(id, {
+        uncooked_rice_image_url: uploadResult.url,
+        updated_by: req.user?.userId,
+      });
+
+      if (!sauda) {
+        throw new NotFoundError('Sauda not found');
+      }
+
+      return ResponseHandler.success(res, { url: uploadResult.url }, 'Uncooked rice image uploaded successfully');
     } catch (error) {
       next(error);
     }
