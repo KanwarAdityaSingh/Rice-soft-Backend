@@ -19,6 +19,9 @@ export interface InwardSlipPass {
   bilti_pdf_url: string | null;
   eway_bill_number: string | null;
   eway_bill_url: string | null;
+  full_truck_weight: number | null;
+  empty_truck_weight: number | null;
+  kaanta_weight: number | null;
   notes: string | null;
   created_at: Date;
   updated_at: Date;
@@ -45,6 +48,9 @@ export interface CreateInwardSlipPassDTO {
   bilti_pdf_url?: string;
   eway_bill_number?: string;
   eway_bill_url?: string;
+  full_truck_weight?: number;
+  empty_truck_weight?: number;
+  kaanta_weight?: number;
   notes?: string;
   created_by?: string;
 }
@@ -68,6 +74,9 @@ export interface UpdateInwardSlipPassDTO {
   bilti_pdf_url?: string;
   eway_bill_number?: string;
   eway_bill_url?: string;
+  full_truck_weight?: number;
+  empty_truck_weight?: number;
+  kaanta_weight?: number;
   notes?: string;
   updated_by?: string;
 }
@@ -92,6 +101,9 @@ export interface InwardSlipPassResponse {
   bilti_pdf_url: string | null;
   eway_bill_number: string | null;
   eway_bill_url: string | null;
+  full_truck_weight: number | null;
+  empty_truck_weight: number | null;
+  kaanta_weight: number | null;
   notes: string | null;
   created_at: string;
   updated_at: string;

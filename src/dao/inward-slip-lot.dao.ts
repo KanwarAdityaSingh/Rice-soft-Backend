@@ -6,7 +6,7 @@ export class InwardSlipLotDAO {
   async findAll(saudaId?: string): Promise<InwardSlipLot[]> {
     let query = `
       SELECT id, sauda_id, lot_number, rice_code_id, rice_type, no_of_bags, bag_weight, total_weight,
-             bill_weight, received_weight, bardana, rate, amount, created_at, updated_at, created_by, updated_by
+             bill_weight, received_weight, rate, amount, created_at, updated_at, created_by, updated_by
       FROM inward_slip_lots
       WHERE 1=1
     `;
@@ -32,7 +32,7 @@ export class InwardSlipLotDAO {
   async findById(id: string): Promise<InwardSlipLot | null> {
     const query = `
       SELECT id, sauda_id, lot_number, rice_code_id, rice_type, no_of_bags, bag_weight, total_weight,
-             bill_weight, received_weight, bardana, rate, amount, created_at, updated_at, created_by, updated_by
+             bill_weight, received_weight, rate, amount, created_at, updated_at, created_by, updated_by
       FROM inward_slip_lots
       WHERE id = $1
     `;
@@ -43,8 +43,8 @@ export class InwardSlipLotDAO {
   async create(inwardSlipLotData: CreateInwardSlipLotDTO): Promise<InwardSlipLot> {
     const query = `
       INSERT INTO inward_slip_lots (sauda_id, lot_number, rice_code_id, rice_type, no_of_bags, bag_weight,
-                                   bill_weight, received_weight, bardana, rate, created_by)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                                   bill_weight, received_weight, rate, created_by)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       RETURNING id, sauda_id, lot_number, rice_code_id, rice_type, no_of_bags, bag_weight, total_weight,
                 bill_weight, received_weight, bardana, rate, amount, created_at, updated_at, created_by, updated_by
     `;
@@ -58,7 +58,6 @@ export class InwardSlipLotDAO {
       inwardSlipLotData.bag_weight || null,
       inwardSlipLotData.bill_weight,
       inwardSlipLotData.received_weight,
-      inwardSlipLotData.bardana || null,
       inwardSlipLotData.rate,
       inwardSlipLotData.created_by || null,
     ];
@@ -118,10 +117,6 @@ export class InwardSlipLotDAO {
     if (inwardSlipLotData.received_weight !== undefined) {
       fields.push(`received_weight = $${paramCount++}`);
       values.push(inwardSlipLotData.received_weight);
-    }
-    if (inwardSlipLotData.bardana !== undefined) {
-      fields.push(`bardana = $${paramCount++}`);
-      values.push(inwardSlipLotData.bardana || null);
     }
     if (inwardSlipLotData.rate !== undefined) {
       fields.push(`rate = $${paramCount++}`);

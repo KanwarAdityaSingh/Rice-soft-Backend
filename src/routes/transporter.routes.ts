@@ -6,6 +6,22 @@ import { auditLog } from '../middleware/audit.middleware';
 const router = Router();
 
 /**
+ * @route   GET /api/v1/transporters/lookupGST
+ * @desc    Lookup GST number and get business details
+ * @access  Private
+ * @query   gst_number: string (15 chars)
+ */
+router.get('/lookupGST', authenticate, transporterController.lookupGST.bind(transporterController));
+
+/**
+ * @route   GET /api/v1/transporters/lookupPAN
+ * @desc    Lookup PAN number and get business details
+ * @access  Private
+ * @query   pan_number: string (10 chars)
+ */
+router.get('/lookupPAN', authenticate, transporterController.lookupPAN.bind(transporterController));
+
+/**
  * @route   GET /api/v1/transporters
  * @desc    Get all transporters
  * @access  Private

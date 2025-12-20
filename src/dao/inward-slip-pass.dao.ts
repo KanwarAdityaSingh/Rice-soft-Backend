@@ -9,6 +9,7 @@ export class InwardSlipPassDAO {
       SELECT id, slip_number, date, vehicle_number, party_name, party_address,
              party_gst_number, party_pan_number, transporter_id, transportation_cost, status, inward_slip_bill_image_url, transportation_bill_image_url,
              bill_pdf_url, bilti_image_url, bilti_pdf_url, eway_bill_number, eway_bill_url,
+             full_truck_weight, empty_truck_weight, kaanta_weight,
              notes, created_at, updated_at, created_by, updated_by
       FROM inward_slip_passes
       WHERE 1=1
@@ -36,6 +37,7 @@ export class InwardSlipPassDAO {
       SELECT id, slip_number, date, vehicle_number, party_name, party_address,
              party_gst_number, party_pan_number, transporter_id, transportation_cost, status, inward_slip_bill_image_url, transportation_bill_image_url,
              bill_pdf_url, bilti_image_url, bilti_pdf_url, eway_bill_number, eway_bill_url,
+             full_truck_weight, empty_truck_weight, kaanta_weight,
              notes, created_at, updated_at, created_by, updated_by
       FROM inward_slip_passes
       WHERE id = $1
@@ -49,11 +51,13 @@ export class InwardSlipPassDAO {
       INSERT INTO inward_slip_passes (slip_number, date, vehicle_number, party_name,
                                       party_address, party_gst_number, party_pan_number, transporter_id, transportation_cost, status, inward_slip_bill_image_url,
                                       transportation_bill_image_url, bill_pdf_url, bilti_image_url,
-                                      bilti_pdf_url, eway_bill_number, eway_bill_url, notes, created_by)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+                                      bilti_pdf_url, eway_bill_number, eway_bill_url, full_truck_weight,
+                                      empty_truck_weight, kaanta_weight, notes, created_by)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
       RETURNING id, slip_number, date, vehicle_number, party_name, party_address,
-                party_gst_number, transporter_id, transportation_cost, status, inward_slip_bill_image_url, transportation_bill_image_url,
+                party_gst_number, party_pan_number, transporter_id, transportation_cost, status, inward_slip_bill_image_url, transportation_bill_image_url,
                 bill_pdf_url, bilti_image_url, bilti_pdf_url, eway_bill_number, eway_bill_url,
+                full_truck_weight, empty_truck_weight, kaanta_weight,
                 notes, created_at, updated_at, created_by, updated_by
     `;
     
@@ -75,6 +79,9 @@ export class InwardSlipPassDAO {
       inwardSlipPassData.bilti_pdf_url || null,
       inwardSlipPassData.eway_bill_number || null,
       inwardSlipPassData.eway_bill_url || null,
+      inwardSlipPassData.full_truck_weight || null,
+      inwardSlipPassData.empty_truck_weight || null,
+      inwardSlipPassData.kaanta_weight || null,
       inwardSlipPassData.notes || null,
       inwardSlipPassData.created_by || null,
     ];
@@ -162,6 +169,18 @@ export class InwardSlipPassDAO {
       fields.push(`eway_bill_url = $${paramCount++}`);
       values.push(inwardSlipPassData.eway_bill_url || null);
     }
+    if (inwardSlipPassData.full_truck_weight !== undefined) {
+      fields.push(`full_truck_weight = $${paramCount++}`);
+      values.push(inwardSlipPassData.full_truck_weight || null);
+    }
+    if (inwardSlipPassData.empty_truck_weight !== undefined) {
+      fields.push(`empty_truck_weight = $${paramCount++}`);
+      values.push(inwardSlipPassData.empty_truck_weight || null);
+    }
+    if (inwardSlipPassData.kaanta_weight !== undefined) {
+      fields.push(`kaanta_weight = $${paramCount++}`);
+      values.push(inwardSlipPassData.kaanta_weight || null);
+    }
     if (inwardSlipPassData.notes !== undefined) {
       fields.push(`notes = $${paramCount++}`);
       values.push(inwardSlipPassData.notes || null);
@@ -183,8 +202,9 @@ export class InwardSlipPassDAO {
       SET ${fields.join(', ')}
       WHERE id = $${paramCount}
       RETURNING id, slip_number, date, vehicle_number, party_name, party_address,
-                party_gst_number, transporter_id, transportation_cost, status, inward_slip_bill_image_url, transportation_bill_image_url,
+                party_gst_number, party_pan_number, transporter_id, transportation_cost, status, inward_slip_bill_image_url, transportation_bill_image_url,
                 bill_pdf_url, bilti_image_url, bilti_pdf_url, eway_bill_number, eway_bill_url,
+                full_truck_weight, empty_truck_weight, kaanta_weight,
                 notes, created_at, updated_at, created_by, updated_by
     `;
 

@@ -1,3 +1,5 @@
+import { ContactPerson } from './vendor.model';
+
 export interface Address {
   street: string;
   city: string;
@@ -13,15 +15,21 @@ export interface BankDetails {
   branch?: string;
 }
 
+export type TransportType = 'registered' | 'unregistered';
+
 export interface Transporter {
   id: string;
   business_name: string;
+  contact_persons: ContactPerson[];
+  // Legacy fields - kept for backward compatibility
   contact_person: string;
   phone: string;
   email: string | null;
   address: Address;
   gst_number: string | null;
   pan_number: string | null;
+  aadhar_number: string | null;
+  transport_type: TransportType;
   vehicle_numbers: string[];
   bank_details: BankDetails;
   is_active: boolean;
@@ -33,12 +41,12 @@ export interface Transporter {
 
 export interface CreateTransporterDTO {
   business_name: string;
-  contact_person: string;
-  phone: string;
-  email?: string;
+  contact_persons: ContactPerson[];
   address: Address;
   gst_number?: string;
   pan_number?: string;
+  aadhar_number?: string;
+  transport_type: TransportType;
   vehicle_numbers?: string[];
   bank_details?: BankDetails;
   is_active?: boolean;
@@ -47,12 +55,12 @@ export interface CreateTransporterDTO {
 
 export interface UpdateTransporterDTO {
   business_name?: string;
-  contact_person?: string;
-  phone?: string;
-  email?: string;
+  contact_persons?: ContactPerson[];
   address?: Address;
   gst_number?: string;
   pan_number?: string;
+  aadhar_number?: string;
+  transport_type?: TransportType;
   vehicle_numbers?: string[];
   bank_details?: BankDetails;
   is_active?: boolean;
@@ -62,12 +70,12 @@ export interface UpdateTransporterDTO {
 export interface TransporterResponse {
   id: string;
   business_name: string;
-  contact_person: string;
-  phone: string;
-  email: string | null;
+  contact_persons: ContactPerson[];
   address: Address;
   gst_number: string | null;
   pan_number: string | null;
+  aadhar_number: string | null;
+  transport_type: TransportType;
   vehicle_numbers: string[];
   bank_details: BankDetails;
   is_active: boolean;

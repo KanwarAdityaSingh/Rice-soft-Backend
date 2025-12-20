@@ -11,7 +11,6 @@ export interface InwardSlipLot {
   total_weight: number | null;
   bill_weight: number;
   received_weight: number;
-  bardana: string | null;
   rate: number;
   amount: number | null;
   created_at: Date;
@@ -29,7 +28,6 @@ export interface CreateInwardSlipLotDTO {
   bag_weight?: number;
   bill_weight: number;
   received_weight: number;
-  bardana?: string;
   rate: number;
   created_by?: string;
 }
@@ -42,7 +40,6 @@ export interface UpdateInwardSlipLotDTO {
   bag_weight?: number;
   bill_weight?: number;
   received_weight?: number;
-  bardana?: string;
   rate?: number;
   updated_by?: string;
 }
@@ -58,7 +55,6 @@ export interface InwardSlipLotResponse {
   total_weight: number | null;
   bill_weight: number;
   received_weight: number;
-  bardana: string | null;
   rate: number;
   amount: number | null;
   created_at: string;

@@ -373,12 +373,18 @@ export const updateCustomPermissionsSchema = Joi.object({
 // Transporter validation schemas
 export const createTransporterSchema = Joi.object({
   business_name: Joi.string().required().min(2).max(255),
-  contact_person: Joi.string().required().min(2).max(255),
-  phone: Joi.string().required().max(20),
-  email: Joi.string().optional().allow(null, '').email(),
+  contact_persons: Joi.array().items(
+    Joi.object({
+      name: Joi.string().required().min(2).max(255),
+      phones: Joi.array().items(Joi.string().max(20)).required().min(1),
+      emails: Joi.array().items(Joi.string().email().allow('', null)).optional()
+    })
+  ).required().min(1),
   address: addressSchema.required(),
   gst_number: Joi.string().optional().allow(null, '').length(15),
   pan_number: Joi.string().optional().allow(null, '').length(10).uppercase(),
+  aadhar_number: Joi.string().optional().allow(null, '').length(12).pattern(/^[0-9]{12}$/),
+  transport_type: Joi.string().required().valid('registered', 'unregistered'),
   vehicle_numbers: Joi.array().items(Joi.string().max(50)).optional(),
   bank_details: bankDetailsSchema.optional(),
   is_active: Joi.boolean().optional(),
@@ -387,12 +393,18 @@ export const createTransporterSchema = Joi.object({
 
 export const updateTransporterSchema = Joi.object({
   business_name: Joi.string().optional().min(2).max(255),
-  contact_person: Joi.string().optional().min(2).max(255),
-  phone: Joi.string().optional().max(20),
-  email: Joi.string().optional().allow(null, '').email(),
+  contact_persons: Joi.array().items(
+    Joi.object({
+      name: Joi.string().required().min(2).max(255),
+      phones: Joi.array().items(Joi.string().max(20)).required().min(1),
+      emails: Joi.array().items(Joi.string().email().allow('', null)).optional()
+    })
+  ).optional().min(1),
   address: addressSchema.optional(),
   gst_number: Joi.string().optional().allow(null, '').length(15),
   pan_number: Joi.string().optional().allow(null, '').length(10).uppercase(),
+  aadhar_number: Joi.string().optional().allow(null, '').length(12).pattern(/^[0-9]{12}$/),
+  transport_type: Joi.string().optional().valid('registered', 'unregistered'),
   vehicle_numbers: Joi.array().items(Joi.string().max(50)).optional(),
   bank_details: bankDetailsSchema.optional(),
   is_active: Joi.boolean().optional(),
@@ -450,7 +462,6 @@ export const createLotSchema = Joi.object({
   bag_weight: Joi.number().optional().min(0).precision(2),
   bill_weight: Joi.number().required().min(0).precision(2),
   received_weight: Joi.number().required().min(0).precision(2),
-  bardana: Joi.string().optional().allow(null, '').max(100),
   rate: Joi.number().required().min(0).precision(2),
   created_by: Joi.string().optional().uuid(),
 });
@@ -463,7 +474,6 @@ export const updateLotSchema = Joi.object({
   bag_weight: Joi.number().optional().min(0).precision(2).allow(null),
   bill_weight: Joi.number().optional().min(0).precision(2),
   received_weight: Joi.number().optional().min(0).precision(2),
-  bardana: Joi.string().optional().allow(null, '').max(100),
   rate: Joi.number().optional().min(0).precision(2),
   updated_by: Joi.string().optional().uuid(),
 }).min(1);
@@ -487,6 +497,9 @@ export const createInwardSlipPassSchema = Joi.object({
   bilti_pdf_url: Joi.string().optional().allow(null, '').uri(),
   eway_bill_number: Joi.string().optional().allow(null, '').max(255),
   eway_bill_url: Joi.string().optional().allow(null, '').uri(),
+  full_truck_weight: Joi.number().optional().min(0).precision(2),
+  empty_truck_weight: Joi.number().optional().min(0).precision(2),
+  kaanta_weight: Joi.number().optional().min(0).precision(2),
   notes: Joi.string().optional().allow(null, '').max(1000),
   created_by: Joi.string().optional().uuid(),
 });
@@ -510,6 +523,9 @@ export const updateInwardSlipPassSchema = Joi.object({
   bilti_pdf_url: Joi.string().optional().allow(null, '').uri(),
   eway_bill_number: Joi.string().optional().allow(null, '').max(255),
   eway_bill_url: Joi.string().optional().allow(null, '').uri(),
+  full_truck_weight: Joi.number().optional().min(0).precision(2),
+  empty_truck_weight: Joi.number().optional().min(0).precision(2),
+  kaanta_weight: Joi.number().optional().min(0).precision(2),
   notes: Joi.string().optional().allow(null, '').max(1000),
   updated_by: Joi.string().optional().uuid(),
 }).min(1);
