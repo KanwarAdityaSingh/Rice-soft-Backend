@@ -30,8 +30,6 @@ export class BrokerController {
         id: broker.id,
         business_name: broker.business_name,
         contact_persons: broker.contact_persons,
-        email: broker.email,
-        phone: broker.phone,
         address: broker.address,
         business_details: broker.business_details,
         bank_details: broker.bank_details,
@@ -61,8 +59,6 @@ export class BrokerController {
         id: broker.id,
         business_name: broker.business_name,
         contact_persons: broker.contact_persons,
-        email: broker.email,
-        phone: broker.phone,
         address: broker.address,
         business_details: broker.business_details,
         bank_details: broker.bank_details,
@@ -83,16 +79,23 @@ export class BrokerController {
     try {
       const brokerData = validate<CreateBrokerDTO>(createBrokerSchema, req.body);
 
-      // Check if email already exists in brokers
-      const emailExists = await brokerDAO.emailExists(brokerData.email);
-      if (emailExists) {
-        throw new ConflictError('Email already exists');
-      }
+      // Get first contact person for validation and user creation
+      const firstContactPerson = brokerData.contact_persons[0];
+      const primaryEmail = firstContactPerson.emails?.[0];
+      const primaryPhone = firstContactPerson.phones[0];
 
-      // Check if email already exists in users
-      const userEmailExists = await userDAO.emailExists(brokerData.email);
-      if (userEmailExists) {
-        throw new ConflictError('Email already exists in users');
+      // Check if email already exists in brokers (only if email is provided)
+      if (primaryEmail) {
+        const emailExists = await brokerDAO.emailExists(primaryEmail);
+        if (emailExists) {
+          throw new ConflictError('Email already exists');
+        }
+
+        // Check if email already exists in users
+        const userEmailExists = await userDAO.emailExists(primaryEmail);
+        if (userEmailExists) {
+          throw new ConflictError('Email already exists in users');
+        }
       }
 
       // Check if PAN already exists (if provided)
@@ -111,15 +114,15 @@ export class BrokerController {
         }
       }
 
-      // Generate username from first contact person (first part before space, lowercase, remove special chars)
-      const firstContactPerson = brokerData.contact_persons && brokerData.contact_persons.length > 0 
-        ? brokerData.contact_persons[0] 
-        : null;
-      
-      if (!firstContactPerson) {
-        throw new ValidationError('At least one contact person is required');
+      // Check if GST already exists (if provided)
+      if (brokerData.business_details.gst_number) {
+        const gstExists = await brokerDAO.gstExists(brokerData.business_details.gst_number);
+        if (gstExists) {
+          throw new ConflictError('GST number already exists');
+        }
       }
 
+      // Generate username from first contact person name (first part before space, lowercase, remove special chars)
       let baseUsername = firstContactPerson.name
         .toLowerCase()
         .split(' ')[0]
@@ -133,32 +136,32 @@ export class BrokerController {
         counter++;
       }
 
-      // Create user first
-      const userData = {
-        username: username,
-        email: brokerData.email,
-        password: 'defaultPassword123', // Default password, should be changed on first login
-        full_name: firstContactPerson.name,
-        phone: (firstContactPerson.phones && firstContactPerson.phones.length > 0) 
-          ? firstContactPerson.phones[0] 
-          : brokerData.phone,
-        user_type: 'broker' as const,
-        is_active: brokerData.is_active !== undefined ? brokerData.is_active : true,
-        created_by: req.user?.userId,
-      };
+      // Create user first (only if email is provided)
+      let user = null;
+      if (primaryEmail) {
+        const userData = {
+          username: username,
+          email: primaryEmail,
+          password: 'defaultPassword123', // Default password, should be changed on first login
+          full_name: firstContactPerson.name,
+          phone: primaryPhone,
+          user_type: 'broker' as const,
+          is_active: brokerData.is_active !== undefined ? brokerData.is_active : true,
+          created_by: req.user?.userId,
+        };
 
-      let user;
-      try {
-        user = await userDAO.create(userData);
-      } catch (userError) {
-        console.error('User creation failed:', userError);
-        throw new ConflictError('Failed to create user account for broker');
+        try {
+          user = await userDAO.create(userData);
+        } catch (userError) {
+          console.error('User creation failed:', userError);
+          throw new ConflictError('Failed to create user account for broker');
+        }
       }
 
-      // Create broker with user_id
+      // Create broker with user_id (or undefined if no email)
       const brokerWithUser = {
         ...brokerData,
-        user_id: user.id,
+        user_id: user?.id,
         created_by: req.user?.userId,
       };
 
@@ -168,8 +171,6 @@ export class BrokerController {
         id: broker.id,
         business_name: broker.business_name,
         contact_persons: broker.contact_persons,
-        email: broker.email,
-        phone: broker.phone,
         address: broker.address,
         business_details: broker.business_details,
         bank_details: broker.bank_details,
@@ -197,9 +198,9 @@ export class BrokerController {
         throw new NotFoundError('Broker not found');
       }
 
-      // Check if email already exists (if being updated)
-      if (brokerData.email) {
-        const emailExists = await brokerDAO.emailExists(brokerData.email, id);
+      // Check if email already exists (if contact_persons is being updated with an email)
+      if (brokerData.contact_persons?.[0]?.emails?.[0]) {
+        const emailExists = await brokerDAO.emailExists(brokerData.contact_persons[0].emails[0], id);
         if (emailExists) {
           throw new ConflictError('Email already exists');
         }
@@ -221,6 +222,14 @@ export class BrokerController {
         }
       }
 
+      // Check if GST already exists (if being updated)
+      if (brokerData.business_details?.gst_number) {
+        const gstExists = await brokerDAO.gstExists(brokerData.business_details.gst_number, id);
+        if (gstExists) {
+          throw new ConflictError('GST number already exists');
+        }
+      }
+
       // Set updated_by from authenticated user
       if (req.user) {
         brokerData.updated_by = req.user.userId;
@@ -235,8 +244,6 @@ export class BrokerController {
         id: broker.id,
         business_name: broker.business_name,
         contact_persons: broker.contact_persons,
-        email: broker.email,
-        phone: broker.phone,
         address: broker.address,
         business_details: broker.business_details,
         bank_details: broker.bank_details,
@@ -376,7 +383,7 @@ export class BrokerController {
    */
   async createFromPAN(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const { pan_number, business_name, contact_persons, email, phone, address, type, broker_details } = req.body;
+      const { pan_number, business_name, contact_persons, address, type, broker_details } = req.body;
 
       // Validate required fields (PAN gives less info, so we need more input)
       const quickCreateSchema = Joi.object({
@@ -385,11 +392,10 @@ export class BrokerController {
         contact_persons: Joi.array().items(
           Joi.object({
             name: Joi.string().required().min(2).max(255),
-            phones: Joi.array().items(Joi.string().max(20)).required().min(1)
+            phones: Joi.array().items(Joi.string().max(20)).required().min(1),
+            emails: Joi.array().items(Joi.string().email()).optional()
           })
         ).required().min(1),
-        email: Joi.string().required().email(),
-        phone: Joi.string().required().max(20),
         address: Joi.object({
           street: Joi.string().required().max(255),
           city: Joi.string().required().max(100),
@@ -418,10 +424,16 @@ export class BrokerController {
         throw new ConflictError('PAN number already exists');
       }
 
-      // Check if email already exists
-      const emailExists = await brokerDAO.emailExists(email);
-      if (emailExists) {
-        throw new ConflictError('Email already exists');
+      // Get first contact person for email check
+      const firstContactPerson = contact_persons[0];
+      const primaryEmail = firstContactPerson.emails?.[0];
+
+      // Check if email already exists (only if email is provided)
+      if (primaryEmail) {
+        const emailExists = await brokerDAO.emailExists(primaryEmail);
+        if (emailExists) {
+          throw new ConflictError('Email already exists');
+        }
       }
 
       // Fetch PAN details
@@ -432,8 +444,6 @@ export class BrokerController {
       const brokerData: CreateBrokerDTO = {
         business_name: business_name || mappedData.business_name,
         contact_persons,
-        email,
-        phone,
         address,
         business_details: {
           ...mappedData.business_details,
@@ -451,8 +461,6 @@ export class BrokerController {
         id: broker.id,
         business_name: broker.business_name,
         contact_persons: broker.contact_persons,
-        email: broker.email,
-        phone: broker.phone,
         address: broker.address,
         business_details: broker.business_details,
         bank_details: broker.bank_details,
@@ -468,7 +476,115 @@ export class BrokerController {
       next(error);
     }
   }
+
+  /**
+   * Quick create broker from GST number (for company/partnership/llp brokers)
+   * Fetches GST details and creates broker with additional required input
+   */
+  async createFromGST(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const { gst_number, contact_persons, type, broker_details, bank_details } = req.body;
+
+      // Validate required fields
+      const quickCreateSchema = Joi.object({
+        gst_number: Joi.string().required().length(15),
+        contact_persons: Joi.array().items(
+          Joi.object({
+            name: Joi.string().required().min(2).max(255),
+            phones: Joi.array().items(Joi.string().max(20)).required().min(1),
+            emails: Joi.array().items(Joi.string().email()).optional()
+          })
+        ).required().min(1),
+        type: Joi.string().required().valid('purchase', 'sale', 'both'),
+        broker_details: Joi.object({
+          commission_rate: Joi.number().optional().min(0).max(100),
+          specialization: Joi.string().optional().allow(null, '').max(255),
+          experience_years: Joi.string().optional().allow(null, '').max(100),
+        }).optional(),
+        bank_details: Joi.object({
+          account_holder_name: Joi.string().optional().allow(null, ''),
+          account_number: Joi.string().optional().allow(null, ''),
+          ifsc_code: Joi.string().optional().allow(null, '').length(11),
+          bank_name: Joi.string().optional().allow(null, ''),
+          branch: Joi.string().optional().allow(null, ''),
+        }).optional(),
+      });
+
+      validate(quickCreateSchema, req.body);
+
+      // Validate GST format
+      if (!gstLookupService.validateGSTFormat(gst_number)) {
+        throw new ValidationError('Invalid GST number format');
+      }
+
+      // Check if GST already exists
+      const gstExists = await brokerDAO.gstExists(gst_number);
+      if (gstExists) {
+        throw new ConflictError('GST number already exists');
+      }
+
+      // Get first contact person for email check
+      const firstContactPerson = contact_persons[0];
+      const primaryEmail = firstContactPerson.emails?.[0];
+
+      // Check if email already exists (only if email is provided)
+      if (primaryEmail) {
+        const emailExists = await brokerDAO.emailExists(primaryEmail);
+        if (emailExists) {
+          throw new ConflictError('Email already exists');
+        }
+      }
+
+      // Fetch GST details
+      const gstData = await gstLookupService.lookupGST(gst_number);
+      const mappedData = gstLookupService.mapGSTToBusinessData(gstData);
+
+      // Determine business type from GST data
+      let businessType: 'company' | 'partnership' | 'llp' = 'company';
+      if (mappedData.business_details.business_type === 'partnership') {
+        businessType = 'partnership';
+      } else if (mappedData.business_details.business_type === 'llp') {
+        businessType = 'llp';
+      }
+
+      // Create broker with fetched + provided data
+      const brokerData: CreateBrokerDTO = {
+        business_name: mappedData.business_name,
+        contact_persons,
+        address: mappedData.address,
+        business_details: {
+          gst_number,
+          pan_number: mappedData.business_details.pan_number, // PAN is embedded in GST
+          business_type: businessType,
+        },
+        broker_details: broker_details || null,
+        bank_details: bank_details || null,
+        type,
+        is_active: true,
+        created_by: req.user?.userId,
+      };
+
+      const broker = await brokerDAO.create(brokerData);
+
+      const brokerResponse: BrokerResponse = {
+        id: broker.id,
+        business_name: broker.business_name,
+        contact_persons: broker.contact_persons,
+        address: broker.address,
+        business_details: broker.business_details,
+        bank_details: broker.bank_details,
+        broker_details: broker.broker_details,
+        type: broker.type,
+        is_active: broker.is_active,
+        created_at: broker.created_at.toISOString(),
+        updated_at: broker.updated_at.toISOString(),
+      };
+
+      return ResponseHandler.created(res, brokerResponse, 'Broker created from GST successfully');
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const brokerController = new BrokerController();
-

@@ -129,6 +129,11 @@ export class BrokerDAO {
   }
 
   async create(brokerData: CreateBrokerDTO & { user_id?: string }): Promise<Broker> {
+    // Extract first contact person data for legacy fields
+    const firstContactPerson = brokerData.contact_persons[0];
+    const primaryEmail = firstContactPerson.emails?.[0] || '';
+    const primaryPhone = firstContactPerson.phones[0];
+
     const query = `
       INSERT INTO brokers (business_name, contact_persons, email, phone, address, business_details, 
                           bank_details, broker_details, type, is_active, created_by, user_id)
@@ -140,8 +145,8 @@ export class BrokerDAO {
     const values = [
       brokerData.business_name || null,
       JSON.stringify(brokerData.contact_persons),
-      brokerData.email,
-      brokerData.phone,
+      primaryEmail,
+      primaryPhone,
       JSON.stringify(brokerData.address),
       JSON.stringify(brokerData.business_details),
       brokerData.bank_details ? JSON.stringify(brokerData.bank_details) : null,
@@ -177,16 +182,15 @@ export class BrokerDAO {
     if (brokerData.contact_persons !== undefined) {
       updateFields.push(`contact_persons = $${paramCount++}`);
       values.push(JSON.stringify(brokerData.contact_persons));
-    }
-
-    if (brokerData.email !== undefined) {
-      updateFields.push(`email = $${paramCount++}`);
-      values.push(brokerData.email);
-    }
-
-    if (brokerData.phone !== undefined) {
-      updateFields.push(`phone = $${paramCount++}`);
-      values.push(brokerData.phone);
+      
+      // Also update legacy fields from first contact person
+      const firstContactPerson = brokerData.contact_persons[0];
+      if (firstContactPerson) {
+        updateFields.push(`phone = $${paramCount++}`);
+        values.push(firstContactPerson.phones[0]);
+        updateFields.push(`email = $${paramCount++}`);
+        values.push(firstContactPerson.emails?.[0] || '');
+      }
     }
 
     if (brokerData.address !== undefined) {
@@ -302,4 +306,3 @@ export class BrokerDAO {
 }
 
 export const brokerDAO = new BrokerDAO();
-

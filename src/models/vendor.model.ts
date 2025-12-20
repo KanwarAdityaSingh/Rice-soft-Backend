@@ -6,6 +6,12 @@ export interface Address {
   country: string;
 }
 
+export interface ContactPerson {
+  name: string;
+  phones: string[];
+  emails?: string[];
+}
+
 export interface BusinessDetails {
   pan_number?: string;
   gst_number?: string;
@@ -26,6 +32,8 @@ export type VendorType = 'purchaser' | 'seller' | 'both';
 export interface Vendor {
   id: string;
   business_name: string;
+  contact_persons: ContactPerson[];
+  // Legacy fields - kept for backward compatibility
   contact_person: string;
   email: string | null;
   phone: string;
@@ -48,9 +56,7 @@ export interface Vendor {
 
 export interface CreateVendorDTO {
   business_name: string;
-  contact_person: string;
-  email?: string;
-  phone: string;
+  contact_persons: ContactPerson[];
   address: Address;
   business_details: BusinessDetails;
   bank_details?: BankDetails;
@@ -65,9 +71,7 @@ export interface CreateVendorDTO {
 
 export interface UpdateVendorDTO {
   business_name?: string;
-  contact_person?: string;
-  email?: string;
-  phone?: string;
+  contact_persons?: ContactPerson[];
   address?: Address;
   business_details?: BusinessDetails;
   bank_details?: BankDetails;
@@ -82,9 +86,7 @@ export interface UpdateVendorDTO {
 export interface VendorResponse {
   id: string;
   business_name: string;
-  contact_person: string;
-  email: string | null;
-  phone: string;
+  contact_persons: ContactPerson[];
   address: Address;
   business_details: BusinessDetails;
   bank_details: BankDetails | null;
@@ -98,4 +100,3 @@ export interface VendorResponse {
   google_location_link: string | null;
   business_card_url: string | null;
 }
-

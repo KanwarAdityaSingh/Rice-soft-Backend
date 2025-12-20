@@ -31,7 +31,7 @@ router.get('/lookupAadhaar', authenticate, brokerController.lookupAadhaar.bind(b
 
 /**
  * @route   POST /api/v1/brokers/quickCreateFromPAN
- * @desc    Quick create broker from PAN number
+ * @desc    Quick create broker from PAN number (for individual brokers)
  * @access  Private
  */
 router.post(
@@ -39,6 +39,18 @@ router.post(
   authenticate,
   auditLog('CREATE', 'brokers'),
   brokerController.createFromPAN.bind(brokerController)
+);
+
+/**
+ * @route   POST /api/v1/brokers/quickCreateFromGST
+ * @desc    Quick create broker from GST number (for company/partnership/llp brokers)
+ * @access  Private
+ */
+router.post(
+  '/quickCreateFromGST',
+  authenticate,
+  auditLog('CREATE', 'brokers'),
+  brokerController.createFromGST.bind(brokerController)
 );
 
 /**

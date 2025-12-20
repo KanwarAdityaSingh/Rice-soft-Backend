@@ -9,6 +9,7 @@ export interface Address {
 export interface ContactPerson {
   name: string;
   phones: string[];
+  emails?: string[];
 }
 
 export interface BusinessDetails {
@@ -38,6 +39,7 @@ export interface Broker {
   id: string;
   business_name: string | null;
   contact_persons: ContactPerson[];
+  // Legacy fields - kept for backward compatibility in database
   email: string;
   phone: string;
   address: Address;
@@ -56,8 +58,6 @@ export interface Broker {
 export interface CreateBrokerDTO {
   business_name?: string;
   contact_persons: ContactPerson[];
-  email: string;
-  phone: string;
   address: Address;
   business_details: BusinessDetails;
   bank_details?: BankDetails;
@@ -71,8 +71,6 @@ export interface CreateBrokerDTO {
 export interface UpdateBrokerDTO {
   business_name?: string;
   contact_persons?: ContactPerson[];
-  email?: string;
-  phone?: string;
   address?: Address;
   business_details?: BusinessDetails;
   bank_details?: BankDetails;
@@ -86,8 +84,6 @@ export interface BrokerResponse {
   id: string;
   business_name: string | null;
   contact_persons: ContactPerson[];
-  email: string;
-  phone: string;
   address: Address;
   business_details: BusinessDetails;
   bank_details: BankDetails | null;
@@ -97,4 +93,3 @@ export interface BrokerResponse {
   created_at: string;
   updated_at: string;
 }
-

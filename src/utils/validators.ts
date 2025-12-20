@@ -99,7 +99,9 @@ const businessDetailsSchema = Joi.object({
   business_type: Joi.string().optional().valid('individual', 'partnership', 'company', 'llp'),
 });
 
-// Business details validation schema for brokers (PAN or Aadhaar required, no GST)
+// Business details validation schema for brokers
+// - Individual: requires PAN or Aadhaar
+// - Company/Partnership/LLP: requires GST number
 const brokerBusinessDetailsSchema = Joi.object({
   pan_number: Joi.string().optional().allow(null, '').length(10).uppercase(),
   aadhaar_number: Joi.string().optional().allow(null, '').pattern(/^[2-9]{1}[0-9]{11}$/).custom((value, helpers) => {
@@ -113,19 +115,32 @@ const brokerBusinessDetailsSchema = Joi.object({
     }
     return value;
   }, 'Aadhaar number validation'),
-  business_type: Joi.string().optional().valid('individual', 'partnership', 'company', 'llp'),
+  gst_number: Joi.string().optional().allow(null, '').length(15).uppercase(),
+  business_type: Joi.string().required().valid('individual', 'partnership', 'company', 'llp'),
 }).custom((value, helpers) => {
-  // Require either PAN or Aadhaar (at least one must be provided)
+  const businessType = value.business_type;
   const hasPAN = value.pan_number && value.pan_number.trim() !== '';
   const hasAadhaar = value.aadhaar_number && value.aadhaar_number.trim() !== '';
+  const hasGST = value.gst_number && value.gst_number.trim() !== '';
   
-  if (!hasPAN && !hasAadhaar) {
-    return helpers.error('custom.panOrAadhaarRequired');
+  // For individual brokers: require PAN or Aadhaar
+  if (businessType === 'individual') {
+    if (!hasPAN && !hasAadhaar) {
+      return helpers.error('custom.panOrAadhaarRequired');
+    }
+  }
+  
+  // For company/partnership/llp brokers: require GST
+  if (businessType === 'company' || businessType === 'partnership' || businessType === 'llp') {
+    if (!hasGST) {
+      return helpers.error('custom.gstRequired');
+    }
   }
   
   return value;
 }).messages({
-  'custom.panOrAadhaarRequired': 'Either PAN number or Aadhaar number must be provided'
+  'custom.panOrAadhaarRequired': 'Either PAN number or Aadhaar number must be provided for individual brokers',
+  'custom.gstRequired': 'GST number is required for company/partnership/llp brokers'
 });
 
 // Bank details validation schema (reusable)
@@ -140,9 +155,13 @@ const bankDetailsSchema = Joi.object({
 // Vendor validation schemas
 export const createVendorSchema = Joi.object({
   business_name: Joi.string().required().min(2).max(255),
-  contact_person: Joi.string().required().min(2).max(255),
-  email: Joi.string().optional().allow(null, '').email(),
-  phone: Joi.string().required().max(20),
+  contact_persons: Joi.array().items(
+    Joi.object({
+      name: Joi.string().required().min(2).max(255),
+      phones: Joi.array().items(Joi.string().max(20)).required().min(1),
+      emails: Joi.array().items(Joi.string().email()).optional()
+    })
+  ).required().min(1),
   address: addressSchema.required(),
   business_details: businessDetailsSchema.required(),
   bank_details: bankDetailsSchema.optional(),
@@ -153,9 +172,13 @@ export const createVendorSchema = Joi.object({
 
 export const updateVendorSchema = Joi.object({
   business_name: Joi.string().optional().min(2).max(255),
-  contact_person: Joi.string().optional().min(2).max(255),
-  email: Joi.string().optional().email(),
-  phone: Joi.string().optional().max(20),
+  contact_persons: Joi.array().items(
+    Joi.object({
+      name: Joi.string().required().min(2).max(255),
+      phones: Joi.array().items(Joi.string().max(20)).required().min(1),
+      emails: Joi.array().items(Joi.string().email()).optional()
+    })
+  ).optional().min(1),
   address: addressSchema.optional(),
   business_details: businessDetailsSchema.optional(),
   bank_details: bankDetailsSchema.optional(),
@@ -181,8 +204,6 @@ export const createBrokerSchema = Joi.object({
       emails: Joi.array().items(Joi.string().email()).optional()
     })
   ).required().min(1),
-  email: Joi.string().required().email(),
-  phone: Joi.string().required().max(20),
   address: addressSchema.required(),
   business_details: brokerBusinessDetailsSchema.required(),
   bank_details: bankDetailsSchema.optional(),
@@ -200,8 +221,6 @@ export const updateBrokerSchema = Joi.object({
       emails: Joi.array().items(Joi.string().email()).optional()
     })
   ).optional().min(1),
-  email: Joi.string().optional().email(),
-  phone: Joi.string().optional().max(20),
   address: addressSchema.optional(),
   business_details: brokerBusinessDetailsSchema.optional(),
   bank_details: bankDetailsSchema.optional(),

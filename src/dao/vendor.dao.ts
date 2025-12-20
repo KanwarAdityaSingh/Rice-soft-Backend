@@ -5,7 +5,7 @@ import { logger } from '../utils/logger';
 export class VendorDAO {
   async findAll(includeInactive = false, type?: VendorType): Promise<Vendor[]> {
     let query = `
-      SELECT id, business_name, contact_person, email, phone, address, business_details, 
+      SELECT id, business_name, contact_persons, contact_person, email, phone, address, business_details, 
              bank_details, type, is_active, user_id, lead_id, created_at, updated_at, created_by, updated_by,
              last_enquiry_date, google_location_link, business_card_url
       FROM vendors
@@ -32,7 +32,7 @@ export class VendorDAO {
 
   async findById(id: string): Promise<Vendor | null> {
     const query = `
-      SELECT id, business_name, contact_person, email, phone, address, business_details,
+      SELECT id, business_name, contact_persons, contact_person, email, phone, address, business_details,
              bank_details, type, is_active, user_id, lead_id, created_at, updated_at, created_by, updated_by,
              last_enquiry_date, google_location_link, business_card_url
       FROM vendors
@@ -44,7 +44,7 @@ export class VendorDAO {
 
   async findByEmail(email: string): Promise<Vendor | null> {
     const query = `
-      SELECT id, business_name, contact_person, email, phone, address, business_details,
+      SELECT id, business_name, contact_persons, contact_person, email, phone, address, business_details,
              bank_details, type, is_active, user_id, lead_id, created_at, updated_at, created_by, updated_by,
              last_enquiry_date, google_location_link, business_card_url
       FROM vendors
@@ -56,7 +56,7 @@ export class VendorDAO {
 
   async findByGST(gstNumber: string): Promise<Vendor | null> {
     const query = `
-      SELECT id, business_name, contact_person, email, phone, address, business_details,
+      SELECT id, business_name, contact_persons, contact_person, email, phone, address, business_details,
              bank_details, type, is_active, user_id, lead_id, created_at, updated_at, created_by, updated_by,
              last_enquiry_date, google_location_link, business_card_url
       FROM vendors
@@ -68,7 +68,7 @@ export class VendorDAO {
 
   async findByPAN(panNumber: string): Promise<Vendor | null> {
     const query = `
-      SELECT id, business_name, contact_person, email, phone, address, business_details,
+      SELECT id, business_name, contact_persons, contact_person, email, phone, address, business_details,
              bank_details, type, is_active, user_id, lead_id, created_at, updated_at, created_by, updated_by,
              last_enquiry_date, google_location_link, business_card_url
       FROM vendors
@@ -79,20 +79,27 @@ export class VendorDAO {
   }
 
   async create(vendorData: CreateVendorDTO & { user_id?: string }): Promise<Vendor> {
+    // Extract first contact person data for legacy fields
+    const firstContactPerson = vendorData.contact_persons[0];
+    const contactPersonName = firstContactPerson.name;
+    const primaryPhone = firstContactPerson.phones[0];
+    const primaryEmail = firstContactPerson.emails?.[0] || null;
+
     const query = `
-      INSERT INTO vendors (business_name, contact_person, email, phone, address, business_details, 
+      INSERT INTO vendors (business_name, contact_persons, contact_person, email, phone, address, business_details, 
                           bank_details, type, is_active, created_by, user_id, lead_id, google_location_link, business_card_url)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-      RETURNING id, business_name, contact_person, email, phone, address, business_details,
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+      RETURNING id, business_name, contact_persons, contact_person, email, phone, address, business_details,
                 bank_details, type, is_active, user_id, lead_id, created_at, updated_at, created_by, updated_by,
                 last_enquiry_date, google_location_link, business_card_url
     `;
     
     const values = [
       vendorData.business_name,
-      vendorData.contact_person,
-      vendorData.email,
-      vendorData.phone,
+      JSON.stringify(vendorData.contact_persons),
+      contactPersonName,
+      primaryEmail,
+      primaryPhone,
       JSON.stringify(vendorData.address),
       JSON.stringify(vendorData.business_details),
       vendorData.bank_details ? JSON.stringify(vendorData.bank_details) : null,
@@ -127,19 +134,20 @@ export class VendorDAO {
       values.push(vendorData.business_name);
     }
 
-    if (vendorData.contact_person !== undefined) {
-      updateFields.push(`contact_person = $${paramCount++}`);
-      values.push(vendorData.contact_person);
-    }
-
-    if (vendorData.email !== undefined) {
-      updateFields.push(`email = $${paramCount++}`);
-      values.push(vendorData.email);
-    }
-
-    if (vendorData.phone !== undefined) {
-      updateFields.push(`phone = $${paramCount++}`);
-      values.push(vendorData.phone);
+    if (vendorData.contact_persons !== undefined) {
+      updateFields.push(`contact_persons = $${paramCount++}`);
+      values.push(JSON.stringify(vendorData.contact_persons));
+      
+      // Also update legacy fields from first contact person
+      const firstContactPerson = vendorData.contact_persons[0];
+      if (firstContactPerson) {
+        updateFields.push(`contact_person = $${paramCount++}`);
+        values.push(firstContactPerson.name);
+        updateFields.push(`phone = $${paramCount++}`);
+        values.push(firstContactPerson.phones[0]);
+        updateFields.push(`email = $${paramCount++}`);
+        values.push(firstContactPerson.emails?.[0] || null);
+      }
     }
 
     if (vendorData.address !== undefined) {
@@ -198,7 +206,7 @@ export class VendorDAO {
       UPDATE vendors 
       SET ${updateFields.join(', ')}
       WHERE id = $${paramCount}
-      RETURNING id, business_name, contact_person, email, phone, address, business_details,
+      RETURNING id, business_name, contact_persons, contact_person, email, phone, address, business_details,
                 bank_details, type, is_active, user_id, lead_id, created_at, updated_at, created_by, updated_by,
                 last_enquiry_date, google_location_link, business_card_url
     `;
@@ -255,4 +263,3 @@ export class VendorDAO {
 }
 
 export const vendorDAO = new VendorDAO();
-

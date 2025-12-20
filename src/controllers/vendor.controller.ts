@@ -29,9 +29,7 @@ export class VendorController {
       const vendorResponses: VendorResponse[] = vendors.map((vendor) => ({
         id: vendor.id,
         business_name: vendor.business_name,
-        contact_person: vendor.contact_person,
-        email: vendor.email,
-        phone: vendor.phone,
+        contact_persons: vendor.contact_persons,
         address: vendor.address,
         business_details: vendor.business_details,
         bank_details: vendor.bank_details,
@@ -64,9 +62,7 @@ export class VendorController {
       const vendorResponse: VendorResponse = {
         id: vendor.id,
         business_name: vendor.business_name,
-        contact_person: vendor.contact_person,
-        email: vendor.email,
-        phone: vendor.phone,
+        contact_persons: vendor.contact_persons,
         address: vendor.address,
         business_details: vendor.business_details,
         bank_details: vendor.bank_details,
@@ -91,15 +87,20 @@ export class VendorController {
     try {
       const vendorData = validate<CreateVendorDTO>(createVendorSchema, req.body);
 
+      // Get first contact person for user creation and validation
+      const firstContactPerson = vendorData.contact_persons[0];
+      const primaryEmail = firstContactPerson.emails?.[0];
+      const primaryPhone = firstContactPerson.phones[0];
+
       // Check if email already exists in vendors (only if email is provided)
-      if (vendorData.email) {
-        const emailExists = await vendorDAO.emailExists(vendorData.email);
+      if (primaryEmail) {
+        const emailExists = await vendorDAO.emailExists(primaryEmail);
         if (emailExists) {
           throw new ConflictError('Email already exists');
         }
 
         // Check if email already exists in users
-        const userEmailExists = await userDAO.emailExists(vendorData.email);
+        const userEmailExists = await userDAO.emailExists(primaryEmail);
         if (userEmailExists) {
           throw new ConflictError('Email already exists in users');
         }
@@ -121,8 +122,8 @@ export class VendorController {
         }
       }
 
-      // Generate username from contact_person (first part before space, lowercase, remove special chars)
-      let baseUsername = vendorData.contact_person
+      // Generate username from first contact person name (first part before space, lowercase, remove special chars)
+      let baseUsername = firstContactPerson.name
         .toLowerCase()
         .split(' ')[0]
         .replace(/[^a-z0-9]/g, '');
@@ -137,13 +138,13 @@ export class VendorController {
 
       // Create user first (only if email is provided)
       let user = null;
-      if (vendorData.email) {
+      if (primaryEmail) {
         const userData = {
           username: username,
-          email: vendorData.email,
+          email: primaryEmail,
           password: 'defaultPassword123', // Default password, should be changed on first login
-          full_name: vendorData.contact_person,
-          phone: vendorData.phone,
+          full_name: firstContactPerson.name,
+          phone: primaryPhone,
           user_type: 'vendor' as const,
           is_active: vendorData.is_active !== undefined ? vendorData.is_active : true,
           created_by: req.user?.userId,
@@ -169,9 +170,7 @@ export class VendorController {
       const vendorResponse: VendorResponse = {
         id: vendor.id,
         business_name: vendor.business_name,
-        contact_person: vendor.contact_person,
-        email: vendor.email,
-        phone: vendor.phone,
+        contact_persons: vendor.contact_persons,
         address: vendor.address,
         business_details: vendor.business_details,
         bank_details: vendor.bank_details,
@@ -240,9 +239,7 @@ export class VendorController {
       const vendorResponse: VendorResponse = {
         id: vendor.id,
         business_name: vendor.business_name,
-        contact_person: vendor.contact_person,
-        email: vendor.email,
-        phone: vendor.phone,
+        contact_persons: vendor.contact_persons,
         address: vendor.address,
         business_details: vendor.business_details,
         bank_details: vendor.bank_details,
@@ -349,14 +346,18 @@ export class VendorController {
    */
   async createFromGST(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const { gst_number, contact_person, email, phone, type, bank_details } = req.body;
+      const { gst_number, contact_persons, type, bank_details } = req.body;
 
       // Validate required fields
       const quickCreateSchema = Joi.object({
         gst_number: Joi.string().required().length(15),
-        contact_person: Joi.string().required().min(2).max(255),
-        email: Joi.string().required().email(),
-        phone: Joi.string().required().max(20),
+        contact_persons: Joi.array().items(
+          Joi.object({
+            name: Joi.string().required().min(2).max(255),
+            phones: Joi.array().items(Joi.string().max(20)).required().min(1),
+            emails: Joi.array().items(Joi.string().email()).optional()
+          })
+        ).required().min(1),
         type: Joi.string().required().valid('purchaser', 'seller', 'both'),
         bank_details: Joi.object().optional(),
       });
@@ -374,10 +375,16 @@ export class VendorController {
         throw new ConflictError('GST number already exists');
       }
 
-      // Check if email already exists
-      const emailExists = await vendorDAO.emailExists(email);
-      if (emailExists) {
-        throw new ConflictError('Email already exists');
+      // Get first contact person for email check
+      const firstContactPerson = contact_persons[0];
+      const primaryEmail = firstContactPerson.emails?.[0];
+
+      // Check if email already exists (only if email is provided)
+      if (primaryEmail) {
+        const emailExists = await vendorDAO.emailExists(primaryEmail);
+        if (emailExists) {
+          throw new ConflictError('Email already exists');
+        }
       }
 
       // Fetch GST details
@@ -387,9 +394,7 @@ export class VendorController {
       // Create vendor with fetched + provided data
       const vendorData: CreateVendorDTO = {
         business_name: mappedData.business_name,
-        contact_person,
-        email,
-        phone,
+        contact_persons,
         address: mappedData.address,
         business_details: mappedData.business_details,
         bank_details: bank_details || null,
@@ -403,9 +408,7 @@ export class VendorController {
       const vendorResponse: VendorResponse = {
         id: vendor.id,
         business_name: vendor.business_name,
-        contact_person: vendor.contact_person,
-        email: vendor.email,
-        phone: vendor.phone,
+        contact_persons: vendor.contact_persons,
         address: vendor.address,
         business_details: vendor.business_details,
         bank_details: vendor.bank_details,
@@ -432,15 +435,19 @@ export class VendorController {
    */
   async createFromPAN(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const { pan_number, business_name, contact_person, email, phone, address, type, bank_details } = req.body;
+      const { pan_number, business_name, contact_persons, address, type, bank_details } = req.body;
 
       // Validate required fields (PAN gives less info, so we need more input)
       const quickCreateSchema = Joi.object({
         pan_number: Joi.string().required().length(10),
         business_name: Joi.string().optional().min(2).max(255),
-        contact_person: Joi.string().required().min(2).max(255),
-        email: Joi.string().required().email(),
-        phone: Joi.string().required().max(20),
+        contact_persons: Joi.array().items(
+          Joi.object({
+            name: Joi.string().required().min(2).max(255),
+            phones: Joi.array().items(Joi.string().max(20)).required().min(1),
+            emails: Joi.array().items(Joi.string().email()).optional()
+          })
+        ).required().min(1),
         address: Joi.object({
           street: Joi.string().required().max(255),
           city: Joi.string().required().max(100),
@@ -465,10 +472,16 @@ export class VendorController {
         throw new ConflictError('PAN number already exists');
       }
 
-      // Check if email already exists
-      const emailExists = await vendorDAO.emailExists(email);
-      if (emailExists) {
-        throw new ConflictError('Email already exists');
+      // Get first contact person for email check
+      const firstContactPerson = contact_persons[0];
+      const primaryEmail = firstContactPerson.emails?.[0];
+
+      // Check if email already exists (only if email is provided)
+      if (primaryEmail) {
+        const emailExists = await vendorDAO.emailExists(primaryEmail);
+        if (emailExists) {
+          throw new ConflictError('Email already exists');
+        }
       }
 
       // Fetch PAN details
@@ -478,9 +491,7 @@ export class VendorController {
       // Create vendor with fetched + provided data
       const vendorData: CreateVendorDTO = {
         business_name: business_name || mappedData.business_name,
-        contact_person,
-        email,
-        phone,
+        contact_persons,
         address,
         business_details: {
           ...mappedData.business_details,
@@ -497,9 +508,7 @@ export class VendorController {
       const vendorResponse: VendorResponse = {
         id: vendor.id,
         business_name: vendor.business_name,
-        contact_person: vendor.contact_person,
-        email: vendor.email,
-        phone: vendor.phone,
+        contact_persons: vendor.contact_persons,
         address: vendor.address,
         business_details: vendor.business_details,
         bank_details: vendor.bank_details,
@@ -557,9 +566,7 @@ export class VendorController {
         const vendorResponse: VendorResponse = {
           id: vendor.id,
           business_name: vendor.business_name,
-          contact_person: vendor.contact_person,
-          email: vendor.email,
-          phone: vendor.phone,
+          contact_persons: vendor.contact_persons,
           address: vendor.address,
           business_details: vendor.business_details,
           bank_details: vendor.bank_details,
