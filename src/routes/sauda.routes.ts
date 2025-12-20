@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { saudaController } from '../controllers/sauda.controller';
 import { authenticate } from '../middleware/auth.middleware';
 import { auditLog } from '../middleware/audit.middleware';
+import { documentUpload } from '../middleware/upload.middleware';
 
 const router = Router();
 
@@ -54,6 +55,32 @@ router.patch(
   authenticate,
   auditLog('UPDATE', 'saudas'),
   saudaController.updateStatus.bind(saudaController)
+);
+
+/**
+ * @route   POST /api/v1/saudas/:id/upload-cooked-rice-image
+ * @desc    Upload cooked rice image
+ * @access  Private
+ */
+router.post(
+  '/:id/upload-cooked-rice-image',
+  authenticate,
+  documentUpload.single('file'),
+  auditLog('UPDATE', 'saudas'),
+  saudaController.uploadCookedRiceImage.bind(saudaController)
+);
+
+/**
+ * @route   POST /api/v1/saudas/:id/upload-uncooked-rice-image
+ * @desc    Upload uncooked rice image
+ * @access  Private
+ */
+router.post(
+  '/:id/upload-uncooked-rice-image',
+  authenticate,
+  documentUpload.single('file'),
+  auditLog('UPDATE', 'saudas'),
+  saudaController.uploadUncookedRiceImage.bind(saudaController)
 );
 
 /**

@@ -600,24 +600,29 @@ export class LeadController {
         // Update existing vendor if necessary, e.g., link lead_id
         await vendorDAO.update(vendor.id, { lead_id: lead.id, updated_by: req.user?.userId });
       } else {
-        // Build contact_persons array from lead data
-        let contactPersons = [];
-        if (lead.contact_persons && lead.contact_persons.length > 0) {
-          // Use lead's contact_persons directly
-          contactPersons = lead.contact_persons.map(cp => ({
-            name: cp.name,
-            phones: cp.phones || [],
-            emails: cp.emails || (lead.email ? [lead.email] : [])
-          }));
-        } else {
-          // Fallback: create from lead's basic info
+        // Build contact_persons array from lead's contact_persons
+        let contactPersons = lead.contact_persons && lead.contact_persons.length > 0 
+          ? [...lead.contact_persons] 
+          : [];
+        
+        // If lead has email but no contact persons, create one
+        if (contactPersons.length === 0 && lead.email) {
           contactPersons = [{
-            name: lead.company_name || 'Unknown',
+            name: lead.company_name || '',
             phones: lead.phone ? [lead.phone] : [],
             emails: lead.email ? [lead.email] : []
           }];
+        } else if (contactPersons.length > 0 && lead.email) {
+          // Add email to first contact person if it doesn't already have it
+          const firstPerson = contactPersons[0];
+          if (!firstPerson.emails || !firstPerson.emails.includes(lead.email)) {
+            contactPersons[0] = {
+              ...firstPerson,
+              emails: [...(firstPerson.emails || []), lead.email]
+            };
+          }
         }
-
+        
         const newVendorData = {
           business_name: lead.company_name,
           contact_persons: contactPersons,

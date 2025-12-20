@@ -202,14 +202,6 @@ export class VendorController {
         throw new NotFoundError('Vendor not found');
       }
 
-      // Check if email already exists (if being updated)
-      if (vendorData.email) {
-        const emailExists = await vendorDAO.emailExists(vendorData.email, id);
-        if (emailExists) {
-          throw new ConflictError('Email already exists');
-        }
-      }
-
       // Check if GST already exists (if being updated)
       if (vendorData.business_details?.gst_number) {
         const gstExists = await vendorDAO.gstExists(vendorData.business_details.gst_number, id);

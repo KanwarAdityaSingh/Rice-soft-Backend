@@ -1,11 +1,13 @@
 -- Migration: Rename sauda_type 'xgodown' to 'exgodown'
 -- This migration updates the sauda_type values from 'xgodown' to 'exgodown' for better clarity
 
--- Update existing saudas table data
+-- First, drop the existing CHECK constraint
+ALTER TABLE saudas DROP CONSTRAINT IF EXISTS saudas_sauda_type_check;
+
+-- Then update existing saudas table data
 UPDATE saudas SET sauda_type = 'exgodown' WHERE sauda_type = 'xgodown';
 
--- Update the CHECK constraint on saudas table
-ALTER TABLE saudas DROP CONSTRAINT IF EXISTS saudas_sauda_type_check;
+-- Finally, add the new CHECK constraint with 'exgodown' instead of 'xgodown'
 ALTER TABLE saudas ADD CONSTRAINT saudas_sauda_type_check CHECK (sauda_type IN ('exgodown', 'for'));
 
 -- Update any other tables that might reference this value
