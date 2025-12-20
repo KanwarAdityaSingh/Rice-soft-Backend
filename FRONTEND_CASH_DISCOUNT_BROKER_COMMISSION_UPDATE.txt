@@ -1,0 +1,303 @@
+================================================================================
+FRONTEND UPDATE GUIDE: Cash Discount & Broker Commission Type Support
+================================================================================
+
+OVERVIEW
+--------
+The backend now supports flexible types for both cash_discount and broker_commission:
+
+Cash Discount Types:
+1. "rupees" - Fixed amount in rupees
+2. "percentage" - Percentage of the base amount
+
+Broker Commission Types:
+1. "rupees" - Fixed amount in rupees
+2. "percentage" - Percentage of the calculated amount
+3. "weight" - Commission per unit weight (NEW!)
+
+Two new fields have been added:
+- cash_discount_type: 'rupees' | 'percentage' (default: 'rupees')
+- broker_commission_type: 'rupees' | 'percentage' | 'weight' (default: 'percentage')
+
+================================================================================
+AFFECTED APIs
+================================================================================
+
+1. SAUDA APIs
+-------------
+   - POST   /api/v1/saudas           (Create Sauda)
+   - PUT    /api/v1/saudas/:id       (Update Sauda)
+   - GET    /api/v1/saudas           (List Saudas)
+   - GET    /api/v1/saudas/:id       (Get Sauda)
+
+2. PURCHASE APIs
+----------------
+   - POST   /api/v1/purchases        (Create Purchase)
+   - PUT    /api/v1/purchases/:id    (Update Purchase)
+   - GET    /api/v1/purchases        (List Purchases)
+   - GET    /api/v1/purchases/:id    (Get Purchase)
+
+================================================================================
+REQUEST PAYLOAD CHANGES
+================================================================================
+
+SAUDA - Create/Update Request:
+------------------------------
+{
+  // ... other fields ...
+  "cash_discount": 5,                    // Number - the value
+  "cash_discount_type": "percentage",    // "rupees" | "percentage"
+  "broker_commission": 2.5,              // Number - the value
+  "broker_commission_type": "percentage" // "rupees" | "percentage" | "weight"
+}
+
+PURCHASE - Create/Update Request:
+---------------------------------
+{
+  // ... other fields ...
+  "cash_discount": 1000,                 // Number - the value
+  "cash_discount_type": "rupees",        // "rupees" | "percentage"
+  "broker_commission": 10,               // Number - the value
+  "broker_commission_type": "weight"     // "rupees" | "percentage" | "weight"
+}
+
+================================================================================
+RESPONSE PAYLOAD CHANGES
+================================================================================
+
+SAUDA Response (all endpoints):
+-------------------------------
+{
+  "id": "uuid",
+  "sauda_type": "exgodown",
+  "rice_type": "basmati",
+  // ... other fields ...
+  "broker_commission": 2.5,
+  "broker_commission_type": "percentage",  // "rupees" | "percentage" | "weight"
+  "cash_discount": 5,
+  "cash_discount_type": "percentage",      // "rupees" | "percentage"
+  // ... other fields ...
+}
+
+PURCHASE Response (all endpoints):
+----------------------------------
+{
+  "id": "uuid",
+  "vendor_id": "uuid",
+  // ... other fields ...
+  "broker_commission": 10,
+  "broker_commission_type": "weight",      // "rupees" | "percentage" | "weight"
+  "cash_discount": 1000,
+  "cash_discount_type": "rupees",          // "rupees" | "percentage"
+  // ... other fields ...
+}
+
+================================================================================
+FRONTEND CHANGES REQUIRED
+================================================================================
+
+1. TYPE/INTERFACE UPDATES
+-------------------------
+   Add these types to your TypeScript interfaces:
+
+   type CashDiscountType = 'rupees' | 'percentage';
+   type BrokerCommissionType = 'rupees' | 'percentage' | 'weight';
+
+   Update Sauda interface:
+   - Add: cash_discount_type: CashDiscountType;
+   - Add: broker_commission_type: BrokerCommissionType;
+
+   Update Purchase interface:
+   - Add: cash_discount_type: CashDiscountType;
+   - Add: broker_commission_type: BrokerCommissionType;
+
+2. FORM UPDATES
+---------------
+   Wherever you have input fields for:
+   
+   a) Cash Discount:
+      - Add a dropdown/toggle next to the cash_discount input
+      - Options: "₹ (Rupees)" and "% (Percentage)"
+      - Default selection: "₹ (Rupees)"
+      - When user selects "Rupees", send cash_discount_type: "rupees"
+      - When user selects "Percentage", send cash_discount_type: "percentage"
+
+   b) Broker Commission:
+      - Add a dropdown/toggle next to the broker_commission input
+      - Options: "₹ (Rupees)", "% (Percentage)", and "Per Kg (Weight)"
+      - Default selection: "% (Percentage)"
+      - When user selects "Rupees", send broker_commission_type: "rupees"
+      - When user selects "Percentage", send broker_commission_type: "percentage"
+      - When user selects "Per Kg (Weight)", send broker_commission_type: "weight"
+
+3. DISPLAY UPDATES
+------------------
+   When displaying cash_discount or broker_commission values:
+
+   a) For Cash Discount:
+      - If cash_discount_type === 'rupees': Show "₹{value}"
+      - If cash_discount_type === 'percentage': Show "{value}%"
+
+   b) For Broker Commission:
+      - If broker_commission_type === 'rupees': Show "₹{value}"
+      - If broker_commission_type === 'percentage': Show "{value}%"
+      - If broker_commission_type === 'weight': Show "₹{value}/Kg"
+
+4. FORMS TO UPDATE
+------------------
+   - Sauda Create Form
+   - Sauda Edit Form
+   - Purchase Create Form
+   - Purchase Edit Form
+
+5. DISPLAY COMPONENTS TO UPDATE
+-------------------------------
+   - Sauda List/Table (if showing these fields)
+   - Sauda Detail View
+   - Purchase List/Table (if showing these fields)
+   - Purchase Detail View
+   - Any summary/calculation display components
+
+================================================================================
+CALCULATION LOGIC (For Reference)
+================================================================================
+
+The backend calculates amounts as follows:
+
+1. Base Amount = Sum of all lot amounts
+   Total Weight = Sum of all lot received weights
+
+2. Cash Discount Calculation:
+   - If type = "rupees": discount = cash_discount value (fixed)
+   - If type = "percentage": discount = base_amount × (cash_discount / 100)
+
+3. Amount After Discount = Base Amount - Cash Discount
+
+4. Broker Commission Calculation:
+   - If type = "rupees": commission = broker_commission value (fixed)
+   - If type = "percentage": commission = amount_after_discount × (broker_commission / 100)
+   - If type = "weight": commission = broker_commission × total_weight (NEW!)
+
+5. Amount With Commission = Amount After Discount + Broker Commission
+
+6. Then transportation cost and IGST are applied...
+
+================================================================================
+EXAMPLE SCENARIOS
+================================================================================
+
+Scenario 1: Percentage-based discount and commission
+----------------------------------------------------
+{
+  "cash_discount": 5,
+  "cash_discount_type": "percentage",
+  "broker_commission": 2,
+  "broker_commission_type": "percentage"
+}
+If base_amount = ₹100,000 and total_weight = 1000 kg:
+- Cash Discount = ₹100,000 × 5% = ₹5,000
+- Amount After Discount = ₹95,000
+- Broker Commission = ₹95,000 × 2% = ₹1,900
+- Amount With Commission = ₹96,900
+
+Scenario 2: Fixed amount discount and commission
+------------------------------------------------
+{
+  "cash_discount": 5000,
+  "cash_discount_type": "rupees",
+  "broker_commission": 2000,
+  "broker_commission_type": "rupees"
+}
+If base_amount = ₹100,000 and total_weight = 1000 kg:
+- Cash Discount = ₹5,000 (fixed)
+- Amount After Discount = ₹95,000
+- Broker Commission = ₹2,000 (fixed)
+- Amount With Commission = ₹97,000
+
+Scenario 3: Mixed (percentage discount, fixed commission)
+---------------------------------------------------------
+{
+  "cash_discount": 3,
+  "cash_discount_type": "percentage",
+  "broker_commission": 1500,
+  "broker_commission_type": "rupees"
+}
+If base_amount = ₹100,000 and total_weight = 1000 kg:
+- Cash Discount = ₹100,000 × 3% = ₹3,000
+- Amount After Discount = ₹97,000
+- Broker Commission = ₹1,500 (fixed)
+- Amount With Commission = ₹98,500
+
+Scenario 4: Weight-based broker commission (NEW!)
+-------------------------------------------------
+{
+  "cash_discount": 2000,
+  "cash_discount_type": "rupees",
+  "broker_commission": 10,
+  "broker_commission_type": "weight"
+}
+If base_amount = ₹100,000 and total_weight = 1000 kg:
+- Cash Discount = ₹2,000 (fixed)
+- Amount After Discount = ₹98,000
+- Broker Commission = ₹10 × 1000 kg = ₹10,000 (per kg calculation)
+- Amount With Commission = ₹108,000
+
+Scenario 5: All types mixed
+---------------------------
+{
+  "cash_discount": 5,
+  "cash_discount_type": "percentage",
+  "broker_commission": 15,
+  "broker_commission_type": "weight"
+}
+If base_amount = ₹200,000 and total_weight = 2000 kg:
+- Cash Discount = ₹200,000 × 5% = ₹10,000
+- Amount After Discount = ₹190,000
+- Broker Commission = ₹15 × 2000 kg = ₹30,000 (per kg calculation)
+- Amount With Commission = ₹220,000
+
+================================================================================
+VALIDATION NOTES
+================================================================================
+
+- cash_discount: number, min 0, optional
+- cash_discount_type: 'rupees' | 'percentage', optional (default: 'rupees')
+- broker_commission: number, min 0, optional
+- broker_commission_type: 'rupees' | 'percentage' | 'weight', optional (default: 'percentage')
+
+Note: The max(100) validation has been removed from broker_commission to allow 
+larger fixed amounts when broker_commission_type is 'rupees' or 'weight'.
+
+================================================================================
+BACKWARD COMPATIBILITY
+================================================================================
+
+- Existing saudas/purchases will have:
+  - cash_discount_type defaulted to 'rupees'
+  - broker_commission_type defaulted to 'percentage'
+  
+- If you don't send these new fields in requests, the defaults will be used.
+- The API is backward compatible - old requests without the type fields will 
+  continue to work.
+
+================================================================================
+WEIGHT-BASED COMMISSION USE CASE
+================================================================================
+
+The "weight" option is useful when the broker charges a fixed rate per unit 
+weight (e.g., ₹10 per kg, ₹15 per quintal).
+
+Example use case:
+- A broker charges ₹12 per kg for their services
+- The purchase has a total weight of 5000 kg
+- Broker commission = ₹12 × 5000 = ₹60,000
+
+This is different from:
+- "rupees" which is a flat fixed amount regardless of weight
+- "percentage" which is a percentage of the transaction amount
+
+The weight-based calculation uses the total_weight (sum of received_weight 
+from all linked lots) in the formula:
+  broker_commission_amount = broker_commission × total_weight
+
+================================================================================

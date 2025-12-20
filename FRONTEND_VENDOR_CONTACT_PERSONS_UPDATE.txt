@@ -1,0 +1,711 @@
+================================================================================
+FRONTEND UPDATE GUIDE: Vendor & Broker Contact Persons Change
+================================================================================
+
+SUMMARY:
+--------
+Both Vendor and Broker APIs have been updated to use `contact_persons` array 
+as the primary source for contact information. The separate `email` and `phone` 
+fields have been removed from the API request/response.
+
+This change affects:
+- Vendor: Create, Edit, Detail, List views, Create from GST/PAN flows
+- Broker: Create, Edit, Detail, List views, Create from PAN flow
+
+================================================================================
+VENDOR CHANGES
+================================================================================
+
+OLD VENDOR STRUCTURE (DEPRECATED):
+----------------------------------
+interface CreateVendorDTO {
+  business_name: string;
+  contact_person: string;      // REMOVED
+  email?: string;               // REMOVED
+  phone: string;                // REMOVED
+  address: Address;
+  business_details: BusinessDetails;
+  bank_details?: BankDetails;
+  type: 'purchaser' | 'seller' | 'both';
+  is_active?: boolean;
+}
+
+NEW VENDOR STRUCTURE:
+---------------------
+interface ContactPerson {
+  name: string;
+  phones: string[];     // Array of phone numbers (at least one required)
+  emails?: string[];    // Optional array of email addresses
+}
+
+interface CreateVendorDTO {
+  business_name: string;
+  contact_persons: ContactPerson[];  // NEW - Array of contact persons
+  address: Address;
+  business_details: BusinessDetails;
+  bank_details?: BankDetails;
+  type: 'purchaser' | 'seller' | 'both';
+  is_active?: boolean;
+}
+
+interface VendorResponse {
+  id: string;
+  business_name: string;
+  contact_persons: ContactPerson[];  // NEW - Array instead of single fields
+  address: Address;
+  business_details: BusinessDetails;
+  bank_details: BankDetails | null;
+  type: 'purchaser' | 'seller' | 'both';
+  is_active: boolean;
+  user_id: string | null;
+  lead_id: string | null;
+  created_at: string;
+  updated_at: string;
+  last_enquiry_date: string | null;
+  google_location_link: string | null;
+  business_card_url: string | null;
+}
+
+================================================================================
+BROKER CHANGES
+================================================================================
+
+OLD BROKER STRUCTURE (DEPRECATED):
+----------------------------------
+interface CreateBrokerDTO {
+  business_name?: string;
+  contact_persons: ContactPerson[];
+  email: string;                // REMOVED
+  phone: string;                // REMOVED
+  address: Address;
+  business_details: BusinessDetails;
+  bank_details?: BankDetails;
+  broker_details?: BrokerDetails;
+  type: 'purchase' | 'sale' | 'both';
+  is_active?: boolean;
+}
+
+NEW BROKER STRUCTURE:
+---------------------
+interface ContactPerson {
+  name: string;
+  phones: string[];     // Array of phone numbers (at least one required)
+  emails?: string[];    // Optional array of email addresses
+}
+
+interface CreateBrokerDTO {
+  business_name?: string;
+  contact_persons: ContactPerson[];  // Now includes emails
+  address: Address;
+  business_details: BusinessDetails;
+  bank_details?: BankDetails;
+  broker_details?: BrokerDetails;
+  type: 'purchase' | 'sale' | 'both';
+  is_active?: boolean;
+}
+
+interface BrokerResponse {
+  id: string;
+  business_name: string | null;
+  contact_persons: ContactPerson[];  // Now only source of contact info
+  address: Address;
+  business_details: BusinessDetails;
+  bank_details: BankDetails | null;
+  broker_details: BrokerDetails | null;
+  type: 'purchase' | 'sale' | 'both';
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+================================================================================
+FORM UPDATE INSTRUCTIONS (BOTH VENDOR & BROKER):
+================================================================================
+
+1. CREATE / EDIT FORMS
+----------------------
+Replace:
+- Single "Contact Person" text input (for vendor)
+- Single "Email" text input  
+- Single "Phone" text input
+
+With:
+- Dynamic contact persons section
+- Each contact person has:
+  - Name (required)
+  - Phones array (at least 1 required, can add more)
+  - Emails array (optional, can add multiple)
+- "Add Contact Person" button to add more contact persons
+
+Example form structure:
+```
+Contact Persons:
+┌────────────────────────────────────────────────────────┐
+│ Contact Person 1                               [Remove]│
+│ ┌──────────────────────────────────────────────────┐  │
+│ │ Name: [_________________________]                │  │
+│ └──────────────────────────────────────────────────┘  │
+│ Phones:                                               │
+│ ┌───────────────────────────────┐ [+]                │
+│ │ [_____________________] [×]   │                    │
+│ └───────────────────────────────┘                    │
+│ Emails (optional):                                    │
+│ ┌───────────────────────────────┐ [+]                │
+│ │ [_____________________] [×]   │                    │
+│ └───────────────────────────────┘                    │
+└────────────────────────────────────────────────────────┘
+
+[+ Add Contact Person]
+```
+
+2. DETAIL VIEW
+--------------
+Display all contact persons in a list or card format:
+
+Example:
+```
+Contact Persons:
+┌─────────────────────────────────────────────┐
+│ Rajesh Kumar                                │
+│ 📞 +91 9876543210, +91 9876543211          │
+│ ✉️ rajesh@company.com                       │
+├─────────────────────────────────────────────┤
+│ Suresh Sharma                               │
+│ 📞 +91 8765432109                          │
+│ ✉️ suresh@company.com, suresh2@gmail.com   │
+└─────────────────────────────────────────────┘
+```
+
+3. LIST VIEW
+------------
+For the list/table view, you can show the first contact person's info:
+- Primary Contact: contact_persons[0].name
+- Primary Phone: contact_persons[0].phones[0]
+- Primary Email: contact_persons[0].emails?.[0] || '-'
+
+================================================================================
+API REQUEST EXAMPLES:
+================================================================================
+
+CREATE VENDOR:
+--------------
+POST /api/v1/vendors
+
+{
+  "business_name": "ABC Trading Co.",
+  "contact_persons": [
+    {
+      "name": "Rajesh Kumar",
+      "phones": ["+91 9876543210", "+91 9876543211"],
+      "emails": ["rajesh@abctrading.com"]
+    },
+    {
+      "name": "Suresh Sharma",
+      "phones": ["+91 8765432109"],
+      "emails": ["suresh@abctrading.com"]
+    }
+  ],
+  "address": {
+    "street": "123 Main Street",
+    "city": "Delhi",
+    "state": "Delhi",
+    "pincode": "110001",
+    "country": "India"
+  },
+  "business_details": {
+    "pan_number": "ABCDE1234F",
+    "gst_number": "07ABCDE1234F1Z5"
+  },
+  "type": "seller"
+}
+
+CREATE BROKER:
+--------------
+POST /api/v1/brokers
+
+{
+  "business_name": "XYZ Brokerage",
+  "contact_persons": [
+    {
+      "name": "Amit Sharma",
+      "phones": ["+91 9876543210"],
+      "emails": ["amit@xyzbrokerage.com"]
+    }
+  ],
+  "address": {
+    "street": "456 Trade Street",
+    "city": "Mumbai",
+    "state": "Maharashtra",
+    "pincode": "400001",
+    "country": "India"
+  },
+  "business_details": {
+    "pan_number": "FGHIJ5678K",
+    "aadhaar_number": "234567890123"
+  },
+  "broker_details": {
+    "commission_rate": 2.5,
+    "specialization": "Basmati Rice"
+  },
+  "type": "both"
+}
+
+UPDATE VENDOR:
+--------------
+PUT /api/v1/vendors/:id
+
+{
+  "contact_persons": [
+    {
+      "name": "Rajesh Kumar",
+      "phones": ["+91 9876543210"],
+      "emails": ["rajesh.new@abctrading.com"]
+    }
+  ]
+}
+
+UPDATE BROKER:
+--------------
+PUT /api/v1/brokers/:id
+
+{
+  "contact_persons": [
+    {
+      "name": "Amit Sharma",
+      "phones": ["+91 9876543210", "+91 9876543211"],
+      "emails": ["amit.new@xyzbrokerage.com"]
+    }
+  ]
+}
+
+VENDOR CREATE FROM GST:
+-----------------------
+POST /api/v1/vendors/createFromGST
+
+{
+  "gst_number": "07ABCDE1234F1Z5",
+  "contact_persons": [
+    {
+      "name": "Rajesh Kumar",
+      "phones": ["+91 9876543210"],
+      "emails": ["rajesh@company.com"]
+    }
+  ],
+  "type": "seller"
+}
+
+VENDOR CREATE FROM PAN:
+-----------------------
+POST /api/v1/vendors/createFromPAN
+
+{
+  "pan_number": "ABCDE1234F",
+  "contact_persons": [
+    {
+      "name": "Rajesh Kumar", 
+      "phones": ["+91 9876543210"],
+      "emails": ["rajesh@company.com"]
+    }
+  ],
+  "address": {
+    "street": "123 Main Street",
+    "city": "Delhi",
+    "state": "Delhi", 
+    "pincode": "110001",
+    "country": "India"
+  },
+  "type": "seller"
+}
+
+BROKER CREATE FROM PAN:
+-----------------------
+POST /api/v1/brokers/createFromPAN
+
+{
+  "pan_number": "FGHIJ5678K",
+  "contact_persons": [
+    {
+      "name": "Amit Sharma",
+      "phones": ["+91 9876543210"],
+      "emails": ["amit@xyzbrokerage.com"]
+    }
+  ],
+  "address": {
+    "street": "456 Trade Street",
+    "city": "Mumbai",
+    "state": "Maharashtra",
+    "pincode": "400001",
+    "country": "India"
+  },
+  "type": "both"
+}
+
+================================================================================
+VALIDATION RULES:
+================================================================================
+
+For both Vendors and Brokers:
+
+1. contact_persons: Required, at least 1 contact person
+2. Each contact person:
+   - name: Required, min 2 chars, max 255 chars
+   - phones: Required, at least 1 phone number, each max 20 chars
+   - emails: Optional, if provided each must be valid email format
+
+================================================================================
+USER CREATION LOGIC:
+================================================================================
+
+For both Vendors and Brokers:
+
+When an entity is created and the first contact person has an email:
+- A user account is automatically created
+- Username is generated from the first contact person's name
+- Email is taken from: contact_persons[0].emails[0]
+- Phone is taken from: contact_persons[0].phones[0]
+- The user is linked to the entity via user_id
+
+If no email is provided in contact_persons[0].emails, no user is created.
+
+================================================================================
+MIGRATION NOTES:
+================================================================================
+
+1. Existing vendors in the database have been migrated automatically
+2. Their old contact_person, email, phone are now in contact_persons[0]
+3. Existing brokers already had contact_persons but also had separate email/phone
+4. The old fields still exist in the database for backward compatibility
+5. API responses now only return contact_persons (not the old email/phone fields)
+
+================================================================================
+COMPONENT REFERENCE:
+================================================================================
+
+You can use the Lead contact persons implementation as a reference since 
+Leads already use the same structure.
+
+Files to reference:
+- LeadForm component (for contact_persons form handling)
+- ContactPersonsInput component (if it exists as a reusable component)
+
+Recommended: Create a reusable ContactPersonsInput component that can be 
+shared across Vendor, Broker, and Lead forms.
+
+================================================================================
+BREAKING CHANGES SUMMARY:
+================================================================================
+
+VENDOR:
+- REMOVED: contact_person (string)
+- REMOVED: email (string)
+- REMOVED: phone (string)
+- ADDED: contact_persons (array of ContactPerson)
+
+BROKER:
+- REMOVED: email (string) from request/response
+- REMOVED: phone (string) from request/response
+- UPDATED: contact_persons now includes emails[] field
+
+================================================================================
+NEW FEATURE: IFSC LOOKUP API (Bank Details Auto-Fill)
+================================================================================
+
+A new API has been added to lookup bank details by IFSC code. This can be used
+in Vendor and Broker forms to auto-fill bank name and branch when user enters
+an IFSC code.
+
+API ENDPOINTS:
+--------------
+
+1. IFSC LOOKUP (Get bank details by IFSC code)
+   GET /api/v1/bank/lookupIFSC?ifsc=HDFC0001234
+
+   Response:
+   {
+     "success": true,
+     "data": {
+       "ifsc_details": {
+         "ifsc_code": "HDFC0001234",
+         "bank_name": "HDFC Bank",
+         "branch": "Mumbai Main Branch",
+         "address": "123 Main Street, Mumbai",
+         "city": "Mumbai",
+         "district": "Mumbai",
+         "state": "Maharashtra",
+         "contact": "+912212345678",
+         "micr_code": "400240001",
+         "swift_code": "HDFCINBB",
+         "supports": {
+           "imps": true,
+           "rtgs": true,
+           "neft": true,
+           "upi": true
+         }
+       },
+       "bank_details": {
+         "bank_name": "HDFC Bank",
+         "branch": "Mumbai Main Branch",
+         "ifsc_code": "HDFC0001234"
+       }
+     },
+     "message": "IFSC lookup successful"
+   }
+
+2. IFSC FORMAT VALIDATION (Validate format without lookup)
+   GET /api/v1/bank/validateIFSC?ifsc=HDFC0001234
+
+   Response:
+   {
+     "success": true,
+     "data": {
+       "ifsc_code": "HDFC0001234",
+       "is_valid": true,
+       "message": "IFSC code format is valid"
+     },
+     "message": "IFSC validation completed"
+   }
+
+IFSC CODE FORMAT:
+-----------------
+- Total 11 characters
+- First 4 characters: Bank code (letters only, e.g., HDFC, ICIC, SBIN)
+- 5th character: Always 0 (zero)
+- Last 6 characters: Branch code (alphanumeric)
+- Example: HDFC0001234
+
+IMPLEMENTATION IN FORMS:
+------------------------
+
+1. Add an IFSC input field in the Bank Details section
+2. When user enters 11 characters in IFSC field:
+   - Validate format client-side first
+   - Call /api/v1/bank/lookupIFSC?ifsc=<entered_value>
+   - On success, auto-fill:
+     - Bank Name: response.data.bank_details.bank_name
+     - Branch: response.data.bank_details.branch
+   - On error (404), show message: "IFSC code not found"
+3. Allow user to manually edit auto-filled values if needed
+
+EXAMPLE FORM FLOW:
+------------------
+
+```
+Bank Details:
+┌─────────────────────────────────────────────────────────┐
+│ IFSC Code: [HDFC0001234_____] [🔍 Lookup]              │
+│                                                         │
+│ Bank Name: [HDFC Bank___________] (auto-filled)        │
+│ Branch:    [Mumbai Main Branch__] (auto-filled)        │
+│                                                         │
+│ Account Holder Name: [Rajesh Kumar______]              │
+│ Account Number:      [12345678901234____]              │
+└─────────────────────────────────────────────────────────┘
+```
+
+DEBOUNCE RECOMMENDATION:
+------------------------
+- Use debounce (300-500ms) on IFSC input to avoid too many API calls
+- Only trigger lookup when exactly 11 characters are entered
+- Show loading indicator while fetching
+
+ERROR HANDLING:
+---------------
+- Invalid format: "Invalid IFSC code format. Expected: 4 letters + 0 + 6 alphanumeric"
+- Not found: "IFSC code not found. Please verify the code."
+- API error: "Failed to lookup IFSC details. Please try again."
+
+================================================================================
+NEW FEATURE: BROKER BUSINESS TYPE & GST SUPPORT
+================================================================================
+
+Brokers now support two registration types with different requirements:
+
+1. INDIVIDUAL BROKERS - Require PAN or Aadhaar
+2. COMPANY/PARTNERSHIP/LLP BROKERS - Require GST number
+
+UPDATED BROKER BUSINESS DETAILS:
+--------------------------------
+
+interface BusinessDetails {
+  pan_number?: string;         // Required for individual
+  aadhaar_number?: string;     // Alternative for individual
+  gst_number?: string;         // Required for company/partnership/llp
+  business_type: 'individual' | 'partnership' | 'company' | 'llp';  // REQUIRED
+}
+
+VALIDATION RULES:
+-----------------
+
+| Business Type | Required Fields | Optional Fields |
+|---------------|-----------------|-----------------|
+| individual    | PAN OR Aadhaar  | GST             |
+| company       | GST             | PAN, Aadhaar    |
+| partnership   | GST             | PAN, Aadhaar    |
+| llp           | GST             | PAN, Aadhaar    |
+
+FORM IMPLEMENTATION:
+--------------------
+
+1. Add a "Business Type" selector at the top of the form:
+
+```
+Business Type: [dropdown]
+  - Individual (Person)
+  - Company (Pvt Ltd / Ltd)
+  - Partnership Firm
+  - LLP (Limited Liability Partnership)
+```
+
+2. Show/hide fields based on selection:
+
+   IF business_type == 'individual':
+     - Show: PAN Number field
+     - Show: Aadhaar Number field
+     - Hide or Optional: GST Number field
+     - Use: /api/v1/brokers/quickCreateFromPAN for quick create
+
+   IF business_type == 'company' OR 'partnership' OR 'llp':
+     - Show: GST Number field (with lookup button)
+     - Optional: PAN Number (auto-filled from GST)
+     - Hide: Aadhaar Number field
+     - Use: /api/v1/brokers/quickCreateFromGST for quick create
+
+GST LOOKUP FOR BROKERS:
+-----------------------
+
+When user enters GST for company/partnership/llp broker:
+
+1. Call existing GST lookup API:
+   GET /api/v1/brokers/lookupGST?gst_number=27ABCDE1234F1Z5
+
+2. Auto-fill from response:
+   - Business Name: response.data.mapped_data.business_name
+   - Address: response.data.mapped_data.address (street, city, state, pincode)
+   - PAN Number: Extracted from GST (characters 3-12)
+   - Business Type: Determined from GST entity type
+
+CREATE FROM GST API:
+--------------------
+
+POST /api/v1/brokers/quickCreateFromGST
+
+Request:
+{
+  "gst_number": "27ABCDE1234F1Z5",
+  "contact_persons": [
+    {
+      "name": "Amit Sharma",
+      "phones": ["+91 9876543210"],
+      "emails": ["amit@company.com"]
+    }
+  ],
+  "type": "both",
+  "broker_details": {
+    "commission_rate": 2.5,
+    "specialization": "Basmati Rice"
+  },
+  "bank_details": {
+    "account_holder_name": "ABC Brokerage",
+    "account_number": "1234567890",
+    "ifsc_code": "HDFC0001234",
+    "bank_name": "HDFC Bank",
+    "branch": "Mumbai Main"
+  }
+}
+
+Response:
+{
+  "success": true,
+  "data": {
+    "id": "uuid",
+    "business_name": "ABC Brokerage Pvt Ltd",  // From GST lookup
+    "contact_persons": [...],
+    "address": {...},                           // From GST lookup
+    "business_details": {
+      "gst_number": "27ABCDE1234F1Z5",
+      "pan_number": "ABCDE1234F",              // Extracted from GST
+      "business_type": "company"                // Determined from GST
+    },
+    ...
+  },
+  "message": "Broker created from GST successfully"
+}
+
+EXAMPLE BROKER FORM FLOW:
+-------------------------
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ CREATE NEW BROKER                                               │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│ Business Type: [▼ Company____________]                          │
+│                                                                 │
+│ ─────────────── Company Registration ───────────────            │
+│                                                                 │
+│ GST Number:    [27ABCDE1234F1Z5] [🔍 Lookup]                   │
+│                                                                 │
+│ ─────────────── Auto-filled from GST ───────────────            │
+│                                                                 │
+│ Business Name: [ABC Brokerage Pvt Ltd___] ✓                    │
+│ PAN Number:    [ABCDE1234F__________] ✓                        │
+│                                                                 │
+│ Address:                                                        │
+│   Street:  [123 Trade Street_________] ✓                       │
+│   City:    [Mumbai__________________] ✓                        │
+│   State:   [Maharashtra_____________] ✓                        │
+│   Pincode: [400001__________________] ✓                        │
+│                                                                 │
+│ ─────────────── Contact & Other Details ───────────────         │
+│                                                                 │
+│ Contact Persons: [+ Add Contact Person]                         │
+│ Broker Type:     [▼ Both (Purchase & Sale)]                    │
+│ Commission Rate: [2.5] %                                        │
+│                                                                 │
+│                              [Cancel] [Create Broker]           │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+REGULAR CREATE BROKER API (Manual Entry):
+-----------------------------------------
+
+POST /api/v1/brokers/createBroker
+
+For Individual:
+{
+  "business_name": "Rajesh Broker",
+  "contact_persons": [
+    {
+      "name": "Rajesh Kumar",
+      "phones": ["+91 9876543210"],
+      "emails": ["rajesh@broker.com"]
+    }
+  ],
+  "address": {
+    "street": "123 Main Street",
+    "city": "Delhi",
+    "state": "Delhi",
+    "pincode": "110001",
+    "country": "India"
+  },
+  "business_details": {
+    "pan_number": "ABCDE1234F",
+    "business_type": "individual"       // REQUIRED
+  },
+  "type": "purchase"
+}
+
+For Company:
+{
+  "business_name": "XYZ Brokerage Pvt Ltd",
+  "contact_persons": [...],
+  "address": {...},
+  "business_details": {
+    "gst_number": "27ABCDE1234F1Z5",
+    "pan_number": "ABCDE1234F",         // Optional, auto-extracted from GST
+    "business_type": "company"          // REQUIRED
+  },
+  "type": "both"
+}
+
+================================================================================

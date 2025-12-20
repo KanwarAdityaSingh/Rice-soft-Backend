@@ -177,12 +177,26 @@ export class LeadService {
 
     const user = await userDAO.create(userData);
 
+    // Build contact_persons array from lead data
+    let contactPersons = [];
+    if (lead.contact_persons && lead.contact_persons.length > 0) {
+      contactPersons = lead.contact_persons.map((cp: any) => ({
+        name: cp.name,
+        phones: cp.phones || [],
+        emails: cp.emails || (lead.email ? [lead.email] : [])
+      }));
+    } else {
+      contactPersons = [{
+        name: firstContactPerson,
+        phones: lead.phone ? [lead.phone] : [],
+        emails: lead.email ? [lead.email] : []
+      }];
+    }
+
     // Create vendor
     const vendorData = {
       business_name: businessData.business_name || lead.company_name,
-      contact_person: firstContactPerson,
-      email: lead.email || undefined,
-      phone: lead.phone || '',
+      contact_persons: contactPersons,
       address: lead.address || businessData.address,
       business_details: lead.business_details || businessData.business_details,
       bank_details: businessData.bank_details || null,

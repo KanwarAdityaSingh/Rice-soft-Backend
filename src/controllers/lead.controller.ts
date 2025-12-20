@@ -600,16 +600,27 @@ export class LeadController {
         // Update existing vendor if necessary, e.g., link lead_id
         await vendorDAO.update(vendor.id, { lead_id: lead.id, updated_by: req.user?.userId });
       } else {
-        const firstContactPerson = lead.contact_persons && lead.contact_persons.length > 0 
-          ? lead.contact_persons[0] 
-          : { name: '', phones: [] };
+        // Build contact_persons array from lead data
+        let contactPersons = [];
+        if (lead.contact_persons && lead.contact_persons.length > 0) {
+          // Use lead's contact_persons directly
+          contactPersons = lead.contact_persons.map(cp => ({
+            name: cp.name,
+            phones: cp.phones || [],
+            emails: cp.emails || (lead.email ? [lead.email] : [])
+          }));
+        } else {
+          // Fallback: create from lead's basic info
+          contactPersons = [{
+            name: lead.company_name || 'Unknown',
+            phones: lead.phone ? [lead.phone] : [],
+            emails: lead.email ? [lead.email] : []
+          }];
+        }
+
         const newVendorData = {
           business_name: lead.company_name,
-          contact_person: firstContactPerson.name,
-          email: lead.email,
-          phone: (firstContactPerson.phones && firstContactPerson.phones.length > 0) 
-            ? firstContactPerson.phones[0] 
-            : lead.phone || '',
+          contact_persons: contactPersons,
           address: lead.address || { street: '', city: '', state: '', pincode: '', country: '' },
           business_details: lead.business_details || { pan_number: '', gst_number: '', industry: '', company_size: '', annual_revenue: 0 },
           type: 'both' as const, // Default to 'both' for converted leads
