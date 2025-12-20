@@ -60,9 +60,11 @@ export class VendorService {
       throw new NotFoundError('Vendor not found');
     }
 
-    // Check if email already exists (if being updated)
-    if (vendorData.email && vendorData.email !== existingVendor.email) {
-      const emailExists = await vendorDAO.emailExists(vendorData.email, id);
+    // Check if email already exists (if contact_persons is being updated with an email)
+    const newEmail = vendorData.contact_persons?.[0]?.emails?.[0];
+    const existingEmail = existingVendor.contact_persons?.[0]?.emails?.[0];
+    if (newEmail && newEmail !== existingEmail) {
+      const emailExists = await vendorDAO.emailExists(newEmail, id);
       if (emailExists) {
         throw new ConflictError('Email already exists');
       }
@@ -120,9 +122,7 @@ export class VendorService {
 
   async createVendorFromGST(
     gstNumber: string,
-    contactPerson: string,
-    email: string,
-    phone: string,
+    contactPersons: { name: string; phones: string[]; emails?: string[] }[],
     type: VendorType,
     brokerDetails: any,
     createdBy?: string
@@ -138,10 +138,13 @@ export class VendorService {
       throw new ConflictError('GST number already exists');
     }
 
-    // Check if email already exists
-    const emailExists = await vendorDAO.emailExists(email);
-    if (emailExists) {
-      throw new ConflictError('Email already exists');
+    // Check if primary email already exists
+    const primaryEmail = contactPersons[0]?.emails?.[0];
+    if (primaryEmail) {
+      const emailExists = await vendorDAO.emailExists(primaryEmail);
+      if (emailExists) {
+        throw new ConflictError('Email already exists');
+      }
     }
 
     // Fetch GST details
@@ -151,9 +154,7 @@ export class VendorService {
     // Create vendor with fetched + provided data
     const vendorData: CreateVendorDTO = {
       business_name: mappedData.business_name,
-      contact_person: contactPerson,
-      email,
-      phone,
+      contact_persons: contactPersons,
       address: mappedData.address,
       business_details: {
         ...mappedData.business_details,
@@ -171,9 +172,7 @@ export class VendorService {
   async createVendorFromPAN(
     panNumber: string,
     businessName: string | undefined,
-    contactPerson: string,
-    email: string,
-    phone: string,
+    contactPersons: { name: string; phones: string[]; emails?: string[] }[],
     address: any,
     type: VendorType,
     bankDetails: any,
@@ -190,10 +189,13 @@ export class VendorService {
       throw new ConflictError('PAN number already exists');
     }
 
-    // Check if email already exists
-    const emailExists = await vendorDAO.emailExists(email);
-    if (emailExists) {
-      throw new ConflictError('Email already exists');
+    // Check if primary email already exists
+    const primaryEmail = contactPersons[0]?.emails?.[0];
+    if (primaryEmail) {
+      const emailExists = await vendorDAO.emailExists(primaryEmail);
+      if (emailExists) {
+        throw new ConflictError('Email already exists');
+      }
     }
 
     // Fetch PAN details
@@ -203,9 +205,7 @@ export class VendorService {
     // Create vendor with fetched + provided data
     const vendorData: CreateVendorDTO = {
       business_name: businessName || mappedData.business_name,
-      contact_person: contactPerson,
-      email,
-      phone,
+      contact_persons: contactPersons,
       address,
       business_details: {
         ...mappedData.business_details,
