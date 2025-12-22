@@ -200,6 +200,48 @@ export class TransporterDAO {
     }
     return deleted;
   }
+
+  async gstExists(gstNumber: string, excludeId?: string): Promise<boolean> {
+    let query = `SELECT 1 FROM transporters WHERE gst_number = $1`;
+    const params: any[] = [gstNumber];
+    
+    if (excludeId) {
+      query += ` AND id != $2`;
+      params.push(excludeId);
+    }
+    
+    query += ` LIMIT 1`;
+    const result = await db.query(query, params);
+    return result.rows.length > 0;
+  }
+
+  async panExists(panNumber: string, excludeId?: string): Promise<boolean> {
+    let query = `SELECT 1 FROM transporters WHERE pan_number = $1`;
+    const params: any[] = [panNumber];
+    
+    if (excludeId) {
+      query += ` AND id != $2`;
+      params.push(excludeId);
+    }
+    
+    query += ` LIMIT 1`;
+    const result = await db.query(query, params);
+    return result.rows.length > 0;
+  }
+
+  async aadharExists(aadharNumber: string, excludeId?: string): Promise<boolean> {
+    let query = `SELECT 1 FROM transporters WHERE aadhar_number = $1`;
+    const params: any[] = [aadharNumber];
+    
+    if (excludeId) {
+      query += ` AND id != $2`;
+      params.push(excludeId);
+    }
+    
+    query += ` LIMIT 1`;
+    const result = await db.query(query, params);
+    return result.rows.length > 0;
+  }
 }
 
 export const transporterDAO = new TransporterDAO();

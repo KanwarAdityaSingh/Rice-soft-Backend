@@ -19,9 +19,12 @@ export class BrokerService {
 
   async createBroker(brokerData: CreateBrokerDTO): Promise<Broker> {
     // Check if email already exists
-    const emailExists = await brokerDAO.emailExists(brokerData.email);
+    const primaryEmail = brokerData.contact_persons?.[0]?.emails?.[0];
+    if (primaryEmail) {
+      const emailExists = await brokerDAO.emailExists(primaryEmail);
     if (emailExists) {
       throw new ConflictError('Email already exists');
+      }
     }
 
     // Check if GST already exists (if provided)
@@ -42,7 +45,7 @@ export class BrokerService {
 
     logger.info('Creating broker', {
       businessName: brokerData.business_name,
-      email: brokerData.email,
+      email: primaryEmail,
       type: brokerData.type
     });
 
@@ -57,8 +60,10 @@ export class BrokerService {
     }
 
     // Check if email already exists (if being updated)
-    if (brokerData.email && brokerData.email !== existingBroker.email) {
-      const emailExists = await brokerDAO.emailExists(brokerData.email, id);
+    const newEmail = brokerData.contact_persons?.[0]?.emails?.[0];
+    const existingEmail = existingBroker.contact_persons?.[0]?.emails?.[0];
+    if (newEmail && newEmail !== existingEmail) {
+      const emailExists = await brokerDAO.emailExists(newEmail, id);
       if (emailExists) {
         throw new ConflictError('Email already exists');
       }
@@ -116,9 +121,7 @@ export class BrokerService {
 
   async createBrokerFromGST(
     gstNumber: string,
-    contactPersons: Array<{ name: string; phones: string[] }>,
-    email: string,
-    phone: string,
+    contactPersons: Array<{ name: string; phones: string[]; emails?: string[] }>,
     type: BrokerType,
     brokerDetails: any,
     createdBy?: string
@@ -135,9 +138,12 @@ export class BrokerService {
     }
 
     // Check if email already exists
-    const emailExists = await brokerDAO.emailExists(email);
+    const primaryEmail = contactPersons[0]?.emails?.[0];
+    if (primaryEmail) {
+      const emailExists = await brokerDAO.emailExists(primaryEmail);
     if (emailExists) {
       throw new ConflictError('Email already exists');
+      }
     }
 
     // Fetch GST details
@@ -148,8 +154,6 @@ export class BrokerService {
     const brokerData: CreateBrokerDTO = {
       business_name: mappedData.business_name,
       contact_persons: contactPersons,
-      email,
-      phone,
       address: mappedData.address,
       business_details: {
         ...mappedData.business_details,
@@ -167,9 +171,7 @@ export class BrokerService {
   async createBrokerFromPAN(
     panNumber: string,
     businessName: string | undefined,
-    contactPersons: Array<{ name: string; phones: string[] }>,
-    email: string,
-    phone: string,
+    contactPersons: Array<{ name: string; phones: string[]; emails?: string[] }>,
     address: any,
     type: string,
     brokerDetails: any,
@@ -187,9 +189,12 @@ export class BrokerService {
     }
 
     // Check if email already exists
-    const emailExists = await brokerDAO.emailExists(email);
+    const primaryEmail = contactPersons[0]?.emails?.[0];
+    if (primaryEmail) {
+      const emailExists = await brokerDAO.emailExists(primaryEmail);
     if (emailExists) {
       throw new ConflictError('Email already exists');
+      }
     }
 
     // Fetch PAN details
@@ -200,8 +205,6 @@ export class BrokerService {
     const brokerData: CreateBrokerDTO = {
       business_name: businessName || mappedData.business_name,
       contact_persons: contactPersons,
-      email,
-      phone,
       address,
       business_details: {
         ...mappedData.business_details,

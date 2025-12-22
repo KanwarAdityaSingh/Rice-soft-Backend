@@ -19,12 +19,11 @@ export class VendorService {
 
   async createVendor(vendorData: CreateVendorDTO): Promise<Vendor> {
     // Check if email already exists (only if email is provided)
-    if (vendorData.email) {
-      if (vendorData.email) {
-      const emailExists = await vendorDAO.emailExists(vendorData.email);
+    const primaryEmail = vendorData.contact_persons?.[0]?.emails?.[0];
+    if (primaryEmail) {
+      const emailExists = await vendorDAO.emailExists(primaryEmail);
         if (emailExists) {
           throw new ConflictError('Email already exists');
-      }
       }
     }
 
@@ -46,7 +45,7 @@ export class VendorService {
 
     logger.info('Creating vendor', {
       businessName: vendorData.business_name,
-      email: vendorData.email,
+      email: primaryEmail,
       type: vendorData.type
     });
 

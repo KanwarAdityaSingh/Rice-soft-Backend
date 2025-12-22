@@ -32,7 +32,8 @@ export const appConfig = {
   // External API Configurations
   apis: {
     surepass: {
-      url: process.env.SUREPASS_API_URL || 'https://kyc-api.surepass.io/api/v1/pan/pan',
+      panUrl: process.env.SUREPASS_PAN_API_URL || 'https://kyc-api.surepass.io/api/v1/pan/pan',
+      bankVerificationUrl: process.env.SUREPASS_BANK_API_URL || 'https://kyc-api.surepass.io/api/v1/bank-verification',
       token: process.env.SUREPASS_API_TOKEN || '',
     },
     mastersIndia: {

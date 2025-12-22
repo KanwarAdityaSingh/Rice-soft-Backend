@@ -84,11 +84,37 @@ export class TransporterController {
       for (const contactPerson of transporterData.contact_persons) {
         if (contactPerson.emails) {
           for (const email of contactPerson.emails) {
+            if (email && email.trim() !== '') {
             const emailExists = await transporterDAO.emailExists(email);
         if (emailExists) {
               throw new ConflictError(`Email already exists: ${email}`);
             }
           }
+          }
+        }
+      }
+
+      // Check if GST number already exists (if provided)
+      if (transporterData.gst_number) {
+        const gstExists = await transporterDAO.gstExists(transporterData.gst_number);
+        if (gstExists) {
+          throw new ConflictError('GST number already exists');
+        }
+      }
+
+      // Check if PAN number already exists (if provided)
+      if (transporterData.pan_number) {
+        const panExists = await transporterDAO.panExists(transporterData.pan_number);
+        if (panExists) {
+          throw new ConflictError('PAN number already exists');
+        }
+      }
+
+      // Check if Aadhaar number already exists (if provided)
+      if (transporterData.aadhar_number) {
+        const aadharExists = await transporterDAO.aadharExists(transporterData.aadhar_number);
+        if (aadharExists) {
+          throw new ConflictError('Aadhaar number already exists');
         }
       }
 
@@ -137,6 +163,7 @@ export class TransporterController {
         for (const contactPerson of transporterData.contact_persons) {
           if (contactPerson.emails) {
             for (const email of contactPerson.emails) {
+              if (email && email.trim() !== '') {
               // Only check if email is different from existing transporter's email
               if (email !== existingTransporter.email) {
                 const emailExists = await transporterDAO.emailExists(email, id);
@@ -146,6 +173,31 @@ export class TransporterController {
               }
             }
           }
+          }
+        }
+      }
+
+      // Check if GST number already exists (if being updated)
+      if (transporterData.gst_number && transporterData.gst_number !== existingTransporter.gst_number) {
+        const gstExists = await transporterDAO.gstExists(transporterData.gst_number, id);
+        if (gstExists) {
+          throw new ConflictError('GST number already exists');
+        }
+      }
+
+      // Check if PAN number already exists (if being updated)
+      if (transporterData.pan_number && transporterData.pan_number !== existingTransporter.pan_number) {
+        const panExists = await transporterDAO.panExists(transporterData.pan_number, id);
+        if (panExists) {
+          throw new ConflictError('PAN number already exists');
+        }
+      }
+
+      // Check if Aadhaar number already exists (if being updated)
+      if (transporterData.aadhar_number && transporterData.aadhar_number !== existingTransporter.aadhar_number) {
+        const aadharExists = await transporterDAO.aadharExists(transporterData.aadhar_number, id);
+        if (aadharExists) {
+          throw new ConflictError('Aadhaar number already exists');
         }
       }
 
@@ -258,6 +310,33 @@ export class TransporterController {
         pan_data: panData,
         mapped_data: mappedData,
       }, 'PAN details fetched successfully');
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Verify bank account details using Surepass API
+   */
+  async verifyBankAccount(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const { id_number, ifsc } = req.query;
+
+      if (!id_number || typeof id_number !== 'string' || id_number.trim() === '') {
+        throw new ValidationError('id_number is required and must be a valid string');
+      }
+
+      if (!ifsc || typeof ifsc !== 'string' || ifsc.trim() === '') {
+        throw new ValidationError('ifsc is required and must be a valid string');
+      }
+
+      // Verify bank account
+      const verificationResult = await gstLookupService.verifyBankAccount(
+        id_number.trim(),
+        ifsc.trim()
+      );
+
+      return ResponseHandler.success(res, verificationResult, 'Bank account verified successfully');
     } catch (error) {
       next(error);
     }

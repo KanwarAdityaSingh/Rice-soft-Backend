@@ -62,6 +62,36 @@ export interface PANLookupResponse {
 }
 
 /**
+ * Surepass Bank Verification API Response Interface
+ */
+export interface SurepassBankVerificationResponse {
+  success: boolean;
+  status_code: number;
+  message: string;
+  data?: {
+    account_exists: boolean;
+    full_name: string;
+    account_number: string;
+    ifsc: string;
+    bank_name?: string;
+    branch?: string;
+    upi_id?: string;
+  };
+}
+
+/**
+ * Bank Verification Result Interface
+ */
+export interface BankVerificationResult {
+  account_exists: boolean;
+  account_holder_name: string;
+  account_number: string;
+  ifsc_code: string;
+  bank_name?: string;
+  branch?: string;
+}
+
+/**
  * MastersIndia Auth Token Response Interface
  */
 export interface MastersIndiaTokenResponse {
@@ -344,9 +374,9 @@ export class GSTLookupService {
         : config.token;
 
       // Make API call to Surepass
-      logger.debug('Calling Surepass API', { url: config.url });
+      logger.debug('Calling Surepass PAN API', { url: config.panUrl });
 
-      const response = await fetch(config.url, {
+      const response = await fetch(config.panUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -409,6 +439,116 @@ export class GSTLookupService {
         throw error;
       }
       throw new InternalServerError('Failed to fetch PAN details from external API');
+    }
+  }
+
+  /**
+   * Verify Bank Account using Surepass API
+   */
+  static async verifyBankAccount(
+    accountNumber: string,
+    ifscCode: string
+  ): Promise<BankVerificationResult> {
+    // Validate IFSC format (11 characters, alphanumeric)
+    const ifscRegex = /^[A-Z]{4}0[A-Z0-9]{6}$/;
+    if (!ifscRegex.test(ifscCode.toUpperCase())) {
+      throw new ValidationError('Invalid IFSC code format. Expected format: ABCD0123456');
+    }
+
+    // Validate account number (typically 9-18 digits)
+    if (!accountNumber || accountNumber.length < 9 || accountNumber.length > 18) {
+      throw new ValidationError('Invalid account number. Must be 9-18 digits');
+    }
+
+    logger.info('Bank account verification requested', { 
+      accountNumber: accountNumber.substring(0, 4) + '****', // Mask for security
+      ifscCode 
+    });
+
+    try {
+      const config = appConfig.apis.surepass;
+
+      if (!config.token) {
+        throw new InternalServerError('Surepass API token not configured');
+      }
+
+      // Strip "Bearer " prefix if it exists
+      const token = config.token.startsWith('Bearer ')
+        ? config.token.substring(7)
+        : config.token;
+
+      // Make API call to Surepass Bank Verification
+      logger.debug('Calling Surepass Bank Verification API', { url: config.bankVerificationUrl });
+
+      const response = await fetch(config.bankVerificationUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          id_number: accountNumber,
+          ifsc: ifscCode.toUpperCase(),
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        logger.error('Surepass Bank Verification API error', {
+          status: response.status,
+          statusText: response.statusText,
+          error: errorText,
+        });
+        throw new BadRequestError(`Bank verification failed: ${response.statusText}`);
+      }
+
+      const apiResponse = (await response.json()) as SurepassBankVerificationResponse;
+
+      // Handle API error response
+      if (apiResponse.status_code !== 200 || apiResponse.success !== true) {
+        logger.warn('Surepass Bank API returned error', {
+          status_code: apiResponse.status_code,
+          message: apiResponse.message,
+          success: apiResponse.success,
+        });
+        throw new BadRequestError(apiResponse.message || 'Failed to verify bank account');
+      }
+
+      // Check if data is present
+      if (!apiResponse.data) {
+        logger.warn('Surepass Bank API returned empty data', { response: apiResponse });
+        throw new BadRequestError('Bank account verification returned no data');
+      }
+
+      // Check if account exists
+      if (!apiResponse.data.account_exists) {
+        throw new BadRequestError('Bank account does not exist or is inactive');
+      }
+
+      logger.info('Bank account verification successful', {
+        accountNumber: accountNumber.substring(0, 4) + '****',
+        ifscCode,
+        accountHolderName: apiResponse.data.full_name,
+      });
+
+      // Return mapped response
+      return {
+        account_exists: apiResponse.data.account_exists,
+        account_holder_name: apiResponse.data.full_name,
+        account_number: apiResponse.data.account_number,
+        ifsc_code: apiResponse.data.ifsc,
+        bank_name: apiResponse.data.bank_name,
+        branch: apiResponse.data.branch,
+      };
+    } catch (error) {
+      if (error instanceof ValidationError || 
+          error instanceof BadRequestError || 
+          error instanceof InternalServerError) {
+        throw error;
+      }
+
+      logger.error('Unexpected error during bank verification', { error });
+      throw new InternalServerError('Failed to verify bank account');
     }
   }
 

@@ -30,6 +30,14 @@ router.get('/lookupPAN', authenticate, brokerController.lookupPAN.bind(brokerCon
 router.get('/lookupAadhaar', authenticate, brokerController.lookupAadhaar.bind(brokerController));
 
 /**
+ * @route   GET /api/v1/brokers/verifyBankAccount
+ * @desc    Verify bank account details using Surepass API
+ * @access  Private
+ * @query   id_number: string (9-18 digits), ifsc: string (11 chars)
+ */
+router.get('/verifyBankAccount', authenticate, brokerController.verifyBankAccount.bind(brokerController));
+
+/**
  * @route   POST /api/v1/brokers/quickCreateFromPAN
  * @desc    Quick create broker from PAN number (for individual brokers)
  * @access  Private

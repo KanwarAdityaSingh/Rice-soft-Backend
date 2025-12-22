@@ -22,6 +22,14 @@ router.get('/lookupGST', authenticate, transporterController.lookupGST.bind(tran
 router.get('/lookupPAN', authenticate, transporterController.lookupPAN.bind(transporterController));
 
 /**
+ * @route   GET /api/v1/transporters/verifyBankAccount
+ * @desc    Verify bank account details using Surepass API
+ * @access  Private
+ * @query   id_number: string (9-18 digits), ifsc: string (11 chars)
+ */
+router.get('/verifyBankAccount', authenticate, transporterController.verifyBankAccount.bind(transporterController));
+
+/**
  * @route   GET /api/v1/transporters
  * @desc    Get all transporters
  * @access  Private

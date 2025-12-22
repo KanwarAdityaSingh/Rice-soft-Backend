@@ -159,7 +159,7 @@ export const createVendorSchema = Joi.object({
     Joi.object({
       name: Joi.string().required().min(2).max(255),
       phones: Joi.array().items(Joi.string().max(20)).required().min(1),
-      emails: Joi.array().items(Joi.string().email()).optional()
+      emails: Joi.array().items(Joi.string().email().allow('', null)).optional()
     })
   ).required().min(1),
   address: addressSchema.required(),
@@ -176,7 +176,7 @@ export const updateVendorSchema = Joi.object({
     Joi.object({
       name: Joi.string().required().min(2).max(255),
       phones: Joi.array().items(Joi.string().max(20)).required().min(1),
-      emails: Joi.array().items(Joi.string().email()).optional()
+      emails: Joi.array().items(Joi.string().email().allow('', null)).optional()
     })
   ).optional().min(1),
   address: addressSchema.optional(),
@@ -201,7 +201,7 @@ export const createBrokerSchema = Joi.object({
     Joi.object({
       name: Joi.string().required().min(2).max(255),
       phones: Joi.array().items(Joi.string().max(20)).required().min(1),
-      emails: Joi.array().items(Joi.string().email()).optional()
+      emails: Joi.array().items(Joi.string().email().allow('', null)).optional()
     })
   ).required().min(1),
   address: addressSchema.required(),
@@ -218,7 +218,7 @@ export const updateBrokerSchema = Joi.object({
     Joi.object({
       name: Joi.string().required().min(2).max(255),
       phones: Joi.array().items(Joi.string().max(20)).required().min(1),
-      emails: Joi.array().items(Joi.string().email()).optional()
+      emails: Joi.array().items(Joi.string().email().allow('', null)).optional()
     })
   ).optional().min(1),
   address: addressSchema.optional(),
@@ -236,7 +236,7 @@ export const createLeadSchema = Joi.object({
     Joi.object({
       name: Joi.string().required().min(2).max(255),
       phones: Joi.array().items(Joi.string().max(20)).required().min(1),
-      emails: Joi.array().items(Joi.string().email()).optional()
+      emails: Joi.array().items(Joi.string().email().allow('', null)).optional()
     })
   ).required().min(1),
   email: Joi.string().optional().allow(null, '').email(),
@@ -272,7 +272,7 @@ export const updateLeadSchema = Joi.object({
     Joi.object({
       name: Joi.string().required().min(2).max(255),
       phones: Joi.array().items(Joi.string().max(20)).required().min(1),
-      emails: Joi.array().items(Joi.string().email()).optional()
+      emails: Joi.array().items(Joi.string().email().allow('', null)).optional()
     })
   ).optional().min(1),
   email: Joi.string().optional().allow(null, '').email(),

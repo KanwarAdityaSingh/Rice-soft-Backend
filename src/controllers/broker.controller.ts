@@ -585,6 +585,33 @@ export class BrokerController {
       next(error);
     }
   }
+
+  /**
+   * Verify bank account details using Surepass API
+   */
+  async verifyBankAccount(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const { id_number, ifsc } = req.query;
+
+      if (!id_number || typeof id_number !== 'string' || id_number.trim() === '') {
+        throw new ValidationError('id_number is required and must be a valid string');
+      }
+
+      if (!ifsc || typeof ifsc !== 'string' || ifsc.trim() === '') {
+        throw new ValidationError('ifsc is required and must be a valid string');
+      }
+
+      // Verify bank account
+      const verificationResult = await gstLookupService.verifyBankAccount(
+        id_number.trim(),
+        ifsc.trim()
+      );
+
+      return ResponseHandler.success(res, verificationResult, 'Bank account verified successfully');
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const brokerController = new BrokerController();

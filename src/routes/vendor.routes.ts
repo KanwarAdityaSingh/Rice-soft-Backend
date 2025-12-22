@@ -30,6 +30,14 @@ router.get('/lookupPAN', authenticate, vendorController.lookupPAN.bind(vendorCon
 router.get('/checkExists', authenticate, vendorController.checkVendorExists.bind(vendorController));
 
 /**
+ * @route   GET /api/v1/vendors/verifyBankAccount
+ * @desc    Verify bank account details using Surepass API
+ * @access  Private
+ * @query   id_number: string (9-18 digits), ifsc: string (11 chars)
+ */
+router.get('/verifyBankAccount', authenticate, vendorController.verifyBankAccount.bind(vendorController));
+
+/**
  * @route   POST /api/v1/vendors/quickCreateFromGST
  * @desc    Quick create vendor from GST number
  * @access  Private
