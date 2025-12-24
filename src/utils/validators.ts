@@ -493,6 +493,7 @@ export const createKaantaSchema = Joi.object({
 export const updateKaantaSchema = Joi.object({
   full_truck_weight: Joi.number().optional().min(0).precision(2),
   empty_truck_weight: Joi.number().optional().min(0).precision(2),
+  said_sent_weight: Joi.number().optional().min(0).precision(2).allow(null),
   bag_weight: Joi.number().optional().min(0).precision(2),
   no_of_bags: Joi.number().optional().integer().min(1),
   bag_type: Joi.string().optional().valid('jute', 'pp'),
@@ -552,8 +553,13 @@ export const createInwardSlipPassSchema = Joi.object({
   transporter_id: Joi.string().optional().uuid().allow(null),
   transportation_cost: Joi.number().optional().min(0).precision(2),
   status: Joi.string().optional().valid('pending', 'completed'),
-  inward_slip_bill_image_url: Joi.string().optional().allow(null, '').uri(),
-  transportation_bill_image_url: Joi.string().optional().allow(null, '').uri(),
+  other_bills: Joi.array().items(
+    Joi.object({
+      name: Joi.string().required(),
+      url: Joi.string().required().uri(),
+      uploaded_at: Joi.string().required().isoDate(),
+    })
+  ).optional(),
   bill_pdf_url: Joi.string().optional().allow(null, '').uri(),
   bilti_image_url: Joi.string().optional().allow(null, '').uri(),
   bilti_pdf_url: Joi.string().optional().allow(null, '').uri(),
@@ -575,8 +581,13 @@ export const updateInwardSlipPassSchema = Joi.object({
   transporter_id: Joi.string().optional().uuid().allow(null),
   transportation_cost: Joi.number().optional().min(0).precision(2),
   status: Joi.string().optional().valid('pending', 'completed'),
-  inward_slip_bill_image_url: Joi.string().optional().allow(null, '').uri(),
-  transportation_bill_image_url: Joi.string().optional().allow(null, '').uri(),
+  other_bills: Joi.array().items(
+    Joi.object({
+      name: Joi.string().required(),
+      url: Joi.string().required().uri(),
+      uploaded_at: Joi.string().required().isoDate(),
+    })
+  ).optional(),
   bill_pdf_url: Joi.string().optional().allow(null, '').uri(),
   bilti_image_url: Joi.string().optional().allow(null, '').uri(),
   bilti_pdf_url: Joi.string().optional().allow(null, '').uri(),
@@ -666,10 +677,10 @@ export const createPaymentAdviceSchema = Joi.object({
   due_date: Joi.string().optional().allow(null, '').isoDate(),
   bill_weight: Joi.number().optional().min(0).precision(2),
   kanta_weight: Joi.number().optional().min(0).precision(2),
+  dana_deduction: Joi.number().optional().min(0).precision(2),
   final_weight: Joi.number().optional().min(0).precision(2),
   rate: Joi.number().optional().min(0).precision(2),
   amount: Joi.number().optional().min(0).precision(2), // Optional - auto-calculated from sauda/ISP summary
-  igst_percentage: Joi.number().optional().min(0).max(100).precision(2), // For auto-calculation
   transaction_id: Joi.string().optional().allow(null, '').max(255),
   date_of_payment: Joi.string().required().isoDate(),
   status: Joi.string().optional().valid('pending', 'completed', 'failed'),
@@ -702,6 +713,7 @@ export const updatePaymentAdviceSchema = Joi.object({
   due_date: Joi.string().optional().allow(null, '').isoDate(),
   bill_weight: Joi.number().optional().min(0).precision(2),
   kanta_weight: Joi.number().optional().min(0).precision(2),
+  dana_deduction: Joi.number().optional().min(0).precision(2),
   final_weight: Joi.number().optional().min(0).precision(2),
   rate: Joi.number().optional().min(0).precision(2),
   amount: Joi.number().optional().min(0).precision(2),

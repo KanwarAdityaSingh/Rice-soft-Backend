@@ -1,5 +1,11 @@
 export type InwardSlipStatus = 'pending' | 'completed';
 
+export interface OtherBill {
+  name: string;
+  url: string;
+  uploaded_at: string;
+}
+
 export interface InwardSlipPass {
   id: string;
   slip_number: string;
@@ -12,8 +18,7 @@ export interface InwardSlipPass {
   transporter_id: string | null;
   transportation_cost: number | null;
   status: InwardSlipStatus;
-  inward_slip_bill_image_url: string | null;
-  transportation_bill_image_url: string | null;
+  other_bills: OtherBill[];
   bill_pdf_url: string | null;
   bilti_image_url: string | null;
   bilti_pdf_url: string | null; 
@@ -38,8 +43,7 @@ export interface CreateInwardSlipPassDTO {
   transporter_id?: string;
   transportation_cost?: number;
   status?: InwardSlipStatus;
-  inward_slip_bill_image_url?: string;
-  transportation_bill_image_url?: string;
+  other_bills?: OtherBill[];
   bill_pdf_url?: string;
   bilti_image_url?: string;
   bilti_pdf_url?: string;
@@ -61,8 +65,7 @@ export interface UpdateInwardSlipPassDTO {
   transporter_id?: string;
   transportation_cost?: number;
   status?: InwardSlipStatus;
-  inward_slip_bill_image_url?: string;
-  transportation_bill_image_url?: string;
+  other_bills?: OtherBill[];
   bill_pdf_url?: string;
   bilti_image_url?: string;
   bilti_pdf_url?: string;
@@ -85,8 +88,7 @@ export interface InwardSlipPassResponse {
   transporter_id: string | null;
   transportation_cost: number | null;
   status: InwardSlipStatus;
-  inward_slip_bill_image_url: string | null;
-  transportation_bill_image_url: string | null;
+  other_bills: OtherBill[];
   bill_pdf_url: string | null;
   bilti_image_url: string | null;
   bilti_pdf_url: string | null;

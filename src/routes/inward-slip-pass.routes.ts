@@ -58,29 +58,30 @@ router.patch(
 );
 
 /**
- * @route   POST /api/v1/inward-slip-passes/:id/upload-bill-image
- * @desc    Upload inward slip bill image (image or PDF)
+ * @route   POST /api/v1/inward-slip-passes/:id/upload-other-bill
+ * @desc    Upload other bill with custom name (image or PDF)
  * @access  Private
+ * @body    name: string (required), file: File (required)
  */
 router.post(
-  '/:id/upload-bill-image',
+  '/:id/upload-other-bill',
   authenticate,
   documentUpload.single('file'),
   auditLog('UPDATE', 'inward_slip_passes'),
-  inwardSlipPassController.uploadBillImage.bind(inwardSlipPassController)
+  inwardSlipPassController.uploadOtherBill.bind(inwardSlipPassController)
 );
 
 /**
- * @route   POST /api/v1/inward-slip-passes/:id/upload-transportation-bill
- * @desc    Upload transportation bill (image or PDF)
+ * @route   DELETE /api/v1/inward-slip-passes/:id/delete-other-bill
+ * @desc    Delete other bill by URL
  * @access  Private
+ * @body    url: string (required)
  */
-router.post(
-  '/:id/upload-transportation-bill',
+router.delete(
+  '/:id/delete-other-bill',
   authenticate,
-  documentUpload.single('file'),
   auditLog('UPDATE', 'inward_slip_passes'),
-  inwardSlipPassController.uploadTransportationBill.bind(inwardSlipPassController)
+  inwardSlipPassController.deleteOtherBill.bind(inwardSlipPassController)
 );
 
 /**

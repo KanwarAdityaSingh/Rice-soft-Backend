@@ -9,13 +9,9 @@ export class PurchaseSummaryController {
   async getSaudaSummary(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const { saudaId } = req.params;
-      const igstPercentage = req.query.igst_percentage ? parseFloat(req.query.igst_percentage as string) : undefined;
 
-      const options: GetSummaryOptions = {
-        igst_percentage: igstPercentage,
-      };
-
-      const summary = await purchaseSummaryDAO.getSaudaSummary(saudaId, options);
+      // IGST removed - always pass empty options
+      const summary = await purchaseSummaryDAO.getSaudaSummary(saudaId, {});
 
       return ResponseHandler.success(res, summary, 'Sauda summary retrieved successfully');
     } catch (error) {
@@ -30,13 +26,9 @@ export class PurchaseSummaryController {
   async getIspSummary(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const { ispId } = req.params;
-      const igstPercentage = req.query.igst_percentage ? parseFloat(req.query.igst_percentage as string) : undefined;
 
-      const options: GetSummaryOptions = {
-        igst_percentage: igstPercentage,
-      };
-
-      const summary = await purchaseSummaryDAO.getIspSummary(ispId, options);
+      // IGST removed - always pass empty options
+      const summary = await purchaseSummaryDAO.getIspSummary(ispId, {});
 
       return ResponseHandler.success(res, summary, 'ISP summary retrieved successfully');
     } catch (error) {

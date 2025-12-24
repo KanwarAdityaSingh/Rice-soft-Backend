@@ -1,0 +1,365 @@
+===================================================================================
+ISP OTHER BILLS FEATURE - FRONTEND IMPLEMENTATION GUIDE
+===================================================================================
+
+OVERVIEW:
+---------
+The ISP (Inward Slip Pass) entity has been updated to replace the fixed bill image 
+fields (inward_slip_bill_image_url and transportation_bill_image_url) with a 
+flexible "other_bills" array that allows users to upload multiple bills with 
+custom names.
+
+===================================================================================
+BREAKING CHANGES:
+===================================================================================
+
+REMOVED FIELDS:
+---------------
+- `inward_slip_bill_image_url` (string | null) - REMOVED
+- `transportation_bill_image_url` (string | null) - REMOVED
+
+NEW FIELD:
+----------
+- `other_bills` (array) - Array of bill objects with the following structure:
+  [
+    {
+      "name": "Bill Name",           // User-provided name for the bill
+      "url": "https://...",          // S3 URL of the uploaded bill
+      "uploaded_at": "2024-01-01T00:00:00Z"  // ISO timestamp
+    },
+    ...
+  ]
+
+===================================================================================
+API ENDPOINT CHANGES:
+===================================================================================
+
+REMOVED ENDPOINTS:
+------------------
+1. POST /api/v1/inward-slip-passes/:id/upload-bill-image
+   - No longer available
+   - Was used to upload inward slip bill image
+
+2. POST /api/v1/inward-slip-passes/:id/upload-transportation-bill
+   - No longer available
+   - Was used to upload transportation bill image
+
+NEW ENDPOINTS:
+--------------
+1. POST /api/v1/inward-slip-passes/:id/upload-other-bill
+   - Upload a new bill with a custom name
+   - Content-Type: multipart/form-data
+   - Body:
+     * name (string, required) - Name/label for the bill (e.g., "Transportation Bill", "Purchase Bill", etc.)
+     * file (File, required) - Image or PDF file (max 10MB)
+   - Response:
+     {
+       "success": true,
+       "data": {
+         "bill": {
+           "name": "Transportation Bill",
+           "url": "https://bucket.s3.region.amazonaws.com/inward-slip-bills/uuid.jpg",
+           "uploaded_at": "2024-01-01T00:00:00.000Z"
+         }
+       },
+       "message": "Other bill uploaded successfully"
+     }
+
+2. DELETE /api/v1/inward-slip-passes/:id/delete-other-bill
+   - Delete a bill from the other_bills array
+   - Content-Type: application/json
+   - Body:
+     {
+       "url": "https://bucket.s3.region.amazonaws.com/inward-slip-bills/uuid.jpg"
+     }
+   - Response:
+     {
+       "success": true,
+       "data": {
+         "other_bills": [
+           {
+             "name": "Purchase Bill",
+             "url": "https://...",
+             "uploaded_at": "2024-01-01T00:00:00.000Z"
+           }
+         ]
+       },
+       "message": "Other bill deleted successfully"
+     }
+
+===================================================================================
+GET ENDPOINTS (UPDATED RESPONSE):
+===================================================================================
+
+GET /api/v1/inward-slip-passes
+GET /api/v1/inward-slip-passes/:id
+
+Response now includes `other_bills` array instead of the old fields:
+
+{
+  "success": true,
+  "data": {
+    "id": "isp-uuid",
+    "slip_number": "ISP-001",
+    "date": "2024-01-01",
+    "vehicle_id": "vehicle-uuid",
+    "party_name": "Party Name",
+    "other_bills": [
+      {
+        "name": "Transportation Bill",
+        "url": "https://bucket.s3.region.amazonaws.com/inward-slip-bills/uuid.jpg",
+        "uploaded_at": "2024-01-01T00:00:00.000Z"
+      },
+      {
+        "name": "Purchase Bill",
+        "url": "https://bucket.s3.region.amazonaws.com/inward-slip-bills/uuid2.pdf",
+        "uploaded_at": "2024-01-01T01:00:00.000Z"
+      }
+    ],
+    // ... other fields
+  }
+}
+
+===================================================================================
+FRONTEND IMPLEMENTATION:
+===================================================================================
+
+1. DISPLAY OTHER BILLS:
+-----------------------
+Replace the old single bill image displays with a list/table of bills:
+
+```jsx
+// Example React component
+function OtherBillsList({ otherBills }) {
+  if (!otherBills || otherBills.length === 0) {
+    return <p>No bills uploaded</p>;
+  }
+
+  return (
+    <div>
+      <h3>Other Bills</h3>
+      <ul>
+        {otherBills.map((bill, index) => (
+          <li key={index}>
+            <span>{bill.name}</span>
+            <a href={bill.url} target="_blank" rel="noopener noreferrer">
+              View Bill
+            </a>
+            <button onClick={() => deleteBill(bill.url)}>Delete</button>
+            <small>Uploaded: {new Date(bill.uploaded_at).toLocaleString()}</small>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+```
+
+2. UPLOAD NEW BILL:
+------------------
+Create a form to upload bills with custom names:
+
+```jsx
+function UploadOtherBillForm({ ispId, onUpload }) {
+  const [name, setName] = useState('');
+  const [file, setFile] = useState(null);
+  const [uploading, setUploading] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!name.trim() || !file) {
+      alert('Please provide a name and select a file');
+      return;
+    }
+
+    setUploading(true);
+    const formData = new FormData();
+    formData.append('name', name.trim());
+    formData.append('file', file);
+
+    try {
+      const response = await fetch(
+        `/api/v1/inward-slip-passes/${ispId}/upload-other-bill`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+          body: formData,
+        }
+      );
+
+      const data = await response.json();
+      if (data.success) {
+        onUpload(data.data.bill);
+        setName('');
+        setFile(null);
+      } else {
+        alert(data.message || 'Upload failed');
+      }
+    } catch (error) {
+      alert('Error uploading bill: ' + error.message);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <input
+        type="text"
+        placeholder="Bill Name (e.g., Transportation Bill)"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        required
+      />
+      <input
+        type="file"
+        accept="image/*,.pdf"
+        onChange={(e) => setFile(e.target.files[0])}
+        required
+      />
+      <button type="submit" disabled={uploading}>
+        {uploading ? 'Uploading...' : 'Upload Bill'}
+      </button>
+    </form>
+  );
+}
+```
+
+3. DELETE BILL:
+--------------
+Implement bill deletion:
+
+```jsx
+async function deleteBill(ispId, billUrl) {
+  if (!confirm('Are you sure you want to delete this bill?')) {
+    return;
+  }
+
+  try {
+    const response = await fetch(
+      `/api/v1/inward-slip-passes/${ispId}/delete-other-bill`,
+      {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ url: billUrl }),
+      }
+    );
+
+    const data = await response.json();
+    if (data.success) {
+      // Refresh the ISP data or update local state
+      refreshISPData();
+    } else {
+      alert(data.message || 'Delete failed');
+    }
+  } catch (error) {
+    alert('Error deleting bill: ' + error.message);
+  }
+}
+```
+
+===================================================================================
+MIGRATION NOTES:
+===================================================================================
+
+DATA MIGRATION:
+--------------
+The backend migration automatically converts existing data:
+- If `inward_slip_bill_image_url` existed, it's migrated to `other_bills` with name "Inward Slip Bill"
+- If `transportation_bill_image_url` existed, it's migrated to `other_bills` with name "Transportation Bill"
+- Both can coexist in the `other_bills` array if both existed
+
+FRONTEND MIGRATION:
+-------------------
+1. Update all ISP display components to use `other_bills` array
+2. Remove any UI elements that reference `inward_slip_bill_image_url` or `transportation_bill_image_url`
+3. Replace single bill upload buttons with the new "Upload Other Bill" form
+4. Update any hardcoded bill type labels to use the `name` field from each bill object
+
+===================================================================================
+FILE TYPE VALIDATION:
+===================================================================================
+
+Allowed file types:
+- Images: JPEG, JPG, PNG, GIF
+- Documents: PDF
+
+Maximum file size: 10MB
+
+===================================================================================
+EXAMPLE USAGE SCENARIOS:
+===================================================================================
+
+Scenario 1: Upload Transportation Bill
+--------------------------------------
+1. User clicks "Upload Bill" button
+2. User enters name: "Transportation Bill"
+3. User selects transportation bill PDF/image
+4. System uploads and adds to `other_bills` array
+5. Bill appears in the list with name "Transportation Bill"
+
+Scenario 2: Upload Multiple Bills
+----------------------------------
+1. User uploads "Transportation Bill"
+2. User uploads "Purchase Bill"
+3. User uploads "Additional Charges Bill"
+4. All three bills appear in `other_bills` array
+5. Each bill can be viewed or deleted independently
+
+Scenario 3: Delete Bill
+-----------------------
+1. User clicks delete button on a specific bill
+2. System removes that bill from `other_bills` array
+3. Other bills remain intact
+
+===================================================================================
+UI/UX RECOMMENDATIONS:
+===================================================================================
+
+1. Display bills in a table or card layout with:
+   - Bill name (prominent)
+   - Upload date/time
+   - Preview thumbnail (for images) or PDF icon
+   - View/Download button
+   - Delete button
+
+2. Provide clear upload form with:
+   - Text input for bill name (required)
+   - File input with drag-and-drop support
+   - Upload progress indicator
+   - Success/error messages
+
+3. Show empty state when no bills are uploaded:
+   - "No bills uploaded yet"
+   - "Click 'Upload Bill' to add bills"
+
+4. Validate on frontend:
+   - Bill name cannot be empty
+   - File must be selected
+   - File size must be <= 10MB
+   - File type must be image or PDF
+
+===================================================================================
+TESTING CHECKLIST:
+===================================================================================
+
+[ ] Display empty other_bills array correctly
+[ ] Display multiple bills in other_bills array
+[ ] Upload bill with custom name
+[ ] Upload multiple bills with different names
+[ ] View/download bill from URL
+[ ] Delete bill from array
+[ ] Handle upload errors (file too large, invalid type, etc.)
+[ ] Handle delete errors (bill not found, etc.)
+[ ] Verify bills persist after page refresh
+[ ] Test with migrated data (old bills converted to other_bills)
+
+===================================================================================
+END OF GUIDE
+===================================================================================
+

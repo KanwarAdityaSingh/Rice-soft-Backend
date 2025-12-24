@@ -25,10 +25,10 @@ export interface PurchaseSummary {
   transportation_cost: number; // Sum from linked ISPs
   amount_after_transportation: number; // amount_after_commission + transportation_cost
   
-  // Step 5: IGST
-  igst_amount: number;
-  igst_percentage: number;
-  final_total_amount: number; // amount_after_transportation + igst_amount
+  // Step 5: IGST (removed - always 0)
+  igst_amount: number; // Always 0
+  igst_percentage: number; // Always 0
+  final_total_amount: number; // amount_after_transportation (IGST removed)
   
   // Aggregated Summary
   net_payable: number; // Same as final_total_amount (before payment advice charges)
@@ -54,6 +54,8 @@ export interface SaudaSummaryDetails {
   cash_discount: number | null;
   cash_discount_type: string;
   quantity: number | null;
+  received_until_now: number;
+  completion_percentage: number | null;
   purchaser_id: string;
   status: string;
 }
@@ -101,6 +103,6 @@ export interface SaudaBreakdown {
 }
 
 export interface GetSummaryOptions {
-  igst_percentage?: number; // Optional IGST percentage (defaults to 0)
+  // IGST removed - this interface kept for backward compatibility but igst_percentage is ignored
 }
 

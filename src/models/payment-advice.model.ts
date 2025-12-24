@@ -20,6 +20,7 @@ export interface PaymentAdvice {
   due_date: Date | null;
   bill_weight: number | null;
   kanta_weight: number | null;
+  dana_deduction: number | null;
   final_weight: number | null;
   rate: number | null;
   amount: number;
@@ -51,6 +52,7 @@ export interface CreatePaymentAdviceDTO {
   due_date?: string;
   bill_weight?: number;
   kanta_weight?: number;
+  dana_deduction?: number;
   final_weight?: number;
   rate?: number;
   amount: number;
@@ -80,6 +82,7 @@ export interface UpdatePaymentAdviceDTO {
   due_date?: string;
   bill_weight?: number;
   kanta_weight?: number;
+  dana_deduction?: number;
   final_weight?: number;
   rate?: number;
   amount?: number;
@@ -109,6 +112,7 @@ export interface PaymentAdviceResponse {
   due_date: string | null;
   bill_weight: number | null;
   kanta_weight: number | null;
+  dana_deduction: number | null;
   final_weight: number | null;
   rate: number | null;
   amount: number;

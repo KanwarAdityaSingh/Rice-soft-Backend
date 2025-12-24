@@ -79,6 +79,7 @@ export const appConfig = {
       paymentSlipsFolder: process.env.AWS_S3_PAYMENT_SLIPS_FOLDER || 'payment-slips',
       riceImagesFolder: process.env.AWS_S3_RICE_IMAGES_FOLDER || 'rice-images',
       inwardSlipBillsFolder: process.env.AWS_S3_INWARD_SLIP_BILLS_FOLDER || 'inward-slip-bills',
+      kaantaParchisFolder: process.env.AWS_S3_KAANTA_PARCHIS_FOLDER || 'kaanta-parchis',
     },
     ses: {
       fromEmail: process.env.AWS_SES_FROM_EMAIL || 'noreply@santkripa.com',

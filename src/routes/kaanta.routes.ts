@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { kaantaController } from '../controllers/kaanta.controller';
 import { authenticate } from '../middleware/auth.middleware';
 import { auditLog } from '../middleware/audit.middleware';
+import { documentUpload } from '../middleware/upload.middleware';
 
 const router = Router();
 
@@ -55,6 +56,32 @@ router.delete(
   authenticate,
   auditLog('DELETE', 'kaantas'),
   kaantaController.delete.bind(kaantaController)
+);
+
+/**
+ * @route   POST /api/v1/kaantas/:id/upload-khaali-kaanta-parchi
+ * @desc    Upload khaali kaanta parchi (empty kaanta receipt) image
+ * @access  Private
+ */
+router.post(
+  '/:id/upload-khaali-kaanta-parchi',
+  authenticate,
+  documentUpload.single('file'),
+  auditLog('UPDATE', 'kaantas'),
+  kaantaController.uploadKhaaliKaantaParchi.bind(kaantaController)
+);
+
+/**
+ * @route   POST /api/v1/kaantas/:id/upload-bhara-kaanta-parchi
+ * @desc    Upload bhara kaanta parchi (filled kaanta receipt) image
+ * @access  Private
+ */
+router.post(
+  '/:id/upload-bhara-kaanta-parchi',
+  authenticate,
+  documentUpload.single('file'),
+  auditLog('UPDATE', 'kaantas'),
+  kaantaController.uploadBharaKaantaParchi.bind(kaantaController)
 );
 
 export default router;

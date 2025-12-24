@@ -9,7 +9,8 @@ export class KaantaDAO {
   async findAll(saudaId?: string, ispId?: string): Promise<Kaanta[]> {
     let query = `
       SELECT id, kaanta_id, sauda_id, inward_slip_pass_id, full_truck_weight, 
-             empty_truck_weight, kaanta_weight, bag_weight, no_of_bags, bag_type,
+             empty_truck_weight, kaanta_weight, said_sent_weight, bag_weight, no_of_bags, bag_type,
+             khaali_kaanta_parchi_url, bhara_kaanta_parchi_url,
              created_at, updated_at, created_by, updated_by
       FROM kaantas
       WHERE 1=1
@@ -37,7 +38,8 @@ export class KaantaDAO {
   async findById(id: string): Promise<Kaanta | null> {
     const query = `
       SELECT id, kaanta_id, sauda_id, inward_slip_pass_id, full_truck_weight, 
-             empty_truck_weight, kaanta_weight, bag_weight, no_of_bags, bag_type,
+             empty_truck_weight, kaanta_weight, said_sent_weight, bag_weight, no_of_bags, bag_type,
+             khaali_kaanta_parchi_url, bhara_kaanta_parchi_url,
              created_at, updated_at, created_by, updated_by
       FROM kaantas
       WHERE id = $1
@@ -68,10 +70,11 @@ export class KaantaDAO {
       // Insert kaanta (triggers will calculate kaanta_weight and generate kaanta_id)
       const kaantaQuery = `
         INSERT INTO kaantas (sauda_id, inward_slip_pass_id, full_truck_weight, 
-                            empty_truck_weight, bag_weight, no_of_bags, bag_type, created_by)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                            empty_truck_weight, said_sent_weight, bag_weight, no_of_bags, bag_type, created_by)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         RETURNING id, kaanta_id, sauda_id, inward_slip_pass_id, full_truck_weight, 
-                  empty_truck_weight, kaanta_weight, bag_weight, no_of_bags, bag_type,
+                  empty_truck_weight, kaanta_weight, said_sent_weight, bag_weight, no_of_bags, bag_type,
+                  khaali_kaanta_parchi_url, bhara_kaanta_parchi_url,
                   created_at, updated_at, created_by, updated_by
       `;
       
@@ -80,6 +83,7 @@ export class KaantaDAO {
         kaantaData.inward_slip_pass_id,
         kaantaData.full_truck_weight,
         kaantaData.empty_truck_weight,
+        kaantaData.said_sent_weight || null,
         kaantaData.bag_weight,
         kaantaData.no_of_bags,
         kaantaData.bag_type,
@@ -143,6 +147,9 @@ export class KaantaDAO {
         amount: createdLot.amount
       });
 
+      // Recalculate sauda's received_until_now and completion_percentage
+      await saudaDAO.recalculateReceivedWeight(kaantaData.sauda_id);
+
       await client.query('COMMIT');
       return createdKaanta;
     } catch (error) {
@@ -167,6 +174,10 @@ export class KaantaDAO {
       fields.push(`empty_truck_weight = $${paramCount++}`);
       values.push(kaantaData.empty_truck_weight);
     }
+    if (kaantaData.said_sent_weight !== undefined) {
+      fields.push(`said_sent_weight = $${paramCount++}`);
+      values.push(kaantaData.said_sent_weight || null);
+    }
     if (kaantaData.bag_weight !== undefined) {
       fields.push(`bag_weight = $${paramCount++}`);
       values.push(kaantaData.bag_weight);
@@ -178,6 +189,14 @@ export class KaantaDAO {
     if (kaantaData.bag_type !== undefined) {
       fields.push(`bag_type = $${paramCount++}`);
       values.push(kaantaData.bag_type);
+    }
+    if (kaantaData.khaali_kaanta_parchi_url !== undefined) {
+      fields.push(`khaali_kaanta_parchi_url = $${paramCount++}`);
+      values.push(kaantaData.khaali_kaanta_parchi_url);
+    }
+    if (kaantaData.bhara_kaanta_parchi_url !== undefined) {
+      fields.push(`bhara_kaanta_parchi_url = $${paramCount++}`);
+      values.push(kaantaData.bhara_kaanta_parchi_url);
     }
     if (kaantaData.updated_by !== undefined) {
       fields.push(`updated_by = $${paramCount++}`);
@@ -196,7 +215,8 @@ export class KaantaDAO {
       SET ${fields.join(', ')}
       WHERE id = $${paramCount}
       RETURNING id, kaanta_id, sauda_id, inward_slip_pass_id, full_truck_weight, 
-                empty_truck_weight, kaanta_weight, bag_weight, no_of_bags, bag_type,
+                empty_truck_weight, kaanta_weight, said_sent_weight, bag_weight, no_of_bags, bag_type,
+                khaali_kaanta_parchi_url, bhara_kaanta_parchi_url,
                 created_at, updated_at, created_by, updated_by
     `;
 
@@ -205,8 +225,15 @@ export class KaantaDAO {
       if (result.rows.length === 0) {
         return null;
       }
-      logger.info('Kaanta updated', { id, kaanta_weight: result.rows[0].kaanta_weight });
-      return result.rows[0];
+      
+      const updatedKaanta = result.rows[0];
+      logger.info('Kaanta updated', { id, kaanta_weight: updatedKaanta.kaanta_weight });
+      
+      // Recalculate sauda's received_until_now and completion_percentage
+      // Always recalculate since kaanta_weight is auto-calculated by trigger and may have changed
+      await saudaDAO.recalculateReceivedWeight(updatedKaanta.sauda_id);
+      
+      return updatedKaanta;
     } catch (error) {
       logger.error('Error updating kaanta', { error, id });
       throw error;
@@ -214,19 +241,28 @@ export class KaantaDAO {
   }
 
   async delete(id: string): Promise<boolean> {
-    // Get kaanta details before deletion for logging
+    // Get kaanta details before deletion for logging and recalculation
     const kaanta = await this.findById(id);
+    
+    if (!kaanta) {
+      return false;
+    }
+    
+    const saudaId = kaanta.sauda_id;
     
     const query = `DELETE FROM kaantas WHERE id = $1`;
     const result = await db.query(query, [id]);
     const deleted = (result.rowCount || 0) > 0;
     
-    if (deleted && kaanta) {
+    if (deleted) {
       logger.info('Kaanta deleted (cascade deletes associated lot)', { 
         id, 
         kaanta_id: kaanta.kaanta_id,
-        sauda_id: kaanta.sauda_id 
+        sauda_id: saudaId 
       });
+      
+      // Recalculate sauda's received_until_now and completion_percentage
+      await saudaDAO.recalculateReceivedWeight(saudaId);
     }
     
     return deleted;

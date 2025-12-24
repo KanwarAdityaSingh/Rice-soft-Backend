@@ -1,0 +1,266 @@
+===================================================================================
+SAID SENT WEIGHT & DANA DEDUCTION - FRONTEND IMPLEMENTATION GUIDE
+===================================================================================
+
+OVERVIEW:
+---------
+The kaanta entity now includes a `said_sent_weight` field, and payment advice 
+automatically calculates a "Dana deduction" (300gm per quintal). The final_weight 
+is calculated as kaanta_weight - dana_deduction and is used for all further calculations.
+
+===================================================================================
+NEW FIELDS:
+===================================================================================
+
+KAANTA ENTITY:
+--------------
+- `said_sent_weight` (number | null) - Weight mentioned in the bill/said document (in kg)
+  - Optional field
+  - Used for Dana deduction calculation in payment advice
+
+PAYMENT ADVICE ENTITY:
+---------------------
+- `dana_deduction` (number | null) - Dana deduction amount
+  - Calculated as: (said_sent_weight * 300/1000)/100
+  - Represents 300gm per quintal deduction
+- `final_weight` (number | null) - Final weight after Dana deduction
+  - Calculated as: kaanta_weight - dana_deduction
+  - This is the weight used for all further calculations
+
+===================================================================================
+CALCULATION LOGIC:
+===================================================================================
+
+DANA DEDUCTION FORMULA:
+-----------------------
+dana_deduction = (said_sent_weight * 300/1000) / 100
+
+Explanation:
+- 300gm per quintal = 300/1000 kg per quintal = 0.3 kg per quintal
+- If said_sent_weight is in kg, then:
+  - Number of quintals = said_sent_weight / 100
+  - Deduction = (said_sent_weight / 100) * 0.3 = (said_sent_weight * 300/1000) / 100
+
+Example:
+- said_sent_weight = 1000 kg
+- dana_deduction = (1000 * 300/1000) / 100 = (1000 * 0.3) / 100 = 300 / 100 = 3 kg
+
+FINAL WEIGHT CALCULATION:
+--------------------------
+final_weight = kaanta_weight - dana_deduction
+
+This final_weight is used for all further calculations in payment advice.
+
+===================================================================================
+API CHANGES:
+===================================================================================
+
+KAANTA ENDPOINTS:
+----------------
+
+1. POST /api/v1/kaantas
+   - NEW field: `said_sent_weight` (optional)
+   - Example:
+     {
+       "sauda_id": "uuid",
+       "inward_slip_pass_id": "uuid",
+       "full_truck_weight": 5000,
+       "empty_truck_weight": 2000,
+       "said_sent_weight": 1000,  // NEW: Optional
+       "bag_weight": 50,
+       "no_of_bags": 60,
+       "bag_type": "jute"
+     }
+
+2. PUT /api/v1/kaantas/:id
+   - Can update `said_sent_weight`
+   - Example:
+     {
+       "said_sent_weight": 1050
+     }
+
+3. GET /api/v1/kaantas
+   GET /api/v1/kaantas/:id
+   - Response now includes `said_sent_weight`:
+     {
+       "id": "uuid",
+       "kaanta_id": "KAANTA-xxx",
+       "said_sent_weight": 1000,  // NEW
+       "kaanta_weight": 3000,
+       // ... other fields
+     }
+
+PAYMENT ADVICE ENDPOINTS:
+-------------------------
+
+1. POST /api/v1/payment-advices
+   - Auto-calculates `dana_deduction` and `final_weight` from kaanta data
+   - If `sauda_id` provided: Gets all kaantas for that sauda
+   - If `inward_slip_pass_id` provided: Gets all kaantas for that ISP
+   - Automatically sets:
+     * `bill_weight` = sum of all said_sent_weight from kaantas
+     * `kanta_weight` = sum of all kaanta_weight from kaantas
+     * `dana_deduction` = calculated from said_sent_weight
+     * `final_weight` = kaanta_weight - dana_deduction
+
+2. GET /api/v1/payment-advices
+   GET /api/v1/payment-advices/:id
+   - Response now includes `dana_deduction` and `final_weight`:
+     {
+       "id": "uuid",
+       "bill_weight": 1000,        // Sum of said_sent_weight from kaantas
+       "kanta_weight": 3000,        // Sum of kaanta_weight from kaantas
+       "dana_deduction": 3,         // (said_sent_weight * 300/1000)/100
+       "final_weight": 2997,        // kaanta_weight - dana_deduction
+       // ... other fields
+     }
+
+===================================================================================
+CALCULATION FLOW:
+===================================================================================
+
+When creating payment advice:
+
+1. Backend fetches all kaantas for the sauda/ISP
+2. Sums said_sent_weight from all kaantas → sets as bill_weight
+3. Sums kaanta_weight from all kaantas → sets as kanta_weight
+4. Calculates dana_deduction = (total_said_sent_weight * 300/1000) / 100
+5. Calculates final_weight = kanta_weight - dana_deduction
+6. All further calculations use final_weight
+
+===================================================================================
+DISPLAY REQUIREMENTS:
+===================================================================================
+
+PAYMENT ADVICE PREVIEW:
+----------------------
+Display the following fields in payment advice preview:
+
+1. **Bill Weight**: Display `bill_weight` field
+   - This is the said_sent_weight from kaanta
+   - Label: "Bill Weight"
+
+2. **Kaanta Weight**: Display `kanta_weight` field
+   - This is the actual measured weight (source of truth)
+   - Label: "Kaanta Weight"
+
+3. **Dana Deduction**: Display `dana_deduction` field
+   - Label: "Less: Dana (300gm per Qtl)"
+   - Show as a deduction (with minus sign)
+   - Only show if dana_deduction > 0
+
+4. **Final Weight**: Display `final_weight` field
+   - Label: "Final Weight"
+   - This is the weight used for all calculations
+   - Calculated as: kaanta_weight - dana_deduction
+
+CALCULATION FLOW DISPLAY:
+-------------------------
+Show the calculation in this order:
+1. Bill Weight: X kg (from said_sent_weight)
+2. Kaanta Weight: Y kg
+3. Less: Dana (300gm per Qtl): -Z kg
+4. Final Weight: (Y - Z) kg
+5. Rate: ₹R per kg
+6. Amount: Final Weight × Rate = ₹A
+
+===================================================================================
+EXAMPLE SCENARIO:
+===================================================================================
+
+Scenario: Create Kaanta and Payment Advice
+-------------------------------------------
+
+1. **Create Kaanta with Said Sent Weight:**
+   ```
+   POST /api/v1/kaantas
+   {
+     "sauda_id": "sauda-uuid",
+     "inward_slip_pass_id": "isp-uuid",
+     "full_truck_weight": 5000,
+     "empty_truck_weight": 2000,
+     "said_sent_weight": 1000,  // Bill says 1000 kg
+     "bag_weight": 50,
+     "no_of_bags": 60,
+     "bag_type": "jute"
+   }
+   ```
+   Response: kaanta_weight = 3000 kg (auto-calculated)
+
+2. **Create Payment Advice:**
+   ```
+   POST /api/v1/payment-advices
+   {
+     "sauda_id": "sauda-uuid",
+     "payer_id": "user-uuid",
+     "recipient_id": "vendor-uuid",
+     "date_of_payment": "2024-01-20"
+   }
+   ```
+   
+   Backend automatically calculates:
+   - bill_weight = 1000 kg (from said_sent_weight)
+   - kanta_weight = 3000 kg (from kaanta_weight)
+   - dana_deduction = (1000 * 300/1000)/100 = 3 kg
+   - final_weight = 3000 - 3 = 2997 kg
+
+3. **Display in Payment Advice Preview:**
+   ```
+   Bill Weight: 1000 kg
+   Kaanta Weight: 3000 kg
+   Less: Dana (300gm per Qtl): -3.00 kg
+   Final Weight: 2997 kg
+   ```
+
+===================================================================================
+CALCULATION EXAMPLES:
+===================================================================================
+
+Example 1:
+----------
+- said_sent_weight = 1000 kg
+- kaanta_weight = 3000 kg
+- dana_deduction = (1000 * 300/1000)/100 = 3 kg
+- final_weight = 3000 - 3 = 2997 kg
+
+Example 2:
+----------
+- said_sent_weight = 500 kg
+- kaanta_weight = 1500 kg
+- dana_deduction = (500 * 300/1000)/100 = 1.5 kg
+- final_weight = 1500 - 1.5 = 1498.5 kg
+
+Example 3 (Multiple Kaantas):
+------------------------------
+- Kaanta 1: said_sent_weight = 1000 kg, kaanta_weight = 3000 kg
+- Kaanta 2: said_sent_weight = 500 kg, kaanta_weight = 1500 kg
+- Total said_sent_weight = 1500 kg
+- Total kaanta_weight = 4500 kg
+- dana_deduction = (1500 * 300/1000)/100 = 4.5 kg
+- final_weight = 4500 - 4.5 = 4495.5 kg
+
+===================================================================================
+IMPORTANT NOTES:
+===================================================================================
+
+1. **kaanta_weight is the source of truth** - All calculations are based on 
+   kaanta_weight, not said_sent_weight
+
+2. **said_sent_weight is only used for Dana deduction** - It doesn't affect the 
+   actual weight calculations, only the deduction amount
+
+3. **bill_weight in payment advice = said_sent_weight** - Display bill_weight as 
+   "Bill Weight" in payment advice preview
+
+4. **final_weight is used for all calculations** - All further deductions and 
+   calculations in payment advice should use final_weight, not kaanta_weight
+
+5. **Dana deduction is automatic** - When payment advice is created, the backend 
+   automatically calculates dana_deduction and final_weight from kaanta data
+
+6. **said_sent_weight is optional** - If not provided, dana_deduction will be 0 
+   and final_weight will equal kaanta_weight
+
+===================================================================================
+END OF GUIDE
+===================================================================================

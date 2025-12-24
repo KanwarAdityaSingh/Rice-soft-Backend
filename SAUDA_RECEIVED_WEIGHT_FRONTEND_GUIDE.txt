@@ -1,0 +1,271 @@
+===================================================================================
+BACKEND CHANGES - SAUDA RECEIVED WEIGHT TRACKING
+Frontend Integration Guide
+===================================================================================
+
+This document explains the backend changes made for tracking received weight in saudas.
+Use this as a reference for updating the frontend logic.
+
+===================================================================================
+OVERVIEW
+===================================================================================
+
+The backend now tracks cumulative received weight at the sauda level. When a sauda
+(e.g., 1000 kg expected) is linked to ISPs via kaantas, only partial weight
+(e.g., 600 kg) may be received initially. The system now tracks this and uses it
+for calculations when the sauda is not 100% complete.
+
+===================================================================================
+NEW FIELDS ADDED TO SAUDA
+===================================================================================
+
+Two new fields have been added to all Sauda objects:
+
+1. received_until_now (number, required)
+   - Type: DECIMAL(10,2)
+   - Default: 0
+   - Description: Cumulative weight received from all kaantas linked to this sauda
+   - Auto-updated: Yes (when kaantas are created/updated/deleted)
+   - Read-only: Yes (cannot be set via API)
+
+2. completion_percentage (number | null)
+   - Type: DECIMAL(5,2) | NULL
+   - Description: Percentage of completion = (received_until_now / quantity) * 100
+   - Auto-calculated: Yes (via database trigger)
+   - NULL cases: When quantity is NULL or 0
+   - Can exceed 100%: Yes (over-delivery scenario)
+
+===================================================================================
+API RESPONSE CHANGES
+===================================================================================
+
+All Sauda API responses now include the new fields:
+
+GET /api/v1/saudas
+GET /api/v1/saudas/:id
+POST /api/v1/saudas (response includes new fields)
+PUT /api/v1/saudas/:id (response includes new fields)
+
+Response format:
+{
+  "id": "uuid",
+  "sauda_type": "exgodown",
+  "rice_type": "basmati",
+  "quantity": 1000.00,           // Expected weight (original)
+  "received_until_now": 600.00,  // NEW: Actual received weight
+  "completion_percentage": 60.00, // NEW: Completion percentage
+  // ... other fields
+}
+
+===================================================================================
+PURCHASE SUMMARY API CHANGES
+===================================================================================
+
+GET /api/v1/purchase-summary/sauda/:saudaId
+
+The sauda_details object in the response now includes the new fields:
+
+{
+  "success": true,
+  "data": {
+    "sauda_id": "uuid",
+    "total_weight": 600.00,      // Sum of received_weight from lots
+    "base_amount": 600000.00,
+    // ... other calculation fields
+    "sauda_details": {
+      "id": "uuid",
+      "quantity": 1000.00,           // Expected weight
+      "received_until_now": 600.00,  // NEW: Cumulative received
+      "completion_percentage": 60.00, // NEW: Completion %
+      // ... other fields
+    }
+  }
+}
+
+===================================================================================
+CALCULATION LOGIC CHANGES
+===================================================================================
+
+IMPORTANT: For partial saudas (completion_percentage < 100), calculations now
+use received_until_now instead of quantity for weight-based operations.
+
+1. Broker Commission (weight-based):
+   - If broker_commission_type = 'weight'
+   - OLD: commission × total_weight (from lots)
+   - NEW: commission × received_until_now (when completion_percentage < 100)
+   - When completion_percentage = 100: uses total_weight from lots (same as before)
+
+2. Payment Advice Amount:
+   - Still uses purchase summary API (no change)
+   - Summary API now uses received_until_now for partial saudas
+   - Frontend should display completion_percentage to indicate partial status
+
+===================================================================================
+FRONTEND LOGIC IMPLEMENTATION
+===================================================================================
+
+1. DISPLAY RECEIVED WEIGHT INFORMATION
+   - Show received_until_now alongside quantity in sauda details
+   - Display completion_percentage as a percentage indicator
+   - Format: "600.00 / 1000.00 kg (60%)" or similar
+
+2. HANDLE PARTIAL SAUDAS
+   - Check if completion_percentage < 100
+   - If < 100: Show "Partial Delivery" or "In Progress" status
+   - If = 100: Show "Complete" status
+   - If > 100: Show "Over-delivered" status (valid scenario)
+   - If NULL: Show "N/A" (quantity is NULL or 0)
+
+3. CALCULATION DISPLAYS
+   - When showing payment advice amounts, indicate if sauda is partial
+   - For weight-based broker commission, show that it's based on received_until_now
+   - Display both expected (quantity) and received (received_until_now) weights
+
+4. VALIDATION LOGIC
+   - received_until_now is always >= 0
+   - completion_percentage can be NULL, 0-100, or > 100
+   - received_until_now can exceed quantity (over-delivery)
+
+5. AUTO-UPDATE BEHAVIOR
+   - received_until_now updates automatically when:
+     * Kaanta is created for this sauda
+     * Kaanta weight is updated
+     * Kaanta is deleted
+   - Frontend should refresh sauda data after kaanta operations
+   - Consider polling or websocket updates for real-time tracking
+
+===================================================================================
+EXAMPLE USAGE SCENARIOS
+===================================================================================
+
+Scenario 1: Partial Delivery
+- Sauda created: quantity = 1000 kg
+- Kaanta 1 created: kaanta_weight = 600 kg
+- Result: received_until_now = 600, completion_percentage = 60%
+- Payment calculations use 600 kg (not 1000 kg)
+
+Scenario 2: Complete Delivery
+- Sauda created: quantity = 1000 kg
+- Kaanta 1 created: kaanta_weight = 600 kg
+- Kaanta 2 created: kaanta_weight = 400 kg
+- Result: received_until_now = 1000, completion_percentage = 100%
+- Payment calculations use 1000 kg (full quantity)
+
+Scenario 3: Over-Delivery
+- Sauda created: quantity = 1000 kg
+- Kaanta 1 created: kaanta_weight = 1100 kg
+- Result: received_until_now = 1100, completion_percentage = 110%
+- Payment calculations use 1100 kg (actual received)
+
+Scenario 4: No Quantity Set
+- Sauda created: quantity = NULL
+- Kaanta 1 created: kaanta_weight = 600 kg
+- Result: received_until_now = 600, completion_percentage = NULL
+- Frontend should handle NULL completion_percentage gracefully
+
+===================================================================================
+DATA FLOW
+===================================================================================
+
+1. User creates Sauda
+   - quantity: 1000 (expected)
+   - received_until_now: 0 (default)
+   - completion_percentage: 0% (calculated)
+
+2. User creates ISP and links Sauda
+   - No change to sauda fields yet
+
+3. User creates Kaanta for Sauda+ISP
+   - kaanta_weight: 600 (from weighbridge)
+   - Backend automatically:
+     * Creates lot with received_weight = 600
+     * Updates sauda.received_until_now = 600
+     * Updates sauda.completion_percentage = 60%
+
+4. User creates another Kaanta
+   - kaanta_weight: 400
+   - Backend automatically:
+     * Creates lot with received_weight = 400
+     * Updates sauda.received_until_now = 1000
+     * Updates sauda.completion_percentage = 100%
+
+5. User generates Payment Advice
+   - Backend uses received_until_now for calculations if partial
+   - Frontend receives summary with updated amounts
+
+===================================================================================
+FRONTEND CHECKLIST
+===================================================================================
+
+[ ] Update Sauda interface/type to include received_until_now and completion_percentage
+[ ] Update Sauda display components to show received weight information
+[ ] Add completion percentage indicator/status badge
+[ ] Update payment advice displays to show partial sauda status
+[ ] Handle NULL completion_percentage in UI
+[ ] Show both expected (quantity) and received (received_until_now) weights
+[ ] Add visual indicators for partial/complete/over-delivered status
+[ ] Update any calculations that reference sauda quantity to consider received_until_now
+[ ] Refresh sauda data after kaanta create/update/delete operations
+[ ] Update purchase summary displays to show new fields
+
+===================================================================================
+API ENDPOINTS (NO CHANGES)
+===================================================================================
+
+All existing endpoints remain the same. Only response data has been extended:
+
+- GET /api/v1/saudas - Returns saudas with new fields
+- GET /api/v1/saudas/:id - Returns sauda with new fields
+- POST /api/v1/saudas - Creates sauda, returns with new fields (defaults)
+- PUT /api/v1/saudas/:id - Updates sauda, returns with new fields
+- GET /api/v1/purchase-summary/sauda/:id - Returns summary with new fields in sauda_details
+- GET /api/v1/purchase-summary/isp/:id - Returns summary with new fields in sauda breakdowns
+
+Note: received_until_now and completion_percentage are READ-ONLY. They cannot be
+set via POST or PUT requests. They are automatically managed by the backend.
+
+===================================================================================
+EDGE CASES TO HANDLE
+===================================================================================
+
+1. NULL quantity:
+   - completion_percentage will be NULL
+   - Show "N/A" or "Not Set" in UI
+   - received_until_now still tracks actual received weight
+
+2. Zero quantity:
+   - completion_percentage will be NULL (division by zero protection)
+   - received_until_now can still have value
+
+3. Over-delivery (received > quantity):
+   - completion_percentage > 100%
+   - This is valid - show as "Over-delivered" or "110% Complete"
+   - Calculations use actual received weight
+
+4. No kaantas yet:
+   - received_until_now = 0
+   - completion_percentage = 0% (if quantity > 0)
+
+5. Multiple kaantas:
+   - received_until_now = sum of all kaanta weights
+   - Automatically calculated by backend
+
+===================================================================================
+TESTING RECOMMENDATIONS
+===================================================================================
+
+1. Test sauda creation - verify received_until_now = 0, completion_percentage = 0%
+2. Test kaanta creation - verify sauda fields update automatically
+3. Test partial delivery - verify completion_percentage < 100%
+4. Test complete delivery - verify completion_percentage = 100%
+5. Test over-delivery - verify completion_percentage > 100%
+6. Test NULL quantity - verify completion_percentage = NULL
+7. Test payment advice generation with partial saudas
+8. Test multiple kaantas for same sauda
+9. Test kaanta update - verify sauda fields recalculate
+10. Test kaanta delete - verify sauda fields recalculate
+
+===================================================================================
+END OF GUIDE
+===================================================================================
+

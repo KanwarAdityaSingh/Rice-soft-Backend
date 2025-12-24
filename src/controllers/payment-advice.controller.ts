@@ -6,6 +6,7 @@ import { saudaDAO } from '../dao/sauda.dao';
 import { inwardSlipPassDAO } from '../dao/inward-slip-pass.dao';
 import { vendorDAO } from '../dao/vendor.dao';
 import { userDAO } from '../dao/user.dao';
+import { kaantaDAO } from '../dao/kaanta.dao';
 import { ResponseHandler } from '../utils/response';
 import {
   validate,
@@ -56,6 +57,7 @@ export class PaymentAdviceController {
             due_date: advice.due_date?.toISOString().split('T')[0] || null,
             bill_weight: advice.bill_weight ? parseFloat(advice.bill_weight.toString()) : null,
             kanta_weight: advice.kanta_weight ? parseFloat(advice.kanta_weight.toString()) : null,
+            dana_deduction: advice.dana_deduction ? parseFloat(advice.dana_deduction.toString()) : null,
             final_weight: advice.final_weight ? parseFloat(advice.final_weight.toString()) : null,
             rate: advice.rate ? parseFloat(advice.rate.toString()) : null,
             amount: parseFloat(advice.amount.toString()),
@@ -116,6 +118,7 @@ export class PaymentAdviceController {
         due_date: paymentAdvice.due_date?.toISOString().split('T')[0] || null,
         bill_weight: paymentAdvice.bill_weight ? parseFloat(paymentAdvice.bill_weight.toString()) : null,
         kanta_weight: paymentAdvice.kanta_weight ? parseFloat(paymentAdvice.kanta_weight.toString()) : null,
+        dana_deduction: paymentAdvice.dana_deduction ? parseFloat(paymentAdvice.dana_deduction.toString()) : null,
         final_weight: paymentAdvice.final_weight ? parseFloat(paymentAdvice.final_weight.toString()) : null,
         rate: paymentAdvice.rate ? parseFloat(paymentAdvice.rate.toString()) : null,
         amount: parseFloat(paymentAdvice.amount.toString()),
@@ -172,8 +175,7 @@ export class PaymentAdviceController {
         
         // Get summary and auto-calculate amount if not provided
         if (!calculatedAmount) {
-          const igstPercentage = req.body.igst_percentage || 0;
-          const summary = await purchaseSummaryDAO.getSaudaSummary(paymentAdviceData.sauda_id, { igst_percentage: igstPercentage });
+          const summary = await purchaseSummaryDAO.getSaudaSummary(paymentAdviceData.sauda_id, {});
           calculatedAmount = summary.final_total_amount;
         }
       } else if (paymentAdviceData.inward_slip_pass_id) {
@@ -185,14 +187,76 @@ export class PaymentAdviceController {
         
         // Get summary and auto-calculate amount if not provided
         if (!calculatedAmount) {
-          const igstPercentage = req.body.igst_percentage || 0;
-          const summary = await purchaseSummaryDAO.getIspSummary(paymentAdviceData.inward_slip_pass_id, { igst_percentage: igstPercentage });
+          const summary = await purchaseSummaryDAO.getIspSummary(paymentAdviceData.inward_slip_pass_id, {});
           calculatedAmount = summary.final_total_amount;
         }
       }
       
       // Set the calculated amount
       paymentAdviceData.amount = calculatedAmount;
+
+      // Calculate dana_deduction and final_weight from kaanta data
+      let totalKaantaWeight = 0;
+      let totalSaidSentWeight = 0;
+      let danaDeduction = 0;
+      let netWeight = 0;
+
+      if (paymentAdviceData.sauda_id) {
+        // Get all kaantas for this sauda
+        const kaantas = await kaantaDAO.findAll(paymentAdviceData.sauda_id);
+        if (kaantas.length > 0) {
+          totalKaantaWeight = kaantas.reduce((sum, k) => sum + (k.kaanta_weight || 0), 0);
+          totalSaidSentWeight = kaantas.reduce((sum, k) => sum + (k.said_sent_weight || 0), 0);
+          
+          // Calculate dana deduction: (said_sent_weight * 300/1000)/100
+          if (totalSaidSentWeight > 0) {
+            danaDeduction = (totalSaidSentWeight * 300 / 1000) / 100;
+          }
+          
+          // Calculate final weight: kaanta_weight - dana_deduction
+          netWeight = totalKaantaWeight - danaDeduction;
+          
+          // Set bill_weight as said_sent_weight (for display in frontend)
+          if (!paymentAdviceData.bill_weight) {
+            paymentAdviceData.bill_weight = totalSaidSentWeight;
+          }
+          
+          // Set kanta_weight if not provided
+          if (!paymentAdviceData.kanta_weight) {
+            paymentAdviceData.kanta_weight = totalKaantaWeight;
+          }
+        }
+      } else if (paymentAdviceData.inward_slip_pass_id) {
+        // Get all kaantas for this ISP
+        const kaantas = await kaantaDAO.findAll(undefined, paymentAdviceData.inward_slip_pass_id);
+        if (kaantas.length > 0) {
+          totalKaantaWeight = kaantas.reduce((sum, k) => sum + (k.kaanta_weight || 0), 0);
+          totalSaidSentWeight = kaantas.reduce((sum, k) => sum + (k.said_sent_weight || 0), 0);
+          
+          // Calculate dana deduction: (said_sent_weight * 300/1000)/100
+          if (totalSaidSentWeight > 0) {
+            danaDeduction = (totalSaidSentWeight * 300 / 1000) / 100;
+          }
+          
+          // Calculate final weight: kaanta_weight - dana_deduction
+          netWeight = totalKaantaWeight - danaDeduction;
+          
+          // Set bill_weight as said_sent_weight (for display in frontend)
+          if (!paymentAdviceData.bill_weight) {
+            paymentAdviceData.bill_weight = totalSaidSentWeight;
+          }
+          
+          // Set kanta_weight if not provided
+          if (!paymentAdviceData.kanta_weight) {
+            paymentAdviceData.kanta_weight = totalKaantaWeight;
+          }
+        }
+      }
+
+      // Set calculated dana_deduction and final_weight
+      paymentAdviceData.dana_deduction = danaDeduction > 0 ? danaDeduction : undefined;
+      // final_weight = kaanta_weight - dana_deduction (after all deductions)
+      paymentAdviceData.final_weight = netWeight > 0 ? netWeight : undefined;
 
       // Set created_by from authenticated user
       if (req.user) {
@@ -232,6 +296,7 @@ export class PaymentAdviceController {
         due_date: paymentAdvice.due_date?.toISOString().split('T')[0] || null,
         bill_weight: paymentAdvice.bill_weight ? parseFloat(paymentAdvice.bill_weight.toString()) : null,
         kanta_weight: paymentAdvice.kanta_weight ? parseFloat(paymentAdvice.kanta_weight.toString()) : null,
+        dana_deduction: paymentAdvice.dana_deduction ? parseFloat(paymentAdvice.dana_deduction.toString()) : null,
         final_weight: paymentAdvice.final_weight ? parseFloat(paymentAdvice.final_weight.toString()) : null,
         rate: paymentAdvice.rate ? parseFloat(paymentAdvice.rate.toString()) : null,
         amount: parseFloat(paymentAdvice.amount.toString()),
@@ -291,6 +356,60 @@ export class PaymentAdviceController {
         }
       }
 
+      // Recalculate dana_deduction and final_weight if sauda_id or inward_slip_pass_id is being updated
+      if (paymentAdviceData.sauda_id || paymentAdviceData.inward_slip_pass_id) {
+        let totalKaantaWeight = 0;
+        let totalSaidSentWeight = 0;
+        let danaDeduction = 0;
+        let netWeight = 0;
+
+        const saudaId = paymentAdviceData.sauda_id || existingAdvice.sauda_id;
+        const ispId = paymentAdviceData.inward_slip_pass_id || existingAdvice.inward_slip_pass_id;
+
+        if (saudaId) {
+          const kaantas = await kaantaDAO.findAll(saudaId);
+          if (kaantas.length > 0) {
+            totalKaantaWeight = kaantas.reduce((sum, k) => sum + (k.kaanta_weight || 0), 0);
+            totalSaidSentWeight = kaantas.reduce((sum, k) => sum + (k.said_sent_weight || 0), 0);
+            
+            if (totalSaidSentWeight > 0) {
+              danaDeduction = (totalSaidSentWeight * 300 / 1000) / 100;
+            }
+            
+            netWeight = totalKaantaWeight - danaDeduction;
+            
+            if (!paymentAdviceData.bill_weight) {
+              paymentAdviceData.bill_weight = totalSaidSentWeight;
+            }
+            if (!paymentAdviceData.kanta_weight) {
+              paymentAdviceData.kanta_weight = totalKaantaWeight;
+            }
+          }
+        } else if (ispId) {
+          const kaantas = await kaantaDAO.findAll(undefined, ispId);
+          if (kaantas.length > 0) {
+            totalKaantaWeight = kaantas.reduce((sum, k) => sum + (k.kaanta_weight || 0), 0);
+            totalSaidSentWeight = kaantas.reduce((sum, k) => sum + (k.said_sent_weight || 0), 0);
+            
+            if (totalSaidSentWeight > 0) {
+              danaDeduction = (totalSaidSentWeight * 300 / 1000) / 100;
+            }
+            
+            netWeight = totalKaantaWeight - danaDeduction;
+            
+            if (!paymentAdviceData.bill_weight) {
+              paymentAdviceData.bill_weight = totalSaidSentWeight;
+            }
+            if (!paymentAdviceData.kanta_weight) {
+              paymentAdviceData.kanta_weight = totalKaantaWeight;
+            }
+          }
+        }
+
+        paymentAdviceData.dana_deduction = danaDeduction > 0 ? danaDeduction : undefined;
+        paymentAdviceData.final_weight = netWeight > 0 ? netWeight : undefined;
+      }
+
       // Set updated_by from authenticated user
       if (req.user) {
         paymentAdviceData.updated_by = req.user.userId;
@@ -322,6 +441,7 @@ export class PaymentAdviceController {
         due_date: paymentAdvice.due_date?.toISOString().split('T')[0] || null,
         bill_weight: paymentAdvice.bill_weight ? parseFloat(paymentAdvice.bill_weight.toString()) : null,
         kanta_weight: paymentAdvice.kanta_weight ? parseFloat(paymentAdvice.kanta_weight.toString()) : null,
+        dana_deduction: paymentAdvice.dana_deduction ? parseFloat(paymentAdvice.dana_deduction.toString()) : null,
         final_weight: paymentAdvice.final_weight ? parseFloat(paymentAdvice.final_weight.toString()) : null,
         rate: paymentAdvice.rate ? parseFloat(paymentAdvice.rate.toString()) : null,
         amount: parseFloat(paymentAdvice.amount.toString()),

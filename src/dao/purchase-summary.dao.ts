@@ -15,13 +15,14 @@ export class PurchaseSummaryDAO {
    * Aggregates all lots and applies sauda-level discounts/commissions
    */
   async getSaudaSummary(saudaId: string, options: GetSummaryOptions = {}): Promise<PurchaseSummary> {
-    const igstPercentage = options.igst_percentage || 0;
+    // IGST removed - always set to 0
+    const igstPercentage = 0;
 
     // Get sauda details
     const saudaQuery = `
       SELECT id, sauda_type, rice_type, rice_code_id, rate, broker_id, 
              broker_commission, broker_commission_type, cash_discount, cash_discount_type,
-             quantity, purchaser_id, status
+             quantity, received_until_now, completion_percentage, purchaser_id, status
       FROM saudas
       WHERE id = $1
     `;
@@ -46,10 +47,11 @@ export class PurchaseSummaryDAO {
 
     // Get ISPs linked to this sauda (via kaantas)
     const ispQuery = `
-      SELECT DISTINCT isp.id, isp.slip_number, isp.date, isp.vehicle_number, 
+      SELECT DISTINCT isp.id, isp.slip_number, isp.date, v.vehicle_number, 
              isp.party_name, isp.transporter_id, isp.transportation_cost
       FROM inward_slip_passes isp
       INNER JOIN kaantas k ON k.inward_slip_pass_id = isp.id
+      LEFT JOIN vehicles v ON v.id = isp.vehicle_id
       WHERE k.sauda_id = $1
       ORDER BY isp.date DESC
     `;
@@ -61,6 +63,22 @@ export class PurchaseSummaryDAO {
     const totalBags = lots.reduce((sum, lot) => sum + parseInt(lot.no_of_bags || '0', 10), 0);
     const totalWeight = lots.reduce((sum, lot) => sum + parseFloat(lot.received_weight || '0'), 0);
     const baseAmount = lots.reduce((sum, lot) => sum + parseFloat(lot.amount || '0'), 0);
+    
+    // Validate consistency: sum of lot received_weight should equal sauda received_until_now
+    const receivedUntilNow = parseFloat(sauda.received_until_now || '0');
+    const weightDifference = Math.abs(totalWeight - receivedUntilNow);
+    if (weightDifference > 0.01) { // Allow small floating point differences
+      logger.warn('Weight mismatch detected', {
+        saudaId,
+        totalWeightFromLots: totalWeight,
+        receivedUntilNow,
+        difference: weightDifference
+      });
+    }
+    
+    // For partial saudas (completion_percentage < 100), use received_until_now as source of truth
+    const completionPercentage = sauda.completion_percentage ? parseFloat(sauda.completion_percentage) : null;
+    const isPartialSauda = completionPercentage !== null && completionPercentage < 100;
 
     // Step 2: Calculate cash discount
     let cashDiscountAmount = 0;
@@ -86,7 +104,9 @@ export class PurchaseSummaryDAO {
       if (brokerCommissionType === 'percentage') {
         brokerCommissionAmount = amountAfterDiscount * (brokerCommission / 100);
       } else if (brokerCommissionType === 'weight') {
-        brokerCommissionAmount = brokerCommission * totalWeight;
+        // For weight-based commission, use received_until_now if sauda is partial
+        const weightForCommission = isPartialSauda ? receivedUntilNow : totalWeight;
+        brokerCommissionAmount = brokerCommission * weightForCommission;
       } else {
         // rupees
         brokerCommissionAmount = brokerCommission;
@@ -99,9 +119,9 @@ export class PurchaseSummaryDAO {
     const transportationCost = isps.reduce((sum, isp) => sum + parseFloat(isp.transportation_cost || '0'), 0);
     const amountAfterTransportation = amountAfterCommission + transportationCost;
 
-    // Step 5: Calculate IGST
-    const igstAmount = amountAfterTransportation * (igstPercentage / 100);
-    const finalTotalAmount = amountAfterTransportation + igstAmount;
+    // Step 5: IGST removed - final total is amount after transportation
+    const igstAmount = 0;
+    const finalTotalAmount = amountAfterTransportation;
 
     // Format lot details
     const lotDetails: LotSummaryDetails[] = lots.map(lot => ({
@@ -142,6 +162,8 @@ export class PurchaseSummaryDAO {
       cash_discount: sauda.cash_discount ? parseFloat(sauda.cash_discount) : null,
       cash_discount_type: sauda.cash_discount_type,
       quantity: sauda.quantity ? parseFloat(sauda.quantity) : null,
+      received_until_now: receivedUntilNow,
+      completion_percentage: completionPercentage,
       purchaser_id: sauda.purchaser_id,
       status: sauda.status,
     };
@@ -175,14 +197,16 @@ export class PurchaseSummaryDAO {
    * Returns combined summary with per-sauda breakdown
    */
   async getIspSummary(ispId: string, options: GetSummaryOptions = {}): Promise<PurchaseSummary> {
-    const igstPercentage = options.igst_percentage || 0;
+    // IGST removed - always set to 0
+    const igstPercentage = 0;
 
     // Get ISP details
     const ispQuery = `
-      SELECT id, slip_number, date, vehicle_number, party_name, 
-             transporter_id, transportation_cost
-      FROM inward_slip_passes
-      WHERE id = $1
+      SELECT isp.id, isp.slip_number, isp.date, v.vehicle_number, isp.party_name, 
+             isp.transporter_id, isp.transportation_cost
+      FROM inward_slip_passes isp
+      LEFT JOIN vehicles v ON v.id = isp.vehicle_id
+      WHERE isp.id = $1
     `;
     const ispResult = await db.query(ispQuery, [ispId]);
     

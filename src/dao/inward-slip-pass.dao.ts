@@ -7,7 +7,7 @@ export class InwardSlipPassDAO {
     let query = `
       SELECT isp.id, isp.slip_number, isp.date, isp.vehicle_id, isp.party_name, isp.party_address,
              isp.party_gst_number, isp.party_pan_number, isp.transporter_id, isp.transportation_cost, isp.status, 
-             isp.inward_slip_bill_image_url, isp.transportation_bill_image_url,
+             isp.other_bills,
              isp.bill_pdf_url, isp.bilti_image_url, isp.bilti_pdf_url, isp.eway_bill_number, isp.eway_bill_url,
              isp.notes, isp.created_at, isp.updated_at, isp.created_by, isp.updated_by
       FROM inward_slip_passes isp
@@ -27,29 +27,41 @@ export class InwardSlipPassDAO {
 
     query += ` ORDER BY isp.date DESC, isp.created_at DESC`;
 
-    const result = await db.query<InwardSlipPass>(query, params);
-    return result.rows;
+    const result = await db.query<any>(query, params);
+    // Parse JSONB other_bills to array
+    return result.rows.map(row => ({
+      ...row,
+      other_bills: row.other_bills ? JSON.parse(JSON.stringify(row.other_bills)) : []
+    }));
   }
 
   async findById(id: string): Promise<InwardSlipPass | null> {
     const query = `
       SELECT isp.id, isp.slip_number, isp.date, isp.vehicle_id, isp.party_name, isp.party_address,
              isp.party_gst_number, isp.party_pan_number, isp.transporter_id, isp.transportation_cost, isp.status, 
-             isp.inward_slip_bill_image_url, isp.transportation_bill_image_url,
+             isp.other_bills,
              isp.bill_pdf_url, isp.bilti_image_url, isp.bilti_pdf_url, isp.eway_bill_number, isp.eway_bill_url,
              isp.notes, isp.created_at, isp.updated_at, isp.created_by, isp.updated_by
       FROM inward_slip_passes isp
       WHERE isp.id = $1
     `;
-    const result = await db.query<InwardSlipPass>(query, [id]);
-    return result.rows[0] || null;
+    const result = await db.query<any>(query, [id]);
+    if (result.rows.length === 0) {
+      return null;
+    }
+    const row = result.rows[0];
+    // Parse JSONB other_bills to array
+    return {
+      ...row,
+      other_bills: row.other_bills ? JSON.parse(JSON.stringify(row.other_bills)) : []
+    };
   }
 
   async create(inwardSlipPassData: CreateInwardSlipPassDTO): Promise<InwardSlipPass> {
     const insertQuery = `
       INSERT INTO inward_slip_passes (slip_number, date, vehicle_id, party_name,
-                                      party_address, party_gst_number, party_pan_number, transporter_id, transportation_cost, status, inward_slip_bill_image_url,
-                                      transportation_bill_image_url, bill_pdf_url, bilti_image_url,
+                                      party_address, party_gst_number, party_pan_number, transporter_id, transportation_cost, status, other_bills,
+                                      bill_pdf_url, bilti_image_url,
                                       bilti_pdf_url, eway_bill_number, eway_bill_url, notes, created_by)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
       RETURNING id
@@ -66,8 +78,7 @@ export class InwardSlipPassDAO {
       inwardSlipPassData.transporter_id || null,
       inwardSlipPassData.transportation_cost || null,
       inwardSlipPassData.status || 'pending',
-      inwardSlipPassData.inward_slip_bill_image_url || null,
-      inwardSlipPassData.transportation_bill_image_url || null,
+      JSON.stringify(inwardSlipPassData.other_bills || []),
       inwardSlipPassData.bill_pdf_url || null,
       inwardSlipPassData.bilti_image_url || null,
       inwardSlipPassData.bilti_pdf_url || null,
@@ -140,13 +151,9 @@ export class InwardSlipPassDAO {
       fields.push(`status = $${paramCount++}`);
       values.push(inwardSlipPassData.status);
     }
-    if (inwardSlipPassData.inward_slip_bill_image_url !== undefined) {
-      fields.push(`inward_slip_bill_image_url = $${paramCount++}`);
-      values.push(inwardSlipPassData.inward_slip_bill_image_url || null);
-    }
-    if (inwardSlipPassData.transportation_bill_image_url !== undefined) {
-      fields.push(`transportation_bill_image_url = $${paramCount++}`);
-      values.push(inwardSlipPassData.transportation_bill_image_url || null);
+    if (inwardSlipPassData.other_bills !== undefined) {
+      fields.push(`other_bills = $${paramCount++}::jsonb`);
+      values.push(JSON.stringify(inwardSlipPassData.other_bills || []));
     }
     if (inwardSlipPassData.bill_pdf_url !== undefined) {
       fields.push(`bill_pdf_url = $${paramCount++}`);
@@ -221,6 +228,9 @@ export class InwardSlipPassDAO {
 }
 
 export const inwardSlipPassDAO = new InwardSlipPassDAO();
+
+
+
 
 
 

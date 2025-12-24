@@ -15,6 +15,8 @@ export interface Sauda {
   broker_commission: number | null;
   broker_commission_type: BrokerCommissionType;
   quantity: number | null;
+  received_until_now: number;
+  completion_percentage: number | null;
   cash_discount: number | null;
   cash_discount_type: CashDiscountType;
   estimated_delivery_time: number | null;
@@ -79,6 +81,8 @@ export interface SaudaResponse {
   broker_commission: number | null;
   broker_commission_type: BrokerCommissionType;
   quantity: number | null;
+  received_until_now: number;
+  completion_percentage: number | null;
   cash_discount: number | null;
   cash_discount_type: CashDiscountType;
   estimated_delivery_time: number | null;

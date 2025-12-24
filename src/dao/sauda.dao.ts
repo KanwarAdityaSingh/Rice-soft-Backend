@@ -11,7 +11,7 @@ export class SaudaDAO {
   ): Promise<Sauda[]> {
     let query = `
       SELECT id, sauda_type, rice_type, rice_code_id, rate, broker_id, broker_commission, broker_commission_type,
-             quantity, cash_discount, cash_discount_type, estimated_delivery_time,
+             quantity, received_until_now, completion_percentage, cash_discount, cash_discount_type, estimated_delivery_time,
              purchaser_id, cooked_rice_image_url, uncooked_rice_image_url, status, notes,
              created_at, updated_at, created_by, updated_by
       FROM saudas
@@ -49,7 +49,7 @@ export class SaudaDAO {
   async findById(id: string): Promise<Sauda | null> {
     const query = `
       SELECT id, sauda_type, rice_type, rice_code_id, rate, broker_id, broker_commission, broker_commission_type,
-             quantity, cash_discount, cash_discount_type, estimated_delivery_time,
+             quantity, received_until_now, completion_percentage, cash_discount, cash_discount_type, estimated_delivery_time,
              purchaser_id, cooked_rice_image_url, uncooked_rice_image_url, status, notes,
              created_at, updated_at, created_by, updated_by
       FROM saudas
@@ -66,7 +66,7 @@ export class SaudaDAO {
                          purchaser_id, cooked_rice_image_url, uncooked_rice_image_url, status, notes, created_by)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
       RETURNING id, sauda_type, rice_type, rice_code_id, rate, broker_id, broker_commission, broker_commission_type,
-                quantity, cash_discount, cash_discount_type, estimated_delivery_time,
+                quantity, received_until_now, completion_percentage, cash_discount, cash_discount_type, estimated_delivery_time,
                 purchaser_id, cooked_rice_image_url, uncooked_rice_image_url, status, notes,
                 created_at, updated_at, created_by, updated_by
     `;
@@ -187,7 +187,7 @@ export class SaudaDAO {
       SET ${fields.join(', ')}
       WHERE id = $${paramCount}
       RETURNING id, sauda_type, rice_type, rice_code_id, rate, broker_id, broker_commission, broker_commission_type,
-                quantity, cash_discount, cash_discount_type, estimated_delivery_time,
+                quantity, received_until_now, completion_percentage, cash_discount, cash_discount_type, estimated_delivery_time,
                 purchaser_id, cooked_rice_image_url, uncooked_rice_image_url, status, notes,
                 created_at, updated_at, created_by, updated_by
     `;
@@ -201,6 +201,30 @@ export class SaudaDAO {
       return result.rows[0];
     } catch (error) {
       logger.error('Error updating sauda', { error, id });
+      throw error;
+    }
+  }
+
+  /**
+   * Recalculate received_until_now for a sauda by summing all kaanta weights
+   * This method is called when kaantas are created, updated, or deleted
+   */
+  async recalculateReceivedWeight(saudaId: string): Promise<void> {
+    const query = `
+      UPDATE saudas
+      SET received_until_now = COALESCE((
+        SELECT SUM(COALESCE(kaanta_weight, 0))
+        FROM kaantas
+        WHERE sauda_id = $1
+      ), 0)
+      WHERE id = $1
+    `;
+    
+    try {
+      await db.query(query, [saudaId]);
+      logger.info('Sauda received weight recalculated', { saudaId });
+    } catch (error) {
+      logger.error('Error recalculating sauda received weight', { error, saudaId });
       throw error;
     }
   }

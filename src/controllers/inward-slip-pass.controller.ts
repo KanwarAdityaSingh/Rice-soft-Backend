@@ -44,8 +44,7 @@ export class InwardSlipPassController {
             transporter_id: pass.transporter_id,
             transportation_cost: pass.transportation_cost ? parseFloat(pass.transportation_cost.toString()) : null,
             status: pass.status,
-            inward_slip_bill_image_url: pass.inward_slip_bill_image_url,
-            transportation_bill_image_url: pass.transportation_bill_image_url,
+            other_bills: pass.other_bills,
             bill_pdf_url: pass.bill_pdf_url,
             bilti_image_url: pass.bilti_image_url,
             bilti_pdf_url: pass.bilti_pdf_url,
@@ -88,8 +87,7 @@ export class InwardSlipPassController {
         transporter_id: inwardSlipPass.transporter_id,
         transportation_cost: inwardSlipPass.transportation_cost ? parseFloat(inwardSlipPass.transportation_cost.toString()) : null,
         status: inwardSlipPass.status,
-        inward_slip_bill_image_url: inwardSlipPass.inward_slip_bill_image_url,
-        transportation_bill_image_url: inwardSlipPass.transportation_bill_image_url,
+        other_bills: inwardSlipPass.other_bills,
         bill_pdf_url: inwardSlipPass.bill_pdf_url,
         bilti_image_url: inwardSlipPass.bilti_image_url,
         bilti_pdf_url: inwardSlipPass.bilti_pdf_url,
@@ -166,8 +164,7 @@ export class InwardSlipPassController {
         transporter_id: inwardSlipPass.transporter_id,
         transportation_cost: inwardSlipPass.transportation_cost ? parseFloat(inwardSlipPass.transportation_cost.toString()) : null,
         status: inwardSlipPass.status,
-        inward_slip_bill_image_url: inwardSlipPass.inward_slip_bill_image_url,
-        transportation_bill_image_url: inwardSlipPass.transportation_bill_image_url,
+        other_bills: inwardSlipPass.other_bills,
         bill_pdf_url: inwardSlipPass.bill_pdf_url,
         bilti_image_url: inwardSlipPass.bilti_image_url,
         bilti_pdf_url: inwardSlipPass.bilti_pdf_url,
@@ -252,8 +249,7 @@ export class InwardSlipPassController {
         transporter_id: inwardSlipPass.transporter_id,
         transportation_cost: inwardSlipPass.transportation_cost ? parseFloat(inwardSlipPass.transportation_cost.toString()) : null,
         status: inwardSlipPass.status,
-        inward_slip_bill_image_url: inwardSlipPass.inward_slip_bill_image_url,
-        transportation_bill_image_url: inwardSlipPass.transportation_bill_image_url,
+        other_bills: inwardSlipPass.other_bills,
         bill_pdf_url: inwardSlipPass.bill_pdf_url,
         bilti_image_url: inwardSlipPass.bilti_image_url,
         bilti_pdf_url: inwardSlipPass.bilti_pdf_url,
@@ -303,8 +299,7 @@ export class InwardSlipPassController {
         transporter_id: inwardSlipPass.transporter_id,
         transportation_cost: inwardSlipPass.transportation_cost ? parseFloat(inwardSlipPass.transportation_cost.toString()) : null,
         status: inwardSlipPass.status,
-        inward_slip_bill_image_url: inwardSlipPass.inward_slip_bill_image_url,
-        transportation_bill_image_url: inwardSlipPass.transportation_bill_image_url,
+        other_bills: inwardSlipPass.other_bills,
         bill_pdf_url: inwardSlipPass.bill_pdf_url,
         bilti_image_url: inwardSlipPass.bilti_image_url,
         bilti_pdf_url: inwardSlipPass.bilti_pdf_url,
@@ -321,19 +316,30 @@ export class InwardSlipPassController {
     }
   }
 
-  async uploadBillImage(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+  async uploadOtherBill(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const id = validate<string>(uuidSchema, req.params.id);
+      const { name } = req.body;
 
       if (!req.file) {
-        throw new ValidationError('No file uploaded');
+        throw new ValidationError('File is required');
+      }
+
+      if (!name || typeof name !== 'string' || name.trim() === '') {
+        throw new ValidationError('Bill name is required');
       }
 
       // Validate file type (images and PDFs)
-      validateFileType(req.file.mimetype, ['image/jpeg', 'image/png', 'image/jpg', 'application/pdf']);
+      validateFileType(req.file.mimetype, ['image/jpeg', 'image/png', 'image/jpg', 'image/gif', 'application/pdf']);
 
       // Validate file size (max 10MB)
       validateFileSize(req.file.size, 10);
+
+      // Get current ISP to access existing other_bills
+      const currentISP = await inwardSlipPassDAO.findById(id);
+      if (!currentISP) {
+        throw new NotFoundError('Inward slip pass not found');
+      }
 
       // Upload to S3
       const uploadResult = await uploadToS3(
@@ -342,9 +348,18 @@ export class InwardSlipPassController {
         appConfig.aws.s3.inwardSlipBillsFolder
       );
 
-      // Update inward slip pass with the image URL
+      // Add new bill to other_bills array
+      const newBill = {
+        name: name.trim(),
+        url: uploadResult.url,
+        uploaded_at: new Date().toISOString(),
+      };
+
+      const updatedOtherBills = [...(currentISP.other_bills || []), newBill];
+
+      // Update inward slip pass with the new bill added to other_bills
       const inwardSlipPass = await inwardSlipPassDAO.update(id, {
-        inward_slip_bill_image_url: uploadResult.url,
+        other_bills: updatedOtherBills,
         updated_by: req.user?.userId,
       });
 
@@ -352,31 +367,40 @@ export class InwardSlipPassController {
         throw new NotFoundError('Inward slip pass not found');
       }
 
-      return ResponseHandler.success(res, { url: uploadResult.url }, 'Inward slip bill image uploaded successfully');
+      return ResponseHandler.success(res, { bill: newBill }, 'Other bill uploaded successfully');
     } catch (error) {
       next(error);
     }
   }
 
-  async uploadTransportationBill(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+  async deleteOtherBill(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const id = validate<string>(uuidSchema, req.params.id);
+      const { url } = req.body;
 
-      if (!req.file) {
-        throw new ValidationError('File is required');
+      if (!url || typeof url !== 'string') {
+        throw new ValidationError('Bill URL is required');
       }
 
-      validateFileSize(req.file.size, 10);
-      validateFileType(req.file.mimetype, ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'application/pdf']);
+      // Get current ISP to access existing other_bills
+      const currentISP = await inwardSlipPassDAO.findById(id);
+      if (!currentISP) {
+        throw new NotFoundError('Inward slip pass not found');
+      }
 
-      const uploadResult = await uploadToS3(
-        req.file.buffer,
-        req.file.originalname,
-        appConfig.aws.s3.transportationBillsFolder
+      // Remove bill from other_bills array
+      const updatedOtherBills = (currentISP.other_bills || []).filter(
+        (bill) => bill.url !== url
       );
 
+      // Check if bill was actually removed
+      if (updatedOtherBills.length === (currentISP.other_bills || []).length) {
+        throw new NotFoundError('Bill not found in other bills');
+      }
+
+      // Update inward slip pass with the bill removed from other_bills
       const inwardSlipPass = await inwardSlipPassDAO.update(id, {
-        transportation_bill_image_url: uploadResult.url,
+        other_bills: updatedOtherBills,
         updated_by: req.user?.userId,
       });
 
@@ -384,7 +408,7 @@ export class InwardSlipPassController {
         throw new NotFoundError('Inward slip pass not found');
       }
 
-      return ResponseHandler.success(res, { url: uploadResult.url }, 'Transportation bill uploaded successfully');
+      return ResponseHandler.success(res, { other_bills: inwardSlipPass.other_bills }, 'Other bill deleted successfully');
     } catch (error) {
       next(error);
     }
