@@ -484,6 +484,7 @@ export const createKaantaSchema = Joi.object({
   inward_slip_pass_id: Joi.string().required().uuid(),
   full_truck_weight: Joi.number().required().min(0).precision(2),
   empty_truck_weight: Joi.number().required().min(0).precision(2),
+  said_sent_weight: Joi.number().optional().min(0).precision(2).allow(null),
   bag_weight: Joi.number().required().min(0).precision(2),
   no_of_bags: Joi.number().required().integer().min(1),
   bag_type: Joi.string().required().valid('jute', 'pp'),
