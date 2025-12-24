@@ -147,10 +147,12 @@ export class KaantaDAO {
         amount: createdLot.amount
       });
 
-      // Recalculate sauda's received_until_now and completion_percentage
-      await saudaDAO.recalculateReceivedWeight(kaantaData.sauda_id);
-
       await client.query('COMMIT');
+      
+      // Recalculate sauda's received_until_now and completion_percentage
+      // This must be done AFTER commit so the new kaanta is visible to the query
+      await saudaDAO.recalculateReceivedWeight(kaantaData.sauda_id);
+      
       return createdKaanta;
     } catch (error) {
       await client.query('ROLLBACK');
