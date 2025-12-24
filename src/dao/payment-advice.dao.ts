@@ -3,9 +3,9 @@ import { PaymentAdvice, CreatePaymentAdviceDTO, UpdatePaymentAdviceDTO, PaymentA
 import { logger } from '../utils/logger';
 
 export class PaymentAdviceDAO {
-  async findAll(purchaseId?: string, status?: PaymentAdviceStatus): Promise<PaymentAdvice[]> {
+  async findAll(saudaId?: string, ispId?: string, status?: PaymentAdviceStatus): Promise<PaymentAdvice[]> {
     let query = `
-      SELECT id, purchase_id, payer_id, recipient_id, sr_number, party_name, party_address,
+      SELECT id, sauda_id, inward_slip_pass_id, payer_id, recipient_id, sr_number, party_name, party_address,
              broker_name, invoice_number, invoice_date, truck_number, item, total_bags,
              due_date, bill_weight, kanta_weight, final_weight, rate, amount, transaction_id,
              date_of_payment, status, payment_slip_image_url, notes, created_at, updated_at,
@@ -17,9 +17,14 @@ export class PaymentAdviceDAO {
     const params: any[] = [];
     let paramCount = 1;
 
-    if (purchaseId) {
-      query += ` AND purchase_id = $${paramCount++}`;
-      params.push(purchaseId);
+    if (saudaId) {
+      query += ` AND sauda_id = $${paramCount++}`;
+      params.push(saudaId);
+    }
+
+    if (ispId) {
+      query += ` AND inward_slip_pass_id = $${paramCount++}`;
+      params.push(ispId);
     }
 
     if (status) {
@@ -35,7 +40,7 @@ export class PaymentAdviceDAO {
 
   async findById(id: string): Promise<PaymentAdvice | null> {
     const query = `
-      SELECT id, purchase_id, payer_id, recipient_id, sr_number, party_name, party_address,
+      SELECT id, sauda_id, inward_slip_pass_id, payer_id, recipient_id, sr_number, party_name, party_address,
              broker_name, invoice_number, invoice_date, truck_number, item, total_bags,
              due_date, bill_weight, kanta_weight, final_weight, rate, amount, transaction_id,
              date_of_payment, status, payment_slip_image_url, notes, created_at, updated_at,
@@ -49,13 +54,13 @@ export class PaymentAdviceDAO {
 
   async create(paymentAdviceData: CreatePaymentAdviceDTO): Promise<PaymentAdvice> {
     const query = `
-      INSERT INTO payment_advices (purchase_id, payer_id, recipient_id, sr_number, party_name,
+      INSERT INTO payment_advices (sauda_id, inward_slip_pass_id, payer_id, recipient_id, sr_number, party_name,
                                   party_address, broker_name, invoice_number, invoice_date,
                                   truck_number, item, total_bags, due_date, bill_weight,
                                   kanta_weight, final_weight, rate, amount, transaction_id,
                                   date_of_payment, status, payment_slip_image_url, notes, created_by)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
-      RETURNING id, purchase_id, payer_id, recipient_id, sr_number, party_name, party_address,
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
+      RETURNING id, sauda_id, inward_slip_pass_id, payer_id, recipient_id, sr_number, party_name, party_address,
                 broker_name, invoice_number, invoice_date, truck_number, item, total_bags,
                 due_date, bill_weight, kanta_weight, final_weight, rate, amount, transaction_id,
                 date_of_payment, status, payment_slip_image_url, notes, created_at, updated_at,
@@ -63,7 +68,8 @@ export class PaymentAdviceDAO {
     `;
     
     const values = [
-      paymentAdviceData.purchase_id || null,
+      paymentAdviceData.sauda_id || null,
+      paymentAdviceData.inward_slip_pass_id || null,
       paymentAdviceData.payer_id,
       paymentAdviceData.recipient_id,
       paymentAdviceData.sr_number || null,
@@ -104,9 +110,13 @@ export class PaymentAdviceDAO {
     const values: any[] = [];
     let paramCount = 1;
 
-    if (paymentAdviceData.purchase_id !== undefined) {
-      fields.push(`purchase_id = $${paramCount++}`);
-      values.push(paymentAdviceData.purchase_id || null);
+    if (paymentAdviceData.sauda_id !== undefined) {
+      fields.push(`sauda_id = $${paramCount++}`);
+      values.push(paymentAdviceData.sauda_id || null);
+    }
+    if (paymentAdviceData.inward_slip_pass_id !== undefined) {
+      fields.push(`inward_slip_pass_id = $${paramCount++}`);
+      values.push(paymentAdviceData.inward_slip_pass_id || null);
     }
     if (paymentAdviceData.payer_id !== undefined) {
       fields.push(`payer_id = $${paramCount++}`);
@@ -234,7 +244,7 @@ export class PaymentAdviceDAO {
       UPDATE payment_advices
       SET ${fields.join(', ')}
       WHERE id = $${paramCount}
-      RETURNING id, purchase_id, payer_id, recipient_id, sr_number, party_name, party_address,
+      RETURNING id, sauda_id, inward_slip_pass_id, payer_id, recipient_id, sr_number, party_name, party_address,
                 broker_name, invoice_number, invoice_date, truck_number, item, total_bags,
                 due_date, bill_weight, kanta_weight, final_weight, rate, amount, transaction_id,
                 date_of_payment, status, payment_slip_image_url, notes, created_at, updated_at,
@@ -255,16 +265,11 @@ export class PaymentAdviceDAO {
   }
 
   async delete(id: string): Promise<boolean> {
-    // Note: The FK constraint (ON DELETE SET NULL) will automatically set 
-    // purchases.payment_advice_id to NULL when this payment advice is deleted
-    // This is handled by the database constraint defined in migration 030
     const query = `DELETE FROM payment_advices WHERE id = $1`;
     const result = await db.query(query, [id]);
     const deleted = (result.rowCount || 0) > 0;
     if (deleted) {
       logger.info('Payment advice deleted', { id });
-      // The FK constraint automatically updates purchases.payment_advice_id to NULL
-      // No manual recalculation needed as purchase totals are independent
     }
     return deleted;
   }

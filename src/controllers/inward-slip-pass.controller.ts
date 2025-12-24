@@ -3,6 +3,7 @@ import { inwardSlipPassDAO } from '../dao/inward-slip-pass.dao';
 import { inwardSlipPassSaudaDAO } from '../dao/inward-slip-pass-sauda.dao';
 import { saudaDAO } from '../dao/sauda.dao';
 import { transporterDAO } from '../dao/transporter.dao';
+import { vehicleDAO } from '../dao/vehicle.dao';
 import { ResponseHandler } from '../utils/response';
 import {
   validate,
@@ -35,7 +36,7 @@ export class InwardSlipPassController {
             sauda_ids: saudaIds,
             slip_number: pass.slip_number,
             date: pass.date.toISOString().split('T')[0],
-            vehicle_number: pass.vehicle_number,
+            vehicle_id: pass.vehicle_id,
             party_name: pass.party_name,
             party_address: pass.party_address,
             party_gst_number: pass.party_gst_number,
@@ -50,9 +51,6 @@ export class InwardSlipPassController {
             bilti_pdf_url: pass.bilti_pdf_url,
             eway_bill_number: pass.eway_bill_number,
             eway_bill_url: pass.eway_bill_url,
-            full_truck_weight: pass.full_truck_weight ? parseFloat(pass.full_truck_weight.toString()) : null,
-            empty_truck_weight: pass.empty_truck_weight ? parseFloat(pass.empty_truck_weight.toString()) : null,
-            kaanta_weight: pass.kaanta_weight ? parseFloat(pass.kaanta_weight.toString()) : null,
             notes: pass.notes,
             created_at: pass.created_at.toISOString(),
             updated_at: pass.updated_at.toISOString(),
@@ -82,7 +80,7 @@ export class InwardSlipPassController {
         sauda_ids: saudaIds,
         slip_number: inwardSlipPass.slip_number,
         date: inwardSlipPass.date.toISOString().split('T')[0],
-        vehicle_number: inwardSlipPass.vehicle_number,
+        vehicle_id: inwardSlipPass.vehicle_id,
         party_name: inwardSlipPass.party_name,
         party_address: inwardSlipPass.party_address,
         party_gst_number: inwardSlipPass.party_gst_number,
@@ -97,9 +95,6 @@ export class InwardSlipPassController {
         bilti_pdf_url: inwardSlipPass.bilti_pdf_url,
         eway_bill_number: inwardSlipPass.eway_bill_number,
         eway_bill_url: inwardSlipPass.eway_bill_url,
-        full_truck_weight: inwardSlipPass.full_truck_weight ? parseFloat(inwardSlipPass.full_truck_weight.toString()) : null,
-        empty_truck_weight: inwardSlipPass.empty_truck_weight ? parseFloat(inwardSlipPass.empty_truck_weight.toString()) : null,
-        kaanta_weight: inwardSlipPass.kaanta_weight ? parseFloat(inwardSlipPass.kaanta_weight.toString()) : null,
         notes: inwardSlipPass.notes,
         created_at: inwardSlipPass.created_at.toISOString(),
         updated_at: inwardSlipPass.updated_at.toISOString(),
@@ -114,6 +109,12 @@ export class InwardSlipPassController {
   async create(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const inwardSlipPassData = validate<CreateInwardSlipPassDTO>(createInwardSlipPassSchema, req.body);
+
+      // Validate vehicle exists
+      const vehicle = await vehicleDAO.findById(inwardSlipPassData.vehicle_id);
+      if (!vehicle) {
+        throw new NotFoundError('Vehicle not found');
+      }
 
       // Validate saudas exist if provided
       if (inwardSlipPassData.sauda_ids && inwardSlipPassData.sauda_ids.length > 0) {
@@ -157,7 +158,7 @@ export class InwardSlipPassController {
         sauda_ids: linkedSaudaIds,
         slip_number: inwardSlipPass.slip_number,
         date: inwardSlipPass.date.toISOString().split('T')[0],
-        vehicle_number: inwardSlipPass.vehicle_number,
+        vehicle_id: inwardSlipPass.vehicle_id,
         party_name: inwardSlipPass.party_name,
         party_address: inwardSlipPass.party_address,
         party_gst_number: inwardSlipPass.party_gst_number,
@@ -172,9 +173,6 @@ export class InwardSlipPassController {
         bilti_pdf_url: inwardSlipPass.bilti_pdf_url,
         eway_bill_number: inwardSlipPass.eway_bill_number,
         eway_bill_url: inwardSlipPass.eway_bill_url,
-        full_truck_weight: inwardSlipPass.full_truck_weight ? parseFloat(inwardSlipPass.full_truck_weight.toString()) : null,
-        empty_truck_weight: inwardSlipPass.empty_truck_weight ? parseFloat(inwardSlipPass.empty_truck_weight.toString()) : null,
-        kaanta_weight: inwardSlipPass.kaanta_weight ? parseFloat(inwardSlipPass.kaanta_weight.toString()) : null,
         notes: inwardSlipPass.notes,
         created_at: inwardSlipPass.created_at.toISOString(),
         updated_at: inwardSlipPass.updated_at.toISOString(),
@@ -246,7 +244,7 @@ export class InwardSlipPassController {
         sauda_ids: linkedSaudaIds,
         slip_number: inwardSlipPass.slip_number,
         date: inwardSlipPass.date.toISOString().split('T')[0],
-        vehicle_number: inwardSlipPass.vehicle_number,
+        vehicle_id: inwardSlipPass.vehicle_id,
         party_name: inwardSlipPass.party_name,
         party_address: inwardSlipPass.party_address,
         party_gst_number: inwardSlipPass.party_gst_number,
@@ -261,9 +259,6 @@ export class InwardSlipPassController {
         bilti_pdf_url: inwardSlipPass.bilti_pdf_url,
         eway_bill_number: inwardSlipPass.eway_bill_number,
         eway_bill_url: inwardSlipPass.eway_bill_url,
-        full_truck_weight: inwardSlipPass.full_truck_weight ? parseFloat(inwardSlipPass.full_truck_weight.toString()) : null,
-        empty_truck_weight: inwardSlipPass.empty_truck_weight ? parseFloat(inwardSlipPass.empty_truck_weight.toString()) : null,
-        kaanta_weight: inwardSlipPass.kaanta_weight ? parseFloat(inwardSlipPass.kaanta_weight.toString()) : null,
         notes: inwardSlipPass.notes,
         created_at: inwardSlipPass.created_at.toISOString(),
         updated_at: inwardSlipPass.updated_at.toISOString(),
@@ -300,7 +295,7 @@ export class InwardSlipPassController {
         sauda_ids: saudaIds,
         slip_number: inwardSlipPass.slip_number,
         date: inwardSlipPass.date.toISOString().split('T')[0],
-        vehicle_number: inwardSlipPass.vehicle_number,
+        vehicle_id: inwardSlipPass.vehicle_id,
         party_name: inwardSlipPass.party_name,
         party_address: inwardSlipPass.party_address,
         party_gst_number: inwardSlipPass.party_gst_number,
@@ -315,9 +310,6 @@ export class InwardSlipPassController {
         bilti_pdf_url: inwardSlipPass.bilti_pdf_url,
         eway_bill_number: inwardSlipPass.eway_bill_number,
         eway_bill_url: inwardSlipPass.eway_bill_url,
-        full_truck_weight: inwardSlipPass.full_truck_weight ? parseFloat(inwardSlipPass.full_truck_weight.toString()) : null,
-        empty_truck_weight: inwardSlipPass.empty_truck_weight ? parseFloat(inwardSlipPass.empty_truck_weight.toString()) : null,
-        kaanta_weight: inwardSlipPass.kaanta_weight ? parseFloat(inwardSlipPass.kaanta_weight.toString()) : null,
         notes: inwardSlipPass.notes,
         created_at: inwardSlipPass.created_at.toISOString(),
         updated_at: inwardSlipPass.updated_at.toISOString(),

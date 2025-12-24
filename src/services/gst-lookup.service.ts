@@ -92,6 +92,46 @@ export interface BankVerificationResult {
 }
 
 /**
+ * Surepass RC Verification API Response Interface
+ */
+export interface SurepassRCVerificationResponse {
+  success: boolean;
+  status_code: number;
+  message: string;
+  message_code?: string;
+  data?: {
+    rc_number: string;
+    owner_name: string;
+    vehicle_class: string;
+    fuel_type: string;
+    maker_model: string;
+    registration_date: string;
+    insurance_validity: string;
+    fitness_validity: string;
+    permit_validity?: string;
+    challan_details?: any[];
+    [key: string]: any;
+  };
+}
+
+/**
+ * Vehicle Verification Result Interface
+ */
+export interface VehicleVerificationResult {
+  vehicle_number: string;
+  rc_number: string;
+  owner_name: string;
+  vehicle_class: string;
+  fuel_type: string;
+  maker_model: string;
+  registration_date: string;
+  insurance_validity: string;
+  fitness_validity: string;
+  permit_validity: string | null;
+  challan_details: any[];
+}
+
+/**
  * MastersIndia Auth Token Response Interface
  */
 export interface MastersIndiaTokenResponse {
@@ -721,6 +761,86 @@ export class GSTLookupService {
     // GST checksum validation logic can be implemented here
     // For now, just format validation
     return true;
+  }
+
+  /**
+   * Verify Vehicle RC using Surepass API
+   * @param vehicleNumber - Vehicle registration number (e.g., DL01AB1234)
+   * @returns Vehicle verification result with details
+   */
+  static async verifyVehicleRC(vehicleNumber: string): Promise<VehicleVerificationResult> {
+    try {
+      // Clean and validate vehicle number
+      const cleanedVehicleNumber = vehicleNumber.trim().toUpperCase().replace(/\s+/g, '');
+      
+      if (!cleanedVehicleNumber) {
+        throw new ValidationError('Vehicle number is required');
+      }
+
+      logger.info('Verifying vehicle RC via Surepass', { vehicleNumber: cleanedVehicleNumber });
+
+      const response = await fetch(appConfig.apis.surepass.rcVerificationUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${appConfig.apis.surepass.token}`,
+        },
+        body: JSON.stringify({
+          id_number: cleanedVehicleNumber,
+        }),
+      });
+
+      if (!response.ok) {
+        logger.error('Surepass RC verification API error', {
+          status: response.status,
+          statusText: response.statusText,
+        });
+        throw new InternalServerError(`RC verification failed: ${response.statusText}`);
+      }
+
+      const data = await response.json() as SurepassRCVerificationResponse;
+
+      if (!data.success || data.status_code !== 200) {
+        logger.warn('RC verification unsuccessful', {
+          vehicleNumber: cleanedVehicleNumber,
+          message: data.message,
+          status_code: data.status_code,
+        });
+        throw new BadRequestError(data.message || 'Vehicle verification failed');
+      }
+
+      if (!data.data) {
+        throw new BadRequestError('No vehicle data returned from verification');
+      }
+
+      // Map Surepass response to our standard format
+      const result: VehicleVerificationResult = {
+        vehicle_number: cleanedVehicleNumber,
+        rc_number: data.data.rc_number || cleanedVehicleNumber,
+        owner_name: data.data.owner_name || '',
+        vehicle_class: data.data.vehicle_class || '',
+        fuel_type: data.data.fuel_type || '',
+        maker_model: data.data.maker_model || '',
+        registration_date: data.data.registration_date || '',
+        insurance_validity: data.data.insurance_validity || '',
+        fitness_validity: data.data.fitness_validity || '',
+        permit_validity: data.data.permit_validity || null,
+        challan_details: data.data.challan_details || [],
+      };
+
+      logger.info('Vehicle RC verified successfully', {
+        vehicleNumber: cleanedVehicleNumber,
+        ownerName: result.owner_name,
+      });
+
+      return result;
+    } catch (error) {
+      if (error instanceof ValidationError || error instanceof BadRequestError) {
+        throw error;
+      }
+      logger.error('Error verifying vehicle RC', { error, vehicleNumber });
+      throw new InternalServerError('Failed to verify vehicle RC');
+    }
   }
 }
 

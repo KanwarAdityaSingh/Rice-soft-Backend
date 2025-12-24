@@ -1,0 +1,726 @@
+===========================================
+IMAGE & DOCUMENT DISPLAY
+FRONTEND IMPLEMENTATION GUIDE
+===========================================
+
+## OVERVIEW
+
+The backend stores and returns URLs for uploaded images and documents across multiple entities. These URLs are S3 URLs that can be directly used in the frontend to display images or download documents.
+
+---
+
+## ENTITIES WITH IMAGE/DOCUMENT URLS
+
+### 1. Sauda (Rice Deal)
+- `cooked_rice_image_url` - Image of cooked rice sample
+- `uncooked_rice_image_url` - Image of uncooked rice sample
+
+### 2. Inward Slip Pass (ISP)
+- `inward_slip_bill_image_url` - Inward slip bill image
+- `transportation_bill_image_url` - Transportation bill image
+- `bill_pdf_url` - Purchase bill (can be PDF or image)
+- `bilti_image_url` - Bilti/LR image
+- `bilti_pdf_url` - Bilti/LR PDF
+- `eway_bill_url` - E-way bill document
+
+### 3. Payment Advice
+- `payment_slip_image_url` - Payment slip/receipt image
+
+---
+
+## API ENDPOINTS THAT RETURN IMAGE URLS
+
+### Sauda Endpoints
+
+**GET /api/v1/saudas**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "sauda-uuid",
+      "cooked_rice_image_url": "https://bucket.s3.region.amazonaws.com/cooked-rice/file.jpg",
+      "uncooked_rice_image_url": "https://bucket.s3.region.amazonaws.com/uncooked-rice/file.jpg",
+      // ... other fields
+    }
+  ]
+}
+```
+
+**GET /api/v1/saudas/:id**
+```json
+{
+  "success": true,
+  "data": {
+    "id": "sauda-uuid",
+    "cooked_rice_image_url": "https://bucket.s3.region.amazonaws.com/cooked-rice/file.jpg",
+    "uncooked_rice_image_url": "https://bucket.s3.region.amazonaws.com/uncooked-rice/file.jpg",
+    // ... other fields
+  }
+}
+```
+
+### ISP Endpoints
+
+**GET /api/v1/inward-slip-passes**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "isp-uuid",
+      "inward_slip_bill_image_url": "https://bucket.s3.region.amazonaws.com/inward-slip-bills/file.jpg",
+      "transportation_bill_image_url": "https://bucket.s3.region.amazonaws.com/transportation-bills/file.pdf",
+      "bill_pdf_url": "https://bucket.s3.region.amazonaws.com/purchase-bills/file.pdf",
+      "bilti_image_url": "https://bucket.s3.region.amazonaws.com/bilti/file.jpg",
+      "bilti_pdf_url": "https://bucket.s3.region.amazonaws.com/bilti/file.pdf",
+      "eway_bill_url": "https://bucket.s3.region.amazonaws.com/eway-bills/file.pdf",
+      // ... other fields
+    }
+  ]
+}
+```
+
+**GET /api/v1/inward-slip-passes/:id**
+```json
+{
+  "success": true,
+  "data": {
+    "id": "isp-uuid",
+    "inward_slip_bill_image_url": "https://bucket.s3.region.amazonaws.com/inward-slip-bills/file.jpg",
+    "transportation_bill_image_url": "https://bucket.s3.region.amazonaws.com/transportation-bills/file.pdf",
+    "bill_pdf_url": "https://bucket.s3.region.amazonaws.com/purchase-bills/file.pdf",
+    "bilti_image_url": "https://bucket.s3.region.amazonaws.com/bilti/file.jpg",
+    "bilti_pdf_url": "https://bucket.s3.region.amazonaws.com/bilti/file.pdf",
+    "eway_bill_url": "https://bucket.s3.region.amazonaws.com/eway-bills/file.pdf",
+    // ... other fields
+  }
+}
+```
+
+### Payment Advice Endpoints
+
+**GET /api/v1/payment-advices**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "payment-advice-uuid",
+      "payment_slip_image_url": "https://bucket.s3.region.amazonaws.com/payment-slips/file.jpg",
+      // ... other fields
+    }
+  ]
+}
+```
+
+**GET /api/v1/payment-advices/:id**
+```json
+{
+  "success": true,
+  "data": {
+    "id": "payment-advice-uuid",
+    "payment_slip_image_url": "https://bucket.s3.region.amazonaws.com/payment-slips/file.jpg",
+    // ... other fields
+  }
+}
+```
+
+---
+
+## FRONTEND IMPLEMENTATION
+
+### 1. Basic Image Display Component
+
+```typescript
+interface ImageDisplayProps {
+  url: string | null;
+  alt: string;
+  fallbackText?: string;
+}
+
+const ImageDisplay: React.FC<ImageDisplayProps> = ({ 
+  url, 
+  alt, 
+  fallbackText = "No image available" 
+}) => {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+
+  if (!url) {
+    return (
+      <div className="no-image-placeholder">
+        <p>{fallbackText}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="image-container">
+      {loading && <div className="loading-spinner">Loading...</div>}
+      {error && <div className="error-message">Failed to load image</div>}
+      <img
+        src={url}
+        alt={alt}
+        onLoad={() => setLoading(false)}
+        onError={() => {
+          setLoading(false);
+          setError(true);
+        }}
+        style={{ display: loading || error ? 'none' : 'block' }}
+      />
+    </div>
+  );
+};
+```
+
+### 2. Document/PDF Display Component
+
+```typescript
+interface DocumentDisplayProps {
+  url: string | null;
+  fileName?: string;
+  type?: 'pdf' | 'image';
+}
+
+const DocumentDisplay: React.FC<DocumentDisplayProps> = ({ 
+  url, 
+  fileName = "Document",
+  type 
+}) => {
+  if (!url) {
+    return <p>No document available</p>;
+  }
+
+  // Determine type from URL if not provided
+  const isPdf = type === 'pdf' || url.toLowerCase().endsWith('.pdf');
+
+  const handleDownload = () => {
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    link.target = '_blank';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleView = () => {
+    window.open(url, '_blank');
+  };
+
+  return (
+    <div className="document-display">
+      {isPdf ? (
+        <div className="pdf-controls">
+          <button onClick={handleView}>View PDF</button>
+          <button onClick={handleDownload}>Download PDF</button>
+        </div>
+      ) : (
+        <div className="image-preview">
+          <img src={url} alt={fileName} />
+          <button onClick={handleDownload}>Download</button>
+        </div>
+      )}
+    </div>
+  );
+};
+```
+
+### 3. Image Gallery Component (for multiple images)
+
+```typescript
+interface ImageGalleryProps {
+  images: Array<{
+    url: string | null;
+    label: string;
+  }>;
+}
+
+const ImageGallery: React.FC<ImageGalleryProps> = ({ images }) => {
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+
+  const validImages = images.filter(img => img.url !== null);
+
+  if (validImages.length === 0) {
+    return <p>No images available</p>;
+  }
+
+  return (
+    <div className="image-gallery">
+      <div className="thumbnail-grid">
+        {validImages.map((image, index) => (
+          <div 
+            key={index} 
+            className="thumbnail-item"
+            onClick={() => setSelectedImage(image.url)}
+          >
+            <img src={image.url!} alt={image.label} />
+            <p>{image.label}</p>
+          </div>
+        ))}
+      </div>
+
+      {selectedImage && (
+        <div className="lightbox" onClick={() => setSelectedImage(null)}>
+          <div className="lightbox-content" onClick={(e) => e.stopPropagation()}>
+            <button 
+              className="close-button" 
+              onClick={() => setSelectedImage(null)}
+            >
+              ×
+            </button>
+            <img src={selectedImage} alt="Full size" />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+```
+
+---
+
+## USAGE EXAMPLES
+
+### Sauda Detail Page
+
+```typescript
+const SaudaDetailPage: React.FC<{ saudaId: string }> = ({ saudaId }) => {
+  const [sauda, setSauda] = useState<any>(null);
+
+  useEffect(() => {
+    fetch(`/api/v1/saudas/${saudaId}`)
+      .then(res => res.json())
+      .then(data => setSauda(data.data));
+  }, [saudaId]);
+
+  if (!sauda) return <div>Loading...</div>;
+
+  return (
+    <div className="sauda-detail">
+      <h1>Sauda Details</h1>
+      
+      <div className="rice-images">
+        <div className="image-section">
+          <h3>Cooked Rice Sample</h3>
+          <ImageDisplay 
+            url={sauda.cooked_rice_image_url}
+            alt="Cooked Rice"
+            fallbackText="No cooked rice image"
+          />
+        </div>
+
+        <div className="image-section">
+          <h3>Uncooked Rice Sample</h3>
+          <ImageDisplay 
+            url={sauda.uncooked_rice_image_url}
+            alt="Uncooked Rice"
+            fallbackText="No uncooked rice image"
+          />
+        </div>
+      </div>
+
+      {/* Other sauda details */}
+    </div>
+  );
+};
+```
+
+### ISP Detail Page with Document Gallery
+
+```typescript
+const ISPDetailPage: React.FC<{ ispId: string }> = ({ ispId }) => {
+  const [isp, setIsp] = useState<any>(null);
+
+  useEffect(() => {
+    fetch(`/api/v1/inward-slip-passes/${ispId}`)
+      .then(res => res.json())
+      .then(data => setIsp(data.data));
+  }, [ispId]);
+
+  if (!isp) return <div>Loading...</div>;
+
+  const documents = [
+    {
+      url: isp.inward_slip_bill_image_url,
+      label: "Inward Slip Bill",
+      type: "image"
+    },
+    {
+      url: isp.transportation_bill_image_url,
+      label: "Transportation Bill",
+      type: "image"
+    },
+    {
+      url: isp.bill_pdf_url,
+      label: "Purchase Bill",
+      type: "pdf"
+    },
+    {
+      url: isp.bilti_image_url,
+      label: "Bilti Image",
+      type: "image"
+    },
+    {
+      url: isp.bilti_pdf_url,
+      label: "Bilti PDF",
+      type: "pdf"
+    },
+    {
+      url: isp.eway_bill_url,
+      label: "E-way Bill",
+      type: "pdf"
+    }
+  ].filter(doc => doc.url !== null);
+
+  return (
+    <div className="isp-detail">
+      <h1>Inward Slip Pass Details</h1>
+      
+      <div className="documents-section">
+        <h2>Documents & Images</h2>
+        {documents.length === 0 ? (
+          <p>No documents uploaded</p>
+        ) : (
+          <div className="documents-grid">
+            {documents.map((doc, index) => (
+              <DocumentDisplay
+                key={index}
+                url={doc.url}
+                fileName={doc.label}
+                type={doc.type as 'pdf' | 'image'}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Other ISP details */}
+    </div>
+  );
+};
+```
+
+### Payment Advice Detail Page
+
+```typescript
+const PaymentAdviceDetailPage: React.FC<{ adviceId: string }> = ({ adviceId }) => {
+  const [advice, setAdvice] = useState<any>(null);
+
+  useEffect(() => {
+    fetch(`/api/v1/payment-advices/${adviceId}`)
+      .then(res => res.json())
+      .then(data => setAdvice(data.data));
+  }, [adviceId]);
+
+  if (!advice) return <div>Loading...</div>;
+
+  return (
+    <div className="payment-advice-detail">
+      <h1>Payment Advice Details</h1>
+      
+      <div className="payment-slip-section">
+        <h3>Payment Slip</h3>
+        <ImageDisplay 
+          url={advice.payment_slip_image_url}
+          alt="Payment Slip"
+          fallbackText="No payment slip uploaded"
+        />
+      </div>
+
+      {/* Other payment advice details */}
+    </div>
+  );
+};
+```
+
+### ISP List with Image Thumbnails
+
+```typescript
+const ISPListPage: React.FC = () => {
+  const [isps, setIsps] = useState<any[]>([]);
+
+  useEffect(() => {
+    fetch('/api/v1/inward-slip-passes')
+      .then(res => res.json())
+      .then(data => setIsps(data.data));
+  }, []);
+
+  return (
+    <div className="isp-list">
+      <h1>Inward Slip Passes</h1>
+      
+      <table>
+        <thead>
+          <tr>
+            <th>Slip Number</th>
+            <th>Date</th>
+            <th>Party Name</th>
+            <th>Documents</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {isps.map(isp => (
+            <tr key={isp.id}>
+              <td>{isp.slip_number}</td>
+              <td>{isp.date}</td>
+              <td>{isp.party_name}</td>
+              <td>
+                <div className="document-indicators">
+                  {isp.inward_slip_bill_image_url && (
+                    <span className="doc-badge" title="Inward Slip Bill">📄</span>
+                  )}
+                  {isp.transportation_bill_image_url && (
+                    <span className="doc-badge" title="Transportation Bill">🚚</span>
+                  )}
+                  {isp.bill_pdf_url && (
+                    <span className="doc-badge" title="Purchase Bill">📋</span>
+                  )}
+                  {isp.bilti_image_url && (
+                    <span className="doc-badge" title="Bilti">📦</span>
+                  )}
+                  {isp.eway_bill_url && (
+                    <span className="doc-badge" title="E-way Bill">🛣️</span>
+                  )}
+                </div>
+              </td>
+              <td>
+                <button onClick={() => viewISP(isp.id)}>View</button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+};
+```
+
+---
+
+## IMPORTANT NOTES
+
+### 1. URL Format
+- All URLs are complete S3 URLs
+- URLs are publicly accessible (no signing required)
+- URLs can be used directly in `<img>` tags or `href` attributes
+
+### 2. Null Handling
+- All image/document URL fields can be `null`
+- Always check for `null` before rendering
+- Provide appropriate fallback UI for missing images
+
+### 3. File Types
+- Image fields typically contain: `.jpg`, `.jpeg`, `.png`, `.gif`
+- PDF fields contain: `.pdf`
+- Some fields (like `bill_pdf_url`) can contain either images or PDFs
+- Check file extension or content-type if needed
+
+### 4. Performance Considerations
+- Consider lazy loading images in lists
+- Use thumbnail versions if available (currently not implemented)
+- Implement image caching on frontend
+- Show loading states while images load
+
+### 5. Error Handling
+- Handle 404 errors (image not found)
+- Handle network errors
+- Provide retry mechanism for failed loads
+- Show appropriate error messages
+
+---
+
+## STYLING RECOMMENDATIONS
+
+### Image Container
+```css
+.image-container {
+  position: relative;
+  width: 100%;
+  max-width: 600px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.image-container img {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.loading-spinner {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 200px;
+}
+
+.error-message {
+  padding: 20px;
+  text-align: center;
+  color: #d32f2f;
+  background-color: #ffebee;
+}
+
+.no-image-placeholder {
+  padding: 40px;
+  text-align: center;
+  background-color: #f5f5f5;
+  color: #757575;
+  border: 2px dashed #ddd;
+  border-radius: 8px;
+}
+```
+
+### Document Display
+```css
+.document-display {
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 16px;
+  margin: 8px 0;
+}
+
+.pdf-controls {
+  display: flex;
+  gap: 12px;
+}
+
+.pdf-controls button {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 4px;
+  background-color: #1976d2;
+  color: white;
+  cursor: pointer;
+}
+
+.pdf-controls button:hover {
+  background-color: #1565c0;
+}
+```
+
+### Image Gallery
+```css
+.thumbnail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 16px;
+  margin: 20px 0;
+}
+
+.thumbnail-item {
+  cursor: pointer;
+  border: 2px solid #ddd;
+  border-radius: 8px;
+  overflow: hidden;
+  transition: transform 0.2s;
+}
+
+.thumbnail-item:hover {
+  transform: scale(1.05);
+  border-color: #1976d2;
+}
+
+.thumbnail-item img {
+  width: 100%;
+  height: 150px;
+  object-fit: cover;
+}
+
+.thumbnail-item p {
+  padding: 8px;
+  text-align: center;
+  font-size: 12px;
+  background-color: #f5f5f5;
+}
+
+.lightbox {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.9);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.lightbox-content {
+  position: relative;
+  max-width: 90%;
+  max-height: 90%;
+}
+
+.lightbox-content img {
+  max-width: 100%;
+  max-height: 90vh;
+  object-fit: contain;
+}
+
+.close-button {
+  position: absolute;
+  top: -40px;
+  right: 0;
+  background: none;
+  border: none;
+  color: white;
+  font-size: 40px;
+  cursor: pointer;
+}
+```
+
+---
+
+## TESTING CHECKLIST
+
+- [ ] Images display correctly when URL is present
+- [ ] Fallback UI shows when URL is null
+- [ ] Loading states work properly
+- [ ] Error handling works for broken URLs
+- [ ] PDFs open in new tab
+- [ ] Download functionality works
+- [ ] Image gallery/lightbox works
+- [ ] Thumbnails in list views work
+- [ ] Mobile responsive design
+- [ ] Performance is acceptable with multiple images
+
+---
+
+## SUMMARY
+
+### Image/Document Fields by Entity
+
+**Sauda**: 2 image fields
+- cooked_rice_image_url
+- uncooked_rice_image_url
+
+**ISP**: 6 document/image fields
+- inward_slip_bill_image_url
+- transportation_bill_image_url
+- bill_pdf_url
+- bilti_image_url
+- bilti_pdf_url
+- eway_bill_url
+
+**Payment Advice**: 1 image field
+- payment_slip_image_url
+
+### Key Implementation Points
+1. All URLs are returned in GET responses
+2. URLs are complete S3 URLs (no signing needed)
+3. All fields can be null - handle appropriately
+4. Use direct URLs in img src or href
+5. Implement proper loading and error states
+6. Consider lazy loading for performance
+
+---
+
+**Last Updated**: December 24, 2024
+**Status**: ✅ Backend Returns URLs | ⏳ Frontend Implementation Pending
+

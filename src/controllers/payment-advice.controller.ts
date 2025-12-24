@@ -1,7 +1,9 @@
 import { Response, NextFunction } from 'express';
 import { paymentAdviceDAO } from '../dao/payment-advice.dao';
 import { paymentAdviceChargeDAO } from '../dao/payment-advice-charge.dao';
-import { purchaseDAO } from '../dao/purchase.dao';
+import { purchaseSummaryDAO } from '../dao/purchase-summary.dao';
+import { saudaDAO } from '../dao/sauda.dao';
+import { inwardSlipPassDAO } from '../dao/inward-slip-pass.dao';
 import { vendorDAO } from '../dao/vendor.dao';
 import { userDAO } from '../dao/user.dao';
 import { ResponseHandler } from '../utils/response';
@@ -25,10 +27,11 @@ import { appConfig } from '../config/app.config';
 export class PaymentAdviceController {
   async getAll(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const purchaseId = req.query.purchase_id as string | undefined;
+      const saudaId = req.query.sauda_id as string | undefined;
+      const ispId = req.query.inward_slip_pass_id as string | undefined;
       const status = req.query.status as PaymentAdviceStatus | undefined;
       
-      const paymentAdvices = await paymentAdviceDAO.findAll(purchaseId, status);
+      const paymentAdvices = await paymentAdviceDAO.findAll(saudaId, ispId, status);
 
       const responses: PaymentAdviceResponse[] = await Promise.all(
         paymentAdvices.map(async (advice) => {
@@ -37,7 +40,8 @@ export class PaymentAdviceController {
           
           return {
             id: advice.id,
-            purchase_id: advice.purchase_id,
+            sauda_id: advice.sauda_id,
+            inward_slip_pass_id: advice.inward_slip_pass_id,
             payer_id: advice.payer_id,
             recipient_id: advice.recipient_id,
             sr_number: advice.sr_number,
@@ -96,7 +100,8 @@ export class PaymentAdviceController {
 
       const response: PaymentAdviceResponse = {
         id: paymentAdvice.id,
-        purchase_id: paymentAdvice.purchase_id,
+        sauda_id: paymentAdvice.sauda_id,
+        inward_slip_pass_id: paymentAdvice.inward_slip_pass_id,
         payer_id: paymentAdvice.payer_id,
         recipient_id: paymentAdvice.recipient_id,
         sr_number: paymentAdvice.sr_number,
@@ -155,13 +160,39 @@ export class PaymentAdviceController {
         throw new NotFoundError('Recipient (vendor) not found');
       }
 
-      // Validate purchase if provided
-      if (paymentAdviceData.purchase_id) {
-        const purchase = await purchaseDAO.findById(paymentAdviceData.purchase_id);
-        if (!purchase) {
-          throw new NotFoundError('Purchase not found');
+      // Validate and auto-calculate amount based on sauda_id or inward_slip_pass_id
+      let calculatedAmount = paymentAdviceData.amount;
+      
+      if (paymentAdviceData.sauda_id) {
+        // Validate sauda exists
+        const sauda = await saudaDAO.findById(paymentAdviceData.sauda_id);
+        if (!sauda) {
+          throw new NotFoundError('Sauda not found');
+        }
+        
+        // Get summary and auto-calculate amount if not provided
+        if (!calculatedAmount) {
+          const igstPercentage = req.body.igst_percentage || 0;
+          const summary = await purchaseSummaryDAO.getSaudaSummary(paymentAdviceData.sauda_id, { igst_percentage: igstPercentage });
+          calculatedAmount = summary.final_total_amount;
+        }
+      } else if (paymentAdviceData.inward_slip_pass_id) {
+        // Validate ISP exists
+        const isp = await inwardSlipPassDAO.findById(paymentAdviceData.inward_slip_pass_id);
+        if (!isp) {
+          throw new NotFoundError('Inward slip pass not found');
+        }
+        
+        // Get summary and auto-calculate amount if not provided
+        if (!calculatedAmount) {
+          const igstPercentage = req.body.igst_percentage || 0;
+          const summary = await purchaseSummaryDAO.getIspSummary(paymentAdviceData.inward_slip_pass_id, { igst_percentage: igstPercentage });
+          calculatedAmount = summary.final_total_amount;
         }
       }
+      
+      // Set the calculated amount
+      paymentAdviceData.amount = calculatedAmount;
 
       // Set created_by from authenticated user
       if (req.user) {
@@ -170,13 +201,6 @@ export class PaymentAdviceController {
 
       // Create payment advice
       const paymentAdvice = await paymentAdviceDAO.create(paymentAdviceData);
-
-      // Update purchase's payment_advice_id if purchase_id is provided
-      if (paymentAdviceData.purchase_id) {
-        await purchaseDAO.update(paymentAdviceData.purchase_id, {
-          payment_advice_id: paymentAdvice.id,
-        });
-      }
 
       // Create charges if provided
       let charges: any[] = [];
@@ -192,7 +216,8 @@ export class PaymentAdviceController {
 
       const response: PaymentAdviceResponse = {
         id: paymentAdvice.id,
-        purchase_id: paymentAdvice.purchase_id,
+        sauda_id: paymentAdvice.sauda_id,
+        inward_slip_pass_id: paymentAdvice.inward_slip_pass_id,
         payer_id: paymentAdvice.payer_id,
         recipient_id: paymentAdvice.recipient_id,
         sr_number: paymentAdvice.sr_number,
@@ -281,7 +306,8 @@ export class PaymentAdviceController {
 
       const response: PaymentAdviceResponse = {
         id: paymentAdvice.id,
-        purchase_id: paymentAdvice.purchase_id,
+        sauda_id: paymentAdvice.sauda_id,
+        inward_slip_pass_id: paymentAdvice.inward_slip_pass_id,
         payer_id: paymentAdvice.payer_id,
         recipient_id: paymentAdvice.recipient_id,
         sr_number: paymentAdvice.sr_number,

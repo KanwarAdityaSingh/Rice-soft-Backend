@@ -30,7 +30,8 @@ export interface Transporter {
   pan_number: string | null;
   aadhar_number: string | null;
   transport_type: TransportType;
-  vehicle_numbers: string[];
+  vehicle_numbers: string[]; // Deprecated - use vehicle_ids instead
+  vehicle_ids: string[]; // Array of vehicle UUIDs
   bank_details: BankDetails;
   is_active: boolean;
   created_at: Date;
@@ -47,7 +48,8 @@ export interface CreateTransporterDTO {
   pan_number?: string;
   aadhar_number?: string;
   transport_type: TransportType;
-  vehicle_numbers?: string[];
+  vehicle_numbers?: string[]; // Deprecated - use vehicle_ids instead
+  vehicle_ids?: string[];
   bank_details?: BankDetails;
   is_active?: boolean;
   created_by?: string;
@@ -61,7 +63,8 @@ export interface UpdateTransporterDTO {
   pan_number?: string;
   aadhar_number?: string;
   transport_type?: TransportType;
-  vehicle_numbers?: string[];
+  vehicle_numbers?: string[]; // Deprecated - use vehicle_ids instead
+  vehicle_ids?: string[];
   bank_details?: BankDetails;
   is_active?: boolean;
   updated_by?: string;
@@ -76,7 +79,8 @@ export interface TransporterResponse {
   pan_number: string | null;
   aadhar_number: string | null;
   transport_type: TransportType;
-  vehicle_numbers: string[];
+  vehicle_numbers: string[]; // Deprecated - use vehicle_ids instead
+  vehicle_ids: string[];
   bank_details: BankDetails;
   is_active: boolean;
   created_at: string;

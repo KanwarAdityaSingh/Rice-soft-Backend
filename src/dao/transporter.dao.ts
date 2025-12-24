@@ -6,7 +6,7 @@ export class TransporterDAO {
   async findAll(includeInactive = false): Promise<Transporter[]> {
     let query = `
       SELECT id, business_name, contact_persons, contact_person, phone, email, address, gst_number, pan_number,
-             aadhar_number, transport_type, vehicle_numbers, bank_details, is_active, created_at, updated_at, created_by, updated_by
+             aadhar_number, transport_type, vehicle_numbers, vehicle_ids, bank_details, is_active, created_at, updated_at, created_by, updated_by
       FROM transporters
       WHERE 1=1
     `;
@@ -26,7 +26,7 @@ export class TransporterDAO {
   async findById(id: string): Promise<Transporter | null> {
     const query = `
       SELECT id, business_name, contact_persons, contact_person, phone, email, address, gst_number, pan_number,
-             aadhar_number, transport_type, vehicle_numbers, bank_details, is_active, created_at, updated_at, created_by, updated_by
+             aadhar_number, transport_type, vehicle_numbers, vehicle_ids, bank_details, is_active, created_at, updated_at, created_by, updated_by
       FROM transporters
       WHERE id = $1
     `;
@@ -37,7 +37,7 @@ export class TransporterDAO {
   async findByEmail(email: string): Promise<Transporter | null> {
     const query = `
       SELECT id, business_name, contact_persons, contact_person, phone, email, address, gst_number, pan_number,
-             aadhar_number, transport_type, vehicle_numbers, bank_details, is_active, created_at, updated_at, created_by, updated_by
+             aadhar_number, transport_type, vehicle_numbers, vehicle_ids, bank_details, is_active, created_at, updated_at, created_by, updated_by
       FROM transporters
       WHERE email = $1
     `;
@@ -68,10 +68,10 @@ export class TransporterDAO {
 
     const query = `
       INSERT INTO transporters (business_name, contact_persons, contact_person, phone, email, address, gst_number,
-                              pan_number, aadhar_number, transport_type, vehicle_numbers, bank_details, is_active, created_by)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+                              pan_number, aadhar_number, transport_type, vehicle_numbers, vehicle_ids, bank_details, is_active, created_by)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
       RETURNING id, business_name, contact_persons, contact_person, phone, email, address, gst_number, pan_number,
-                aadhar_number, transport_type, vehicle_numbers, bank_details, is_active, created_at, updated_at, created_by, updated_by
+                aadhar_number, transport_type, vehicle_numbers, vehicle_ids, bank_details, is_active, created_at, updated_at, created_by, updated_by
     `;
     
     const values = [
@@ -86,6 +86,7 @@ export class TransporterDAO {
       transporterData.aadhar_number || null,
       transporterData.transport_type,
       JSON.stringify(transporterData.vehicle_numbers || []),
+      transporterData.vehicle_ids || [],
       JSON.stringify(transporterData.bank_details || {}),
       transporterData.is_active !== undefined ? transporterData.is_active : true,
       transporterData.created_by || null,
@@ -150,6 +151,10 @@ export class TransporterDAO {
       fields.push(`vehicle_numbers = $${paramCount++}`);
       values.push(JSON.stringify(transporterData.vehicle_numbers));
     }
+    if (transporterData.vehicle_ids !== undefined) {
+      fields.push(`vehicle_ids = $${paramCount++}`);
+      values.push(transporterData.vehicle_ids);
+    }
     if (transporterData.bank_details !== undefined) {
       fields.push(`bank_details = $${paramCount++}`);
       values.push(JSON.stringify(transporterData.bank_details));
@@ -175,7 +180,7 @@ export class TransporterDAO {
       SET ${fields.join(', ')}
       WHERE id = $${paramCount}
       RETURNING id, business_name, contact_persons, contact_person, phone, email, address, gst_number, pan_number,
-                aadhar_number, transport_type, vehicle_numbers, bank_details, is_active, created_at, updated_at, created_by, updated_by
+                aadhar_number, transport_type, vehicle_numbers, vehicle_ids, bank_details, is_active, created_at, updated_at, created_by, updated_by
     `;
 
     try {

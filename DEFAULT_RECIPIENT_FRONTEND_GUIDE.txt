@@ -1,0 +1,294 @@
+================================================================================
+DEFAULT RECIPIENT API - FRONTEND INTEGRATION GUIDE
+================================================================================
+
+OVERVIEW:
+---------
+A new API endpoint has been added to retrieve the default payment advice recipient
+details from the backend configuration. This eliminates the need to hardcode 
+recipient details in the frontend.
+
+================================================================================
+BACKEND CHANGES
+================================================================================
+
+1. NEW API ENDPOINT
+-------------------
+Endpoint: GET /api/v1/vendors/getDefaultRecipient
+Method: GET
+Authentication: Required (Bearer token)
+Description: Returns the default recipient details from backend config
+
+Request:
+--------
+GET /api/v1/vendors/getDefaultRecipient
+Headers:
+  Authorization: Bearer <your_jwt_token>
+
+Response (Success - 200):
+--------------------------
+{
+  "success": true,
+  "message": "Default recipient retrieved successfully",
+  "data": {
+    "name": "ADHRA AMRIT AGRO PRODUCTS LLP",
+    "address": "Plot No. 09, Sector 23, Phase-III, HSIIDC Industrial Estate, Barhi, Sonipat, Haryana, India-131101",
+    "llpin": "AAU-3262"
+  }
+}
+
+Response (Error - 401):
+-----------------------
+{
+  "success": false,
+  "message": "Unauthorized",
+  "error": "Invalid or missing token"
+}
+
+
+2. CONFIGURATION
+----------------
+The default recipient details are now stored in the backend configuration
+(src/config/app.config.ts) and can be customized via environment variables:
+
+Environment Variables (Optional):
+- DEFAULT_RECIPIENT_NAME (default: "ADHRA AMRIT AGRO PRODUCTS LLP")
+- DEFAULT_RECIPIENT_ADDRESS (default: "Plot No. 09, Sector 23, Phase-III, HSIIDC Industrial Estate, Barhi, Sonipat, Haryana, India-131101")
+- DEFAULT_RECIPIENT_LLPIN (default: "AAU-3262")
+
+These can be set in the .env file if you need to change them.
+
+================================================================================
+FRONTEND INTEGRATION
+================================================================================
+
+STEP 1: CREATE API SERVICE FUNCTION
+------------------------------------
+Add this function to your vendors API service file (e.g., api/vendors.ts):
+
+```typescript
+// Get default payment advice recipient
+export const getDefaultRecipient = async (): Promise<{
+  name: string;
+  address: string;
+  llpin: string;
+}> => {
+  const response = await apiClient.get('/vendors/getDefaultRecipient');
+  return response.data.data;
+};
+```
+
+
+STEP 2: REMOVE HARDCODED VALUES
+--------------------------------
+Remove these hardcoded constants from your payment advice component:
+
+```typescript
+// ❌ REMOVE THESE:
+const RECIPIENT_NAME = 'ADHRA AMRIT AGRO PRODUCTS LLP';
+const RECIPIENT_ADDRESS = 'Plot No. 09, Sector 23, Phase-III, HSIIDC Industrial Estate, Barhi, Sonipat, Haryana, India-131101';
+const RECIPIENT_LLPIN = 'AAU-3262';
+```
+
+
+STEP 3: FETCH DEFAULT RECIPIENT ON COMPONENT MOUNT
+---------------------------------------------------
+Add state and fetch logic to your payment advice component:
+
+```typescript
+import { useState, useEffect } from 'react';
+import { getDefaultRecipient } from '@/api/vendors';
+
+// Inside your component:
+const [defaultRecipient, setDefaultRecipient] = useState<{
+  name: string;
+  address: string;
+  llpin: string;
+} | null>(null);
+
+const [loading, setLoading] = useState(true);
+const [error, setError] = useState<string | null>(null);
+
+useEffect(() => {
+  const fetchDefaultRecipient = async () => {
+    try {
+      setLoading(true);
+      const recipient = await getDefaultRecipient();
+      setDefaultRecipient(recipient);
+      setError(null);
+    } catch (err) {
+      console.error('Failed to fetch default recipient:', err);
+      setError('Failed to load recipient details');
+      // Optionally show a toast/notification
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  fetchDefaultRecipient();
+}, []);
+```
+
+
+STEP 4: USE THE FETCHED DATA IN YOUR UI
+----------------------------------------
+Replace hardcoded values with the fetched data:
+
+```typescript
+// Show loading state
+if (loading) {
+  return <div>Loading recipient details...</div>;
+}
+
+// Show error state
+if (error || !defaultRecipient) {
+  return <div>Error: {error || 'Recipient details not available'}</div>;
+}
+
+// Use the fetched data
+<div>
+  <p><strong>Recipient:</strong> {defaultRecipient.name}</p>
+  <p><strong>Address:</strong> {defaultRecipient.address}</p>
+  <p><strong>LLPIN:</strong> {defaultRecipient.llpin}</p>
+</div>
+```
+
+
+STEP 5: USE IN PAYMENT ADVICE CREATION
+---------------------------------------
+When creating a payment advice, you can now use the fetched recipient data:
+
+```typescript
+const handleCreatePaymentAdvice = async (formData: any) => {
+  if (!defaultRecipient) {
+    toast.error('Recipient details not loaded');
+    return;
+  }
+
+  const paymentAdviceData = {
+    ...formData,
+    // You can include recipient details in notes or display them
+    // The actual recipient_id should still be selected from vendors
+    notes: `Recipient: ${defaultRecipient.name}\nAddress: ${defaultRecipient.address}\nLLPIN: ${defaultRecipient.llpin}`,
+  };
+
+  try {
+    await createPaymentAdvice(paymentAdviceData);
+    toast.success('Payment advice created successfully');
+  } catch (error) {
+    toast.error('Failed to create payment advice');
+  }
+};
+```
+
+
+ALTERNATIVE: CONTEXT/GLOBAL STATE APPROACH
+-------------------------------------------
+If you use the recipient details in multiple components, consider using a
+context or global state management:
+
+```typescript
+// contexts/RecipientContext.tsx
+import { createContext, useContext, useState, useEffect } from 'react';
+import { getDefaultRecipient } from '@/api/vendors';
+
+interface RecipientContextType {
+  recipient: {
+    name: string;
+    address: string;
+    llpin: string;
+  } | null;
+  loading: boolean;
+  error: string | null;
+}
+
+const RecipientContext = createContext<RecipientContextType | undefined>(undefined);
+
+export const RecipientProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [recipient, setRecipient] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchRecipient = async () => {
+      try {
+        const data = await getDefaultRecipient();
+        setRecipient(data);
+      } catch (err) {
+        setError('Failed to load recipient');
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchRecipient();
+  }, []);
+
+  return (
+    <RecipientContext.Provider value={{ recipient, loading, error }}>
+      {children}
+    </RecipientContext.Provider>
+  );
+};
+
+export const useRecipient = () => {
+  const context = useContext(RecipientContext);
+  if (!context) {
+    throw new Error('useRecipient must be used within RecipientProvider');
+  }
+  return context;
+};
+```
+
+Then wrap your app:
+```typescript
+// App.tsx or layout
+<RecipientProvider>
+  <YourApp />
+</RecipientProvider>
+```
+
+And use in any component:
+```typescript
+const { recipient, loading, error } = useRecipient();
+```
+
+
+================================================================================
+BENEFITS OF THIS APPROACH
+================================================================================
+
+1. ✅ Centralized Configuration: Recipient details managed in one place (backend)
+2. ✅ Easy Updates: Change recipient details via environment variables without code changes
+3. ✅ No Hardcoding: Frontend doesn't need to hardcode business-specific data
+4. ✅ Consistency: All parts of the application use the same recipient details
+5. ✅ Environment-Specific: Can have different recipients for dev/staging/production
+
+================================================================================
+TESTING
+================================================================================
+
+1. Test the API endpoint:
+   ```bash
+   curl -X GET http://localhost:3000/api/v1/vendors/getDefaultRecipient \
+     -H "Authorization: Bearer YOUR_JWT_TOKEN"
+   ```
+
+2. Verify the response contains correct recipient details
+
+3. Test error handling when:
+   - No authentication token provided
+   - Invalid token provided
+   - Backend is down
+
+================================================================================
+NOTES
+================================================================================
+
+- The API endpoint is protected and requires authentication
+- Recipient details are read-only from the frontend perspective
+- To change recipient details, update the backend .env file and restart the server
+- The endpoint returns the same data for all users (it's a system-wide configuration)
+
+================================================================================
+
+

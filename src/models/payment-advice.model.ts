@@ -4,7 +4,8 @@ export type PaymentAdviceStatus = 'pending' | 'completed' | 'failed';
 
 export interface PaymentAdvice {
   id: string;
-  purchase_id: string | null;
+  sauda_id: string | null;
+  inward_slip_pass_id: string | null;
   payer_id: string;
   recipient_id: string;
   sr_number: string | null;
@@ -34,7 +35,8 @@ export interface PaymentAdvice {
 }
 
 export interface CreatePaymentAdviceDTO {
-  purchase_id?: string;
+  sauda_id?: string;
+  inward_slip_pass_id?: string;
   payer_id: string;
   recipient_id: string;
   sr_number?: string;
@@ -62,7 +64,8 @@ export interface CreatePaymentAdviceDTO {
 }
 
 export interface UpdatePaymentAdviceDTO {
-  purchase_id?: string;
+  sauda_id?: string;
+  inward_slip_pass_id?: string;
   payer_id?: string;
   recipient_id?: string;
   sr_number?: string;
@@ -90,7 +93,8 @@ export interface UpdatePaymentAdviceDTO {
 
 export interface PaymentAdviceResponse {
   id: string;
-  purchase_id: string | null;
+  sauda_id: string | null;
+  inward_slip_pass_id: string | null;
   payer_id: string;
   recipient_id: string;
   sr_number: string | null;

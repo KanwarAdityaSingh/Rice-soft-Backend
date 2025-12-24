@@ -478,11 +478,73 @@ export const updateLotSchema = Joi.object({
   updated_by: Joi.string().optional().uuid(),
 }).min(1);
 
+// Kaanta validation schemas
+export const createKaantaSchema = Joi.object({
+  sauda_id: Joi.string().required().uuid(),
+  inward_slip_pass_id: Joi.string().required().uuid(),
+  full_truck_weight: Joi.number().required().min(0).precision(2),
+  empty_truck_weight: Joi.number().required().min(0).precision(2),
+  bag_weight: Joi.number().required().min(0).precision(2),
+  no_of_bags: Joi.number().required().integer().min(1),
+  bag_type: Joi.string().required().valid('jute', 'pp'),
+  created_by: Joi.string().optional().uuid(),
+});
+
+export const updateKaantaSchema = Joi.object({
+  full_truck_weight: Joi.number().optional().min(0).precision(2),
+  empty_truck_weight: Joi.number().optional().min(0).precision(2),
+  bag_weight: Joi.number().optional().min(0).precision(2),
+  no_of_bags: Joi.number().optional().integer().min(1),
+  bag_type: Joi.string().optional().valid('jute', 'pp'),
+  updated_by: Joi.string().optional().uuid(),
+}).min(1);
+
+// Vehicle validation schemas
+export const createVehicleSchema = Joi.object({
+  vehicle_number: Joi.string().required().uppercase().trim().max(50),
+  rc_number: Joi.string().optional().uppercase().trim().max(50),
+  owner_name: Joi.string().optional().trim().max(255),
+  vehicle_class: Joi.string().optional().max(50),
+  fuel_type: Joi.string().optional().max(50),
+  maker_model: Joi.string().optional().max(255),
+  registration_date: Joi.date().optional().iso(),
+  insurance_validity: Joi.date().optional().iso(),
+  fitness_validity: Joi.date().optional().iso(),
+  permit_validity: Joi.date().optional().iso(),
+  challan_details: Joi.array().optional(),
+  transporter_ids: Joi.array().items(Joi.string().uuid()).optional(),
+  is_verified: Joi.boolean().optional(),
+  verified_at: Joi.date().optional().iso(),
+  is_active: Joi.boolean().optional(),
+  created_by: Joi.string().optional().uuid(),
+});
+
+export const updateVehicleSchema = Joi.object({
+  vehicle_number: Joi.string().optional().uppercase().trim().max(50),
+  rc_number: Joi.string().optional().uppercase().trim().max(50),
+  owner_name: Joi.string().optional().trim().max(255),
+  vehicle_class: Joi.string().optional().max(50),
+  fuel_type: Joi.string().optional().max(50),
+  maker_model: Joi.string().optional().max(255),
+  registration_date: Joi.date().optional().iso(),
+  insurance_validity: Joi.date().optional().iso(),
+  fitness_validity: Joi.date().optional().iso(),
+  permit_validity: Joi.date().optional().iso(),
+  challan_details: Joi.array().optional(),
+  transporter_ids: Joi.array().items(Joi.string().uuid()).optional(),
+  is_active: Joi.boolean().optional(),
+  updated_by: Joi.string().optional().uuid(),
+}).min(1);
+
+export const verifyVehicleSchema = Joi.object({
+  vehicle_number: Joi.string().required().uppercase().trim(),
+});
+
 export const createInwardSlipPassSchema = Joi.object({
   sauda_ids: Joi.array().items(Joi.string().uuid()).optional().min(1),
   slip_number: Joi.string().required().max(255),
   date: Joi.string().required().isoDate(),
-  vehicle_number: Joi.string().required().max(50),
+  vehicle_id: Joi.string().required().uuid(),
   party_name: Joi.string().required().max(255),
   party_address: Joi.string().optional().allow(null, ''),
   party_gst_number: Joi.string().optional().allow(null, '').length(15),
@@ -497,9 +559,6 @@ export const createInwardSlipPassSchema = Joi.object({
   bilti_pdf_url: Joi.string().optional().allow(null, '').uri(),
   eway_bill_number: Joi.string().optional().allow(null, '').max(255),
   eway_bill_url: Joi.string().optional().allow(null, '').uri(),
-  full_truck_weight: Joi.number().optional().min(0).precision(2),
-  empty_truck_weight: Joi.number().optional().min(0).precision(2),
-  kaanta_weight: Joi.number().optional().min(0).precision(2),
   notes: Joi.string().optional().allow(null, '').max(1000),
   created_by: Joi.string().optional().uuid(),
 });
@@ -508,7 +567,7 @@ export const updateInwardSlipPassSchema = Joi.object({
   sauda_ids: Joi.array().items(Joi.string().uuid()).optional().min(0),
   slip_number: Joi.string().optional().max(255),
   date: Joi.string().optional().isoDate(),
-  vehicle_number: Joi.string().optional().max(50),
+  vehicle_id: Joi.string().optional().uuid(),
   party_name: Joi.string().optional().max(255),
   party_address: Joi.string().optional().allow(null, ''),
   party_gst_number: Joi.string().optional().allow(null, '').length(15),
@@ -523,9 +582,6 @@ export const updateInwardSlipPassSchema = Joi.object({
   bilti_pdf_url: Joi.string().optional().allow(null, '').uri(),
   eway_bill_number: Joi.string().optional().allow(null, '').max(255),
   eway_bill_url: Joi.string().optional().allow(null, '').uri(),
-  full_truck_weight: Joi.number().optional().min(0).precision(2),
-  empty_truck_weight: Joi.number().optional().min(0).precision(2),
-  kaanta_weight: Joi.number().optional().min(0).precision(2),
   notes: Joi.string().optional().allow(null, '').max(1000),
   updated_by: Joi.string().optional().uuid(),
 }).min(1);
@@ -594,7 +650,8 @@ const paymentAdviceChargeSchema = Joi.object({
 });
 
 export const createPaymentAdviceSchema = Joi.object({
-  purchase_id: Joi.string().optional().uuid().allow(null),
+  sauda_id: Joi.string().optional().uuid().allow(null),
+  inward_slip_pass_id: Joi.string().optional().uuid().allow(null),
   payer_id: Joi.string().required().uuid(),
   recipient_id: Joi.string().required().uuid(),
   sr_number: Joi.string().optional().allow(null, '').max(50),
@@ -611,7 +668,8 @@ export const createPaymentAdviceSchema = Joi.object({
   kanta_weight: Joi.number().optional().min(0).precision(2),
   final_weight: Joi.number().optional().min(0).precision(2),
   rate: Joi.number().optional().min(0).precision(2),
-  amount: Joi.number().required().min(0).precision(2),
+  amount: Joi.number().optional().min(0).precision(2), // Optional - auto-calculated from sauda/ISP summary
+  igst_percentage: Joi.number().optional().min(0).max(100).precision(2), // For auto-calculation
   transaction_id: Joi.string().optional().allow(null, '').max(255),
   date_of_payment: Joi.string().required().isoDate(),
   status: Joi.string().optional().valid('pending', 'completed', 'failed'),
@@ -619,10 +677,17 @@ export const createPaymentAdviceSchema = Joi.object({
   notes: Joi.string().optional().allow(null, '').max(1000),
   charges: Joi.array().items(paymentAdviceChargeSchema).optional(),
   created_by: Joi.string().optional().uuid(),
+}).custom((value, helpers) => {
+  // At least one of sauda_id or inward_slip_pass_id must be provided
+  if (!value.sauda_id && !value.inward_slip_pass_id) {
+    return helpers.error('any.custom', { message: 'Either sauda_id or inward_slip_pass_id must be provided' });
+  }
+  return value;
 });
 
 export const updatePaymentAdviceSchema = Joi.object({
-  purchase_id: Joi.string().optional().uuid().allow(null),
+  sauda_id: Joi.string().optional().uuid().allow(null),
+  inward_slip_pass_id: Joi.string().optional().uuid().allow(null),
   payer_id: Joi.string().optional().uuid(),
   recipient_id: Joi.string().optional().uuid(),
   sr_number: Joi.string().optional().allow(null, '').max(50),

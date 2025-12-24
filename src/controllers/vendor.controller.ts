@@ -16,6 +16,7 @@ import {
 import { CreateVendorDTO, UpdateVendorDTO, Vendor, VendorResponse, VendorType } from '../models/vendor.model';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { gstLookupService } from '../services/gst-lookup.service';
+import { appConfig } from '../config/app.config';
 import Joi from 'joi';
 
 export class VendorController {
@@ -610,6 +611,20 @@ export class VendorController {
       );
 
       return ResponseHandler.success(res, verificationResult, 'Bank account verified successfully');
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getDefaultRecipient(_req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const defaultRecipient = {
+        name: appConfig.defaultRecipient.name,
+        address: appConfig.defaultRecipient.address,
+        llpin: appConfig.defaultRecipient.llpin,
+      };
+
+      return ResponseHandler.success(res, defaultRecipient, 'Default recipient retrieved successfully');
     } catch (error) {
       next(error);
     }

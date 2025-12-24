@@ -18,6 +18,9 @@ import { CreateSaudaDTO, UpdateSaudaDTO, SaudaResponse, SaudaStatus, SaudaType }
 import { AuthRequest } from '../middleware/auth.middleware';
 import { uploadToS3, validateFileSize, validateFileType } from '../utils/s3-upload';
 import { appConfig } from '../config/app.config';
+import { whatsAppService } from '../services/whatsapp.service';
+import { emailService } from '../services/email.service';
+import { logger } from '../utils/logger';
 
 export class SaudaController {
   async getAll(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
@@ -363,6 +366,453 @@ export class SaudaController {
       }
 
       return ResponseHandler.success(res, { url: uploadResult.url }, 'Uncooked rice image uploaded successfully');
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Helper method to get sauda details for notifications
+   */
+  private async getSaudaNotificationDetails(id: string) {
+    const sauda = await saudaDAO.findById(id);
+    if (!sauda) {
+      throw new NotFoundError('Sauda not found');
+    }
+
+    const purchaser = await vendorDAO.findById(sauda.purchaser_id);
+    const purchaserName = purchaser?.business_name || 'Unknown';
+
+    let brokerName: string | undefined;
+    if (sauda.broker_id) {
+      const broker = await brokerDAO.findById(sauda.broker_id);
+      brokerName = broker?.business_name || undefined;
+    }
+
+    return {
+      sauda,
+      saudaDetails: {
+        saudaId: sauda.id.substring(0, 8).toUpperCase(),
+        saudaType: sauda.sauda_type,
+        riceType: sauda.rice_type,
+        rate: parseFloat(sauda.rate.toString()),
+        quantity: sauda.quantity ? parseFloat(sauda.quantity.toString()) : undefined,
+        cashDiscount: sauda.cash_discount ? parseFloat(sauda.cash_discount.toString()) : undefined,
+        cashDiscountType: sauda.cash_discount_type,
+        purchaserName,
+        brokerName,
+        brokerCommission: sauda.broker_commission ? parseFloat(sauda.broker_commission.toString()) : undefined,
+        brokerCommissionType: sauda.broker_commission_type,
+        estimatedDeliveryTime: sauda.estimated_delivery_time || undefined,
+        notes: sauda.notes || undefined,
+      },
+    };
+  }
+
+  /**
+   * Get preview of Sauda notification content (for editing before sending)
+   */
+  async getNotificationPreview(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const id = validate<string>(uuidSchema, req.params.id);
+      const { saudaDetails } = await this.getSaudaNotificationDetails(id);
+
+      // Generate email preview
+      const emailPreview = emailService.generateSaudaEmailPreview(saudaDetails);
+      
+      // Generate WhatsApp preview
+      const whatsappPreview = whatsAppService.generateSaudaMessagePreview(saudaDetails);
+
+      return ResponseHandler.success(res, {
+        saudaId: id,
+        email: {
+          subject: emailPreview.subject,
+          html: emailPreview.html,
+          text: emailPreview.text,
+        },
+        whatsapp: {
+          message: whatsappPreview,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Send Sauda details via Email
+   * Accepts email addresses, optional PDF file, and optional custom content
+   */
+  async sendViaEmail(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const id = validate<string>(uuidSchema, req.params.id);
+      const { emails, customSubject, customHtml, customText } = req.body;
+
+      if (!emails || !Array.isArray(emails) || emails.length === 0) {
+        throw new ValidationError('At least one email address is required');
+      }
+
+      // Validate email format
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      for (const email of emails) {
+        if (!emailRegex.test(email)) {
+          throw new ValidationError(`Invalid email format: ${email}`);
+        }
+      }
+
+      // Fetch sauda details
+      const { saudaDetails } = await this.getSaudaNotificationDetails(id);
+
+      // Get PDF buffer if provided
+      let pdfBuffer: Buffer | undefined;
+      if (req.file) {
+        validateFileType(req.file.mimetype, ['application/pdf']);
+        validateFileSize(req.file.size, 10); // Max 10MB for PDFs
+        pdfBuffer = req.file.buffer;
+      }
+
+      // Prepare custom content if provided
+      const customContent = (customSubject || customHtml || customText)
+        ? { subject: customSubject, html: customHtml, text: customText }
+        : undefined;
+
+      // Send email
+      const result = await emailService.sendSaudaNotification(
+        emails,
+        saudaDetails,
+        pdfBuffer,
+        customContent
+      );
+
+      if (!result.success) {
+        logger.error('Failed to send sauda email', {
+          saudaId: id,
+          emails,
+          error: result.error,
+        });
+        throw new ValidationError(`Failed to send email: ${result.error}`);
+      }
+
+      logger.info('Sauda email sent successfully', {
+        saudaId: id,
+        emails,
+        messageId: result.messageId,
+        customized: !!customContent,
+      });
+
+      return ResponseHandler.success(
+        res,
+        {
+          sent: true,
+          messageId: result.messageId,
+          recipients: emails,
+        },
+        'Sauda details sent via email successfully'
+      );
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Send Sauda details via WhatsApp
+   * Accepts WhatsApp numbers, optional PDF URL, and optional custom message
+   */
+  async sendViaWhatsApp(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const id = validate<string>(uuidSchema, req.params.id);
+      const { whatsappNumbers, pdfUrl, customMessage } = req.body;
+
+      if (!whatsappNumbers || !Array.isArray(whatsappNumbers) || whatsappNumbers.length === 0) {
+        throw new ValidationError('At least one WhatsApp number is required');
+      }
+
+      // Fetch sauda details
+      const { saudaDetails } = await this.getSaudaNotificationDetails(id);
+
+      // If PDF file is provided, upload to S3 first
+      let uploadedPdfUrl = pdfUrl;
+      if (req.file && !pdfUrl) {
+        validateFileType(req.file.mimetype, ['application/pdf']);
+        validateFileSize(req.file.size, 10); // Max 10MB for PDFs
+        
+        const uploadResult = await uploadToS3(
+          req.file.buffer,
+          `sauda_${id}.pdf`,
+          'sauda-documents'
+        );
+        uploadedPdfUrl = uploadResult.url;
+      }
+
+      // Send to all WhatsApp numbers
+      const results: Array<{ number: string; success: boolean; error?: string; messageId?: string }> = [];
+      
+      for (const number of whatsappNumbers) {
+        const result = await whatsAppService.sendSaudaNotification(
+          number,
+          saudaDetails,
+          uploadedPdfUrl,
+          customMessage
+        );
+
+        results.push({
+          number,
+          success: result.success,
+          error: result.error,
+          messageId: result.messageId,
+        });
+
+        if (result.success) {
+          logger.info('Sauda WhatsApp sent successfully', {
+            saudaId: id,
+            number,
+            messageId: result.messageId,
+          });
+        } else {
+          logger.warn('Sauda WhatsApp failed', {
+            saudaId: id,
+            number,
+            error: result.error,
+          });
+        }
+      }
+
+      const successCount = results.filter((r) => r.success).length;
+      const failureCount = results.filter((r) => !r.success).length;
+
+      return ResponseHandler.success(
+        res,
+        {
+          sent: successCount > 0,
+          results,
+          summary: {
+            total: whatsappNumbers.length,
+            success: successCount,
+            failed: failureCount,
+          },
+        },
+        successCount > 0
+          ? `Sauda details sent via WhatsApp to ${successCount} recipient(s)`
+          : 'Failed to send WhatsApp messages'
+      );
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Send Payment Advice via Email
+   */
+  async sendPaymentAdviceViaEmail(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const { emails, adviceNumber, vendorName, amount, date, bankDetails } = req.body;
+
+      if (!emails || !Array.isArray(emails) || emails.length === 0) {
+        throw new ValidationError('At least one email address is required');
+      }
+
+      if (!adviceNumber || !vendorName || !amount || !date) {
+        throw new ValidationError('adviceNumber, vendorName, amount, and date are required');
+      }
+
+      // Validate email format
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      for (const email of emails) {
+        if (!emailRegex.test(email)) {
+          throw new ValidationError(`Invalid email format: ${email}`);
+        }
+      }
+
+      // Get PDF buffer - required for payment advice
+      if (!req.file) {
+        throw new ValidationError('PDF file is required for payment advice');
+      }
+
+      validateFileType(req.file.mimetype, ['application/pdf']);
+      validateFileSize(req.file.size, 10); // Max 10MB for PDFs
+
+      const paymentDetails = {
+        adviceNumber,
+        vendorName,
+        amount: parseFloat(amount),
+        date,
+        bankDetails,
+      };
+
+      // Prepare custom content if provided
+      const { customSubject, customHtml, customText } = req.body;
+      const customContent = (customSubject || customHtml || customText)
+        ? { subject: customSubject, html: customHtml, text: customText }
+        : undefined;
+
+      // Send email
+      const result = await emailService.sendPaymentAdviceNotification(
+        emails,
+        paymentDetails,
+        req.file.buffer,
+        customContent
+      );
+
+      if (!result.success) {
+        logger.error('Failed to send payment advice email', {
+          adviceNumber,
+          emails,
+          error: result.error,
+        });
+        throw new ValidationError(`Failed to send email: ${result.error}`);
+      }
+
+      logger.info('Payment advice email sent successfully', {
+        adviceNumber,
+        emails,
+        messageId: result.messageId,
+      });
+
+      return ResponseHandler.success(
+        res,
+        {
+          sent: true,
+          messageId: result.messageId,
+          recipients: emails,
+        },
+        'Payment advice sent via email successfully'
+      );
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Get preview of Payment Advice notification content (for editing before sending)
+   */
+  async getPaymentAdvicePreview(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const { adviceNumber, vendorName, amount, date, bankDetails } = req.body;
+
+      if (!adviceNumber || !vendorName || !amount || !date) {
+        throw new ValidationError('adviceNumber, vendorName, amount, and date are required');
+      }
+
+      const paymentDetails = {
+        adviceNumber,
+        vendorName,
+        amount: parseFloat(amount),
+        date,
+        bankDetails,
+      };
+
+      // Generate email preview
+      const emailPreview = emailService.generatePaymentAdviceEmailPreview(paymentDetails);
+      
+      // Generate WhatsApp preview
+      const whatsappPreview = whatsAppService.generatePaymentAdviceMessagePreview(paymentDetails);
+
+      return ResponseHandler.success(res, {
+        email: {
+          subject: emailPreview.subject,
+          html: emailPreview.html,
+          text: emailPreview.text,
+        },
+        whatsapp: {
+          message: whatsappPreview,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Send Payment Advice via WhatsApp
+   */
+  async sendPaymentAdviceViaWhatsApp(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const { whatsappNumbers, adviceNumber, vendorName, amount, date, pdfUrl, customMessage } = req.body;
+
+      if (!whatsappNumbers || !Array.isArray(whatsappNumbers) || whatsappNumbers.length === 0) {
+        throw new ValidationError('At least one WhatsApp number is required');
+      }
+
+      if (!adviceNumber || !vendorName || !amount || !date) {
+        throw new ValidationError('adviceNumber, vendorName, amount, and date are required');
+      }
+
+      // If PDF file is provided, upload to S3 first
+      let uploadedPdfUrl = pdfUrl;
+      if (req.file && !pdfUrl) {
+        validateFileType(req.file.mimetype, ['application/pdf']);
+        validateFileSize(req.file.size, 10); // Max 10MB for PDFs
+        
+        const uploadResult = await uploadToS3(
+          req.file.buffer,
+          `payment_advice_${adviceNumber}.pdf`,
+          'payment-advice-documents'
+        );
+        uploadedPdfUrl = uploadResult.url;
+      }
+
+      if (!uploadedPdfUrl) {
+        throw new ValidationError('PDF file or pdfUrl is required for payment advice');
+      }
+
+      const paymentDetails = {
+        adviceNumber,
+        vendorName,
+        amount: parseFloat(amount),
+        date,
+      };
+
+      // Send to all WhatsApp numbers
+      const results: Array<{ number: string; success: boolean; error?: string; messageId?: string }> = [];
+      
+      for (const number of whatsappNumbers) {
+        const result = await whatsAppService.sendPaymentAdviceNotification(
+          number,
+          paymentDetails,
+          uploadedPdfUrl,
+          customMessage
+        );
+
+        results.push({
+          number,
+          success: result.success,
+          error: result.error,
+          messageId: result.messageId,
+        });
+
+        if (result.success) {
+          logger.info('Payment advice WhatsApp sent successfully', {
+            adviceNumber,
+            number,
+            messageId: result.messageId,
+          });
+        } else {
+          logger.warn('Payment advice WhatsApp failed', {
+            adviceNumber,
+            number,
+            error: result.error,
+          });
+        }
+      }
+
+      const successCount = results.filter((r) => r.success).length;
+      const failureCount = results.filter((r) => !r.success).length;
+
+      return ResponseHandler.success(
+        res,
+        {
+          sent: successCount > 0,
+          results,
+          summary: {
+            total: whatsappNumbers.length,
+            success: successCount,
+            failed: failureCount,
+          },
+        },
+        successCount > 0
+          ? `Payment advice sent via WhatsApp to ${successCount} recipient(s)`
+          : 'Failed to send WhatsApp messages'
+      );
     } catch (error) {
       next(error);
     }

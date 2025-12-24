@@ -38,6 +38,13 @@ router.get('/checkExists', authenticate, vendorController.checkVendorExists.bind
 router.get('/verifyBankAccount', authenticate, vendorController.verifyBankAccount.bind(vendorController));
 
 /**
+ * @route   GET /api/v1/vendors/getDefaultRecipient
+ * @desc    Get default recipient vendor (ADHRA AMRIT AGRO PRODUCTS LLP)
+ * @access  Private
+ */
+router.get('/getDefaultRecipient', authenticate, vendorController.getDefaultRecipient.bind(vendorController));
+
+/**
  * @route   POST /api/v1/vendors/quickCreateFromGST
  * @desc    Quick create vendor from GST number
  * @access  Private

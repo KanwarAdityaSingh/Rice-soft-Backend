@@ -1,0 +1,371 @@
+================================================================================
+                    KALEYRA WHATSAPP BUSINESS API SETUP GUIDE
+                         SantKripa Equipments Pvt. Ltd.
+================================================================================
+
+This guide walks you through setting up WhatsApp Business API via Kaleyra
+for sending Sauda and Payment Advice notifications.
+
+================================================================================
+                            PREREQUISITES
+================================================================================
+
+1. Business verification documents (GST, Company registration, etc.)
+2. Facebook Business Manager account (verified)
+3. Phone number not connected to any existing WhatsApp account
+4. Email address for Kaleyra account
+
+================================================================================
+                    STEP 1: CREATE KALEYRA ACCOUNT
+================================================================================
+
+1. Visit: https://www.kaleyra.com/
+2. Click "Sign Up" or "Get Started"
+3. Fill in business details:
+   - Company name: SantKripa Equipments Pvt. Ltd.
+   - Email address
+   - Phone number
+   - Business type and industry
+4. Verify your email address
+5. Complete business verification (upload documents if required)
+
+================================================================================
+              STEP 2: GENERATE API KEY
+================================================================================
+
+1. Log in to Kaleyra Dashboard: https://dashboard.kaleyra.com/
+2. Navigate to: Developers → API Keys
+3. Click "New" or "Generate API Key"
+4. Configure API Key:
+   - Name: "WhatsApp API Key" (or any descriptive name)
+   - IP Whitelist:
+     * Option A: Add your server IP addresses (recommended for production)
+     * Option B: Leave empty for open access (easier for testing)
+   - Permissions: Enable WhatsApp messaging
+5. Click "Generate" or "Save"
+6. IMPORTANT: Copy the API key immediately - it's shown only once!
+   - If lost, you'll need to generate a new one
+   - The API key will also be sent to your registered email
+
+Your API Key will look like: A7817538772624b312d23974ca14997bb
+
+Save this for later use in environment variables.
+
+================================================================================
+        STEP 3: ACTIVATE WHATSAPP BUSINESS NUMBER
+================================================================================
+
+1. In Kaleyra Dashboard, go to: Channels → WhatsApp Manager
+2. Click "Add WhatsApp Number" or "Get Started"
+3. Provide your phone number:
+   - Must NOT be connected to any existing WhatsApp account
+   - Format: +91XXXXXXXXXX (with country code)
+   - Example: +919876543210
+4. Kaleyra will send an OTP to this number
+5. Enter the OTP to verify ownership
+6. Complete the activation process:
+   - Link to your Facebook Business Manager account
+   - Verify business details
+   - Accept WhatsApp Business API terms
+
+IMPORTANT NOTES:
+- The number will be disconnected from personal WhatsApp (if connected)
+- You'll receive a new WhatsApp Business number (or use existing if eligible)
+- Activation can take 24-48 hours for approval
+- Ensure Facebook Business Manager is verified before production use
+
+Your WhatsApp Business Number will look like: +919876543210
+Save this for environment variable: KALEYRA_WHATSAPP_FROM_NUMBER
+
+================================================================================
+        STEP 4: GET YOUR KALEYRA ACCOUNT SID/ID
+================================================================================
+
+1. In Kaleyra Dashboard, go to: Settings → Account
+2. Find your Account SID or Account ID
+   - It looks like: HXAP1679900797IN
+   - This is used in the API URL
+
+Your WhatsApp API URL will be:
+https://api.kaleyra.io/v1/{YOUR_ACCOUNT_ID}/whatsapp
+
+Example: https://api.kaleyra.io/v1/HXAP1679900797IN/whatsapp
+
+Save this for environment variable: KALEYRA_WHATSAPP_URL
+
+================================================================================
+        STEP 5: CREATE WHATSAPP MESSAGE TEMPLATE
+================================================================================
+
+WhatsApp Business API requires pre-approved templates for business-initiated
+messages. You need to create and submit templates for approval.
+
+1. In Kaleyra Dashboard, go to:
+   Channels → WhatsApp Manager → Configurations → Templates
+
+2. Click "Add Template" or "Create Template"
+
+3. Fill in Template Details:
+   - Template Name: sauda_notification (or your preferred name)
+   - Category: UTILITY (for transactional messages like Sauda notifications)
+   - Language: English (en)
+
+4. Template Content:
+   For Sauda notifications, you can create a template like:
+   
+   Template Name: sauda_notification
+   Category: UTILITY
+   Language: en
+   
+   Message Body:
+   ```
+   📋 *Sauda Details*
+   
+   Sauda ID: {{1}}
+   Type: {{2}}
+   Rice Type: {{3}}
+   Rate: ₹{{4}}
+   Quantity: {{5}}
+   Purchaser: {{6}}
+   
+   - SantKripa Equipments Pvt. Ltd.
+   ```
+   
+   Variables:
+   - {{1}} = Sauda ID
+   - {{2}} = Sauda Type (PURCHASE/SELL)
+   - {{3}} = Rice Type
+   - {{4}} = Rate
+   - {{5}} = Quantity
+   - {{6}} = Purchaser Name
+
+5. Submit for Approval:
+   - Review all details
+   - Click "Submit for Approval"
+   - Template will be reviewed by WhatsApp (usually 24-48 hours)
+   - You'll receive email notification when approved/rejected
+
+6. Template Status:
+   - PENDING: Under review
+   - APPROVED: Ready to use
+   - REJECTED: Needs revision (check rejection reason)
+
+IMPORTANT:
+- Template names must be unique
+- Once approved, template structure cannot be changed
+- You can create multiple templates for different message types
+- Save the approved template name for: KALEYRA_WHATSAPP_TEMPLATE_NAME
+
+Alternative: If template approval is pending, the backend will automatically
+fall back to sending text messages (session messages) which don't require
+template approval but have limitations.
+
+================================================================================
+        STEP 6: TEST YOUR SETUP
+================================================================================
+
+1. Get a Test Number:
+   - Use a number that's not your business number
+   - This number should have WhatsApp installed
+
+2. Test via cURL (or Postman):
+   ```bash
+   curl -X POST "https://api.kaleyra.io/v1/YOUR_ACCOUNT_ID/whatsapp" \
+     -H "api-key: YOUR_API_KEY" \
+     -H "Content-Type: application/json" \
+     -d '{
+       "from": "YOUR_WHATSAPP_BUSINESS_NUMBER",
+       "to": "919876543210",
+       "type": "text",
+       "text": {
+         "body": "Test message from Kaleyra WhatsApp API"
+       }
+     }'
+   ```
+
+3. Check Response:
+   - Success: You'll get a response with message ID
+   - Error: Check error message and fix issues
+
+4. Verify Message Delivery:
+   - Check if test number received the message
+   - Check delivery status in Kaleyra dashboard
+
+================================================================================
+        STEP 7: CONFIGURE BACKEND ENVIRONMENT VARIABLES
+================================================================================
+
+Add these to your backend .env file:
+
+# Kaleyra WhatsApp Configuration
+KALEYRA_WHATSAPP_URL=https://api.kaleyra.io/v1/YOUR_ACCOUNT_ID/whatsapp
+KALEYRA_WHATSAPP_FROM_NUMBER=+919876543210
+KALEYRA_WHATSAPP_TEMPLATE_NAME=sauda_notification
+
+# Kaleyra API Key (same as used for SMS)
+KALEYRA_API_KEY=YOUR_API_KEY_HERE
+
+Replace:
+- YOUR_ACCOUNT_ID with your Kaleyra Account SID (e.g., HXAP1679900797IN)
+- YOUR_WHATSAPP_BUSINESS_NUMBER with your activated WhatsApp number
+- sauda_notification with your approved template name
+- YOUR_API_KEY_HERE with the API key you generated
+
+Example:
+--------
+KALEYRA_WHATSAPP_URL=https://api.kaleyra.io/v1/HXAP1679900797IN/whatsapp
+KALEYRA_WHATSAPP_FROM_NUMBER=+919876543210
+KALEYRA_WHATSAPP_TEMPLATE_NAME=sauda_notification
+KALEYRA_API_KEY=A7817538772624b312d23974ca14997bb
+
+================================================================================
+                    STEP 8: TEST FROM BACKEND
+================================================================================
+
+1. Restart your backend server after adding environment variables
+
+2. Test via API:
+   ```bash
+   curl -X POST "http://localhost:3000/api/v1/saudas/TEST_SAUDA_ID/send-via-whatsapp" \
+     -H "Authorization: Bearer YOUR_TOKEN" \
+     -F "whatsappNumbers=[\"9876543210\"]"
+   ```
+
+3. Check Logs:
+   - Backend logs should show WhatsApp send attempts
+   - Check for any configuration errors
+   - Verify message delivery status
+
+4. Verify Delivery:
+   - Check if test number received the message
+   - Check Kaleyra dashboard for delivery reports
+
+================================================================================
+                        TROUBLESHOOTING
+================================================================================
+
+Issue: "WhatsApp service is not configured"
+Solution:
+- Check all environment variables are set correctly
+- Verify API key is correct
+- Ensure WhatsApp number is activated
+- Restart backend server
+
+Issue: "Template not found" or "Template not approved"
+Solution:
+- Check template name matches exactly (case-sensitive)
+- Verify template is approved in Kaleyra dashboard
+- Wait for template approval if still pending
+- Backend will fallback to text messages if template fails
+
+Issue: "Phone number not registered on WhatsApp"
+Solution:
+- Recipient number must have WhatsApp installed
+- Number must be in correct format (with country code)
+- Some numbers may not be reachable (check with recipient)
+
+Issue: "API key invalid"
+Solution:
+- Regenerate API key in Kaleyra dashboard
+- Update KALEYRA_API_KEY in .env
+- Restart backend server
+
+Issue: Messages not sending
+Solution:
+- Check Kaleyra dashboard for account status
+- Verify WhatsApp Business number is active
+- Check rate limits (Kaleyra has sending limits)
+- Review error logs for specific error messages
+
+Issue: Template approval rejected
+Solution:
+- Check rejection reason in Kaleyra dashboard
+- Common issues:
+  * Template content violates WhatsApp policies
+  * Missing required information
+  * Incorrect variable usage
+- Revise template and resubmit
+
+================================================================================
+                        BEST PRACTICES
+================================================================================
+
+1. Template Management:
+   - Create templates for all message types you need
+   - Keep template names descriptive and consistent
+   - Document template variables and their purposes
+
+2. Testing:
+   - Always test with a non-production number first
+   - Test both template and text message fallbacks
+   - Verify delivery before going to production
+
+3. Monitoring:
+   - Monitor delivery rates in Kaleyra dashboard
+   - Set up alerts for failed messages
+   - Track message costs (WhatsApp charges per message)
+
+4. Rate Limits:
+   - Kaleyra/WhatsApp has rate limits per number
+   - For high volume, consider multiple numbers
+   - Implement retry logic for failed messages
+
+5. Compliance:
+   - Only send to users who have opted in
+   - Include opt-out instructions in messages
+   - Follow WhatsApp Business Policy
+
+6. Error Handling:
+   - Always check response status
+   - Handle partial failures (some numbers succeed, others fail)
+   - Log all send attempts for debugging
+
+================================================================================
+                        ADDITIONAL RESOURCES
+================================================================================
+
+Kaleyra Documentation:
+- API Docs: https://developers.kaleyra.com/
+- WhatsApp Setup: https://support.kaleyra.com/
+- Dashboard: https://dashboard.kaleyra.com/
+
+WhatsApp Business API:
+- Policy: https://www.whatsapp.com/legal/business-policy
+- Best Practices: https://developers.facebook.com/docs/whatsapp
+
+Support:
+- Kaleyra Support: support@kaleyra.com
+- Kaleyra Dashboard: Use in-app support chat
+
+================================================================================
+                        QUICK REFERENCE
+================================================================================
+
+Environment Variables Needed:
+-----------------------------
+KALEYRA_WHATSAPP_URL=https://api.kaleyra.io/v1/{ACCOUNT_ID}/whatsapp
+KALEYRA_WHATSAPP_FROM_NUMBER=+91XXXXXXXXXX
+KALEYRA_WHATSAPP_TEMPLATE_NAME=sauda_notification
+KALEYRA_API_KEY=your_api_key_here
+
+Where to Find:
+--------------
+- Account ID: Kaleyra Dashboard → Settings → Account
+- API Key: Kaleyra Dashboard → Developers → API Keys
+- WhatsApp Number: Kaleyra Dashboard → Channels → WhatsApp Manager
+- Template Name: Your created template name in WhatsApp Manager
+
+Testing Checklist:
+------------------
+☐ API key generated and saved
+☐ WhatsApp number activated
+☐ Template created and approved
+☐ Environment variables configured
+☐ Backend server restarted
+☐ Test message sent successfully
+☐ Delivery verified
+
+================================================================================
+                            END OF GUIDE
+================================================================================
+

@@ -95,5 +95,86 @@ router.delete(
   saudaController.delete.bind(saudaController)
 );
 
+/**
+ * @route   GET /api/v1/saudas/:id/notification-preview
+ * @desc    Get preview of sauda notification content for email and WhatsApp
+ * @access  Private
+ * @returns email: { subject, html, text }, whatsapp: { message }
+ */
+router.get(
+  '/:id/notification-preview',
+  authenticate,
+  saudaController.getNotificationPreview.bind(saudaController)
+);
+
+/**
+ * @route   POST /api/v1/saudas/:id/send-via-email
+ * @desc    Send sauda details via email
+ * @access  Private
+ * @body    emails: string[] (required), file: PDF (optional), customSubject/customHtml/customText: string (optional)
+ */
+router.post(
+  '/:id/send-via-email',
+  authenticate,
+  documentUpload.single('file'),
+  auditLog('SEND_EMAIL', 'saudas'),
+  saudaController.sendViaEmail.bind(saudaController)
+);
+
+/**
+ * @route   POST /api/v1/saudas/:id/send-via-whatsapp
+ * @desc    Send sauda details via WhatsApp
+ * @access  Private
+ * @body    whatsappNumbers: string[] (required), pdfUrl: string (optional), file: PDF (optional), customMessage: string (optional)
+ */
+router.post(
+  '/:id/send-via-whatsapp',
+  authenticate,
+  documentUpload.single('file'),
+  auditLog('SEND_WHATSAPP', 'saudas'),
+  saudaController.sendViaWhatsApp.bind(saudaController)
+);
+
+/**
+ * @route   POST /api/v1/saudas/payment-advice-preview
+ * @desc    Get preview of payment advice notification content for email and WhatsApp
+ * @access  Private
+ * @body    adviceNumber, vendorName, amount, date (required), bankDetails (optional)
+ * @returns email: { subject, html, text }, whatsapp: { message }
+ */
+router.post(
+  '/payment-advice-preview',
+  authenticate,
+  saudaController.getPaymentAdvicePreview.bind(saudaController)
+);
+
+/**
+ * @route   POST /api/v1/saudas/send-payment-advice-email
+ * @desc    Send payment advice via email
+ * @access  Private
+ * @body    emails: string[] (required), adviceNumber, vendorName, amount, date (required), bankDetails (optional), file: PDF (required), customSubject/customHtml/customText: string (optional)
+ */
+router.post(
+  '/send-payment-advice-email',
+  authenticate,
+  documentUpload.single('file'),
+  auditLog('SEND_EMAIL', 'payment_advice'),
+  saudaController.sendPaymentAdviceViaEmail.bind(saudaController)
+);
+
+/**
+ * @route   POST /api/v1/saudas/send-payment-advice-whatsapp
+ * @desc    Send payment advice via WhatsApp
+ * @access  Private
+ * @body    whatsappNumbers: string[] (required), adviceNumber, vendorName, amount, date (required), pdfUrl or file (required), customMessage: string (optional)
+ */
+router.post(
+  '/send-payment-advice-whatsapp',
+  authenticate,
+  documentUpload.single('file'),
+  auditLog('SEND_WHATSAPP', 'payment_advice'),
+  saudaController.sendPaymentAdviceViaWhatsApp.bind(saudaController)
+);
+
 export default router;
 

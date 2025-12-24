@@ -34,6 +34,7 @@ export const appConfig = {
     surepass: {
       panUrl: process.env.SUREPASS_PAN_API_URL || 'https://kyc-api.surepass.io/api/v1/pan/pan',
       bankVerificationUrl: process.env.SUREPASS_BANK_API_URL || 'https://kyc-api.surepass.io/api/v1/bank-verification',
+      rcVerificationUrl: process.env.SUREPASS_RC_API_URL || 'https://kyc-api.surepass.io/api/v1/rc-verification',
       token: process.env.SUREPASS_API_TOKEN || '',
     },
     mastersIndia: {
@@ -45,10 +46,15 @@ export const appConfig = {
       clientSecret: process.env.MASTERS_INDIA_CLIENT_SECRET || '',
     },
     kaleyra: {
+      // SMS Configuration
       url: process.env.KALEYRA_BASE_URL || 'https://api.kaleyra.io/v1/HXAP1679900797IN/messages',
       apiKey: process.env.KALEYRA_API_KEY || 'A7817538772624b312d23974ca14997bb',
       senderId: process.env.KALEYRA_SENDER_ID || 'SNTKRI',
       templateId: process.env.KALEYRA_TEMPLATE_ID || '1007162144526914389',
+      // WhatsApp Configuration
+      whatsappUrl: process.env.KALEYRA_WHATSAPP_URL || 'https://api.kaleyra.io/v1/HXAP1679900797IN/whatsapp',
+      whatsappFromNumber: process.env.KALEYRA_WHATSAPP_FROM_NUMBER || '',
+      whatsappTemplateName: process.env.KALEYRA_WHATSAPP_TEMPLATE_NAME || 'sauda_notification',
     },
   },
   
@@ -74,6 +80,17 @@ export const appConfig = {
       riceImagesFolder: process.env.AWS_S3_RICE_IMAGES_FOLDER || 'rice-images',
       inwardSlipBillsFolder: process.env.AWS_S3_INWARD_SLIP_BILLS_FOLDER || 'inward-slip-bills',
     },
+    ses: {
+      fromEmail: process.env.AWS_SES_FROM_EMAIL || 'noreply@santkripa.com',
+      fromName: process.env.AWS_SES_FROM_NAME || 'SantKripa Equipments',
+    },
+  },
+  
+  // Default Payment Advice Recipient
+  defaultRecipient: {
+    name: process.env.DEFAULT_RECIPIENT_NAME || 'ADHRA AMRIT AGRO PRODUCTS LLP',
+    address: process.env.DEFAULT_RECIPIENT_ADDRESS || 'Plot No. 09, Sector 23, Phase-III, HSIIDC Industrial Estate, Barhi, Sonipat, Haryana, India-131101',
+    llpin: process.env.DEFAULT_RECIPIENT_LLPIN || 'AAU-3262',
   },
 };
 

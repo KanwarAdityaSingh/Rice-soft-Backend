@@ -1,24 +1,23 @@
 import { db } from '../database/connection';
 import { InwardSlipPass, CreateInwardSlipPassDTO, UpdateInwardSlipPassDTO } from '../models/inward-slip-pass.model';
 import { logger } from '../utils/logger';
-import { calculatePurchaseAmount } from '../utils/purchase-calculations';
 
 export class InwardSlipPassDAO {
   async findAll(saudaId?: string): Promise<InwardSlipPass[]> {
     let query = `
-      SELECT id, slip_number, date, vehicle_number, party_name, party_address,
-             party_gst_number, party_pan_number, transporter_id, transportation_cost, status, inward_slip_bill_image_url, transportation_bill_image_url,
-             bill_pdf_url, bilti_image_url, bilti_pdf_url, eway_bill_number, eway_bill_url,
-             full_truck_weight, empty_truck_weight, kaanta_weight,
-             notes, created_at, updated_at, created_by, updated_by
-      FROM inward_slip_passes
+      SELECT isp.id, isp.slip_number, isp.date, isp.vehicle_id, isp.party_name, isp.party_address,
+             isp.party_gst_number, isp.party_pan_number, isp.transporter_id, isp.transportation_cost, isp.status, 
+             isp.inward_slip_bill_image_url, isp.transportation_bill_image_url,
+             isp.bill_pdf_url, isp.bilti_image_url, isp.bilti_pdf_url, isp.eway_bill_number, isp.eway_bill_url,
+             isp.notes, isp.created_at, isp.updated_at, isp.created_by, isp.updated_by
+      FROM inward_slip_passes isp
       WHERE 1=1
     `;
     
     const params: any[] = [];
 
     if (saudaId) {
-      query += ` AND id IN (
+      query += ` AND isp.id IN (
         SELECT inward_slip_pass_id 
         FROM inward_slip_pass_saudas 
         WHERE sauda_id = $1
@@ -26,7 +25,7 @@ export class InwardSlipPassDAO {
       params.push(saudaId);
     }
 
-    query += ` ORDER BY date DESC, created_at DESC`;
+    query += ` ORDER BY isp.date DESC, isp.created_at DESC`;
 
     const result = await db.query<InwardSlipPass>(query, params);
     return result.rows;
@@ -34,37 +33,32 @@ export class InwardSlipPassDAO {
 
   async findById(id: string): Promise<InwardSlipPass | null> {
     const query = `
-      SELECT id, slip_number, date, vehicle_number, party_name, party_address,
-             party_gst_number, party_pan_number, transporter_id, transportation_cost, status, inward_slip_bill_image_url, transportation_bill_image_url,
-             bill_pdf_url, bilti_image_url, bilti_pdf_url, eway_bill_number, eway_bill_url,
-             full_truck_weight, empty_truck_weight, kaanta_weight,
-             notes, created_at, updated_at, created_by, updated_by
-      FROM inward_slip_passes
-      WHERE id = $1
+      SELECT isp.id, isp.slip_number, isp.date, isp.vehicle_id, isp.party_name, isp.party_address,
+             isp.party_gst_number, isp.party_pan_number, isp.transporter_id, isp.transportation_cost, isp.status, 
+             isp.inward_slip_bill_image_url, isp.transportation_bill_image_url,
+             isp.bill_pdf_url, isp.bilti_image_url, isp.bilti_pdf_url, isp.eway_bill_number, isp.eway_bill_url,
+             isp.notes, isp.created_at, isp.updated_at, isp.created_by, isp.updated_by
+      FROM inward_slip_passes isp
+      WHERE isp.id = $1
     `;
     const result = await db.query<InwardSlipPass>(query, [id]);
     return result.rows[0] || null;
   }
 
   async create(inwardSlipPassData: CreateInwardSlipPassDTO): Promise<InwardSlipPass> {
-    const query = `
-      INSERT INTO inward_slip_passes (slip_number, date, vehicle_number, party_name,
+    const insertQuery = `
+      INSERT INTO inward_slip_passes (slip_number, date, vehicle_id, party_name,
                                       party_address, party_gst_number, party_pan_number, transporter_id, transportation_cost, status, inward_slip_bill_image_url,
                                       transportation_bill_image_url, bill_pdf_url, bilti_image_url,
-                                      bilti_pdf_url, eway_bill_number, eway_bill_url, full_truck_weight,
-                                      empty_truck_weight, kaanta_weight, notes, created_by)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
-      RETURNING id, slip_number, date, vehicle_number, party_name, party_address,
-                party_gst_number, party_pan_number, transporter_id, transportation_cost, status, inward_slip_bill_image_url, transportation_bill_image_url,
-                bill_pdf_url, bilti_image_url, bilti_pdf_url, eway_bill_number, eway_bill_url,
-                full_truck_weight, empty_truck_weight, kaanta_weight,
-                notes, created_at, updated_at, created_by, updated_by
+                                      bilti_pdf_url, eway_bill_number, eway_bill_url, notes, created_by)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+      RETURNING id
     `;
     
     const values = [
       inwardSlipPassData.slip_number,
       inwardSlipPassData.date,
-      inwardSlipPassData.vehicle_number,
+      inwardSlipPassData.vehicle_id,
       inwardSlipPassData.party_name,
       inwardSlipPassData.party_address || null,
       inwardSlipPassData.party_gst_number || null,
@@ -79,17 +73,22 @@ export class InwardSlipPassDAO {
       inwardSlipPassData.bilti_pdf_url || null,
       inwardSlipPassData.eway_bill_number || null,
       inwardSlipPassData.eway_bill_url || null,
-      inwardSlipPassData.full_truck_weight || null,
-      inwardSlipPassData.empty_truck_weight || null,
-      inwardSlipPassData.kaanta_weight || null,
       inwardSlipPassData.notes || null,
       inwardSlipPassData.created_by || null,
     ];
 
     try {
-      const result = await db.query<InwardSlipPass>(query, values);
-      logger.info('Inward slip pass created', { id: result.rows[0].id });
-      return result.rows[0];
+      const result = await db.query<{ id: string }>(insertQuery, values);
+      const createdId = result.rows[0].id;
+      logger.info('Inward slip pass created', { id: createdId });
+      
+      // Fetch the complete record with vehicle_number joined
+      const createdISP = await this.findById(createdId);
+      if (!createdISP) {
+        throw new Error('Failed to retrieve created inward slip pass');
+      }
+      
+      return createdISP;
     } catch (error) {
       logger.error('Error creating inward slip pass', { error, inwardSlipPassData });
       throw error;
@@ -109,9 +108,9 @@ export class InwardSlipPassDAO {
       fields.push(`date = $${paramCount++}`);
       values.push(inwardSlipPassData.date);
     }
-    if (inwardSlipPassData.vehicle_number !== undefined) {
-      fields.push(`vehicle_number = $${paramCount++}`);
-      values.push(inwardSlipPassData.vehicle_number);
+    if (inwardSlipPassData.vehicle_id !== undefined) {
+      fields.push(`vehicle_id = $${paramCount++}`);
+      values.push(inwardSlipPassData.vehicle_id);
     }
     if (inwardSlipPassData.party_name !== undefined) {
       fields.push(`party_name = $${paramCount++}`);
@@ -169,18 +168,6 @@ export class InwardSlipPassDAO {
       fields.push(`eway_bill_url = $${paramCount++}`);
       values.push(inwardSlipPassData.eway_bill_url || null);
     }
-    if (inwardSlipPassData.full_truck_weight !== undefined) {
-      fields.push(`full_truck_weight = $${paramCount++}`);
-      values.push(inwardSlipPassData.full_truck_weight || null);
-    }
-    if (inwardSlipPassData.empty_truck_weight !== undefined) {
-      fields.push(`empty_truck_weight = $${paramCount++}`);
-      values.push(inwardSlipPassData.empty_truck_weight || null);
-    }
-    if (inwardSlipPassData.kaanta_weight !== undefined) {
-      fields.push(`kaanta_weight = $${paramCount++}`);
-      values.push(inwardSlipPassData.kaanta_weight || null);
-    }
     if (inwardSlipPassData.notes !== undefined) {
       fields.push(`notes = $${paramCount++}`);
       values.push(inwardSlipPassData.notes || null);
@@ -201,20 +188,18 @@ export class InwardSlipPassDAO {
       UPDATE inward_slip_passes
       SET ${fields.join(', ')}
       WHERE id = $${paramCount}
-      RETURNING id, slip_number, date, vehicle_number, party_name, party_address,
-                party_gst_number, party_pan_number, transporter_id, transportation_cost, status, inward_slip_bill_image_url, transportation_bill_image_url,
-                bill_pdf_url, bilti_image_url, bilti_pdf_url, eway_bill_number, eway_bill_url,
-                full_truck_weight, empty_truck_weight, kaanta_weight,
-                notes, created_at, updated_at, created_by, updated_by
+      RETURNING id
     `;
 
     try {
-      const result = await db.query<InwardSlipPass>(query, values);
+      const result = await db.query<{ id: string }>(query, values);
       if (result.rows.length === 0) {
         return null;
       }
       logger.info('Inward slip pass updated', { id });
-      return result.rows[0];
+      
+      // Fetch the complete record with vehicle_number joined
+      return await this.findById(id);
     } catch (error) {
       logger.error('Error updating inward slip pass', { error, id });
       throw error;
@@ -222,117 +207,27 @@ export class InwardSlipPassDAO {
   }
 
   async delete(id: string): Promise<boolean> {
-    // Get the linked sauda_ids before deletion to recalculate purchases
-    const saudaIdsQuery = `
-      SELECT sauda_id
-      FROM inward_slip_pass_saudas
-      WHERE inward_slip_pass_id = $1
-    `;
-    const saudaIdsResult = await db.query<{ sauda_id: string }>(saudaIdsQuery, [id]);
-    const saudaIds = saudaIdsResult.rows.map(row => row.sauda_id);
-
     const query = `DELETE FROM inward_slip_passes WHERE id = $1`;
     const result = await db.query(query, [id]);
     const deleted = (result.rowCount || 0) > 0;
     
     if (deleted) {
-      logger.info('Inward slip pass deleted', { id, saudaIds });
-      
-      // Recalculate purchase totals from remaining inward slip passes for each linked sauda
-      // This aggregates total_weight and total_amount from all inward slip lots
-      for (const saudaId of saudaIds) {
-      await this.recalculatePurchaseTotals(saudaId);
-      }
+      logger.info('Inward slip pass deleted', { id });
     }
     
     return deleted;
   }
 
-  /**
-   * Recalculate purchase totals from inward slip passes for a given sauda
-   * Aggregates total_weight and total_amount from all inward slip lots
-   * Applies: cash_discount (subtract), broker_commission (add), transportation_cost (add for exgodown), IGST (add)
-   */
-  private async recalculatePurchaseTotals(saudaId: string): Promise<void> {
-    try {
-      // Get all purchases for this sauda
-      const purchaseQuery = `
-        SELECT id, igst_percentage, broker_commission
-        FROM purchases
-        WHERE sauda_id = $1
-      `;
-      const purchases = await db.query(purchaseQuery, [saudaId]);
-      
-      for (const purchase of purchases.rows) {
-        // Use utility function to calculate purchase amount with all factors
-        const calculation = await calculatePurchaseAmount(
-          saudaId,
-          purchase.broker_commission,
-          purchase.igst_percentage
-        );
-        
-        // Update purchase with recalculated totals
-        const updatePurchasesQuery = `
-          UPDATE purchases
-          SET 
-            total_weight = $1,
-            total_amount = $2,
-            igst_amount = $3,
-            updated_at = CURRENT_TIMESTAMP
-          WHERE id = $4
-        `;
-        
-        await db.query(updatePurchasesQuery, [
-          calculation.totalWeight || null,
-          calculation.finalTotalAmount || null,
-          calculation.igstAmount || null,
-          purchase.id
-        ]);
-        
-        // Update payment advice amount if it's linked to this purchase
-        // Payment advice amount should match the purchase total_amount
-        const paymentAdviceQuery = `
-          SELECT id, amount
-          FROM payment_advices
-          WHERE purchase_id = $1
-        `;
-        const paymentAdvices = await db.query(paymentAdviceQuery, [purchase.id]);
-        
-        for (const paymentAdvice of paymentAdvices.rows) {
-          // Update payment advice amount to match new purchase total
-          const updatePaymentAdviceQuery = `
-            UPDATE payment_advices
-            SET 
-              amount = $1,
-              updated_at = CURRENT_TIMESTAMP
-            WHERE id = $2
-          `;
-          
-          await db.query(updatePaymentAdviceQuery, [
-            calculation.finalTotalAmount || null,
-            paymentAdvice.id
-          ]);
-          
-          logger.info('Payment advice amount updated', {
-            paymentAdviceId: paymentAdvice.id,
-            purchaseId: purchase.id,
-            newAmount: calculation.finalTotalAmount,
-            oldAmount: paymentAdvice.amount
-          });
-        }
-        
-        logger.info('Purchase totals recalculated', {
-          purchaseId: purchase.id,
-          saudaId,
-          ...calculation
-        });
-      }
-    } catch (error) {
-      logger.error('Error recalculating purchase totals', { error, saudaId });
-      // Don't throw - deletion should succeed even if recalculation fails
-    }
-  }
 }
 
 export const inwardSlipPassDAO = new InwardSlipPassDAO();
+
+
+
+
+
+
+
+
+
 

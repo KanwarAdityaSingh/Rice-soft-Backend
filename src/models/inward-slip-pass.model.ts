@@ -4,7 +4,7 @@ export interface InwardSlipPass {
   id: string;
   slip_number: string;
   date: Date;
-  vehicle_number: string;
+  vehicle_id: string | null;
   party_name: string;
   party_address: string | null;
   party_gst_number: string | null;
@@ -16,12 +16,9 @@ export interface InwardSlipPass {
   transportation_bill_image_url: string | null;
   bill_pdf_url: string | null;
   bilti_image_url: string | null;
-  bilti_pdf_url: string | null;
+  bilti_pdf_url: string | null; 
   eway_bill_number: string | null;
   eway_bill_url: string | null;
-  full_truck_weight: number | null;
-  empty_truck_weight: number | null;
-  kaanta_weight: number | null;
   notes: string | null;
   created_at: Date;
   updated_at: Date;
@@ -33,7 +30,7 @@ export interface CreateInwardSlipPassDTO {
   sauda_ids?: string[]; // Array of sauda IDs to link
   slip_number: string;
   date: string; // ISO date string
-  vehicle_number: string;
+  vehicle_id: string;
   party_name: string;
   party_address?: string;
   party_gst_number?: string;
@@ -48,9 +45,6 @@ export interface CreateInwardSlipPassDTO {
   bilti_pdf_url?: string;
   eway_bill_number?: string;
   eway_bill_url?: string;
-  full_truck_weight?: number;
-  empty_truck_weight?: number;
-  kaanta_weight?: number;
   notes?: string;
   created_by?: string;
 }
@@ -59,7 +53,7 @@ export interface UpdateInwardSlipPassDTO {
   sauda_ids?: string[]; // Array of sauda IDs to link (replaces existing links)
   slip_number?: string;
   date?: string;
-  vehicle_number?: string;
+  vehicle_id?: string;
   party_name?: string;
   party_address?: string;
   party_gst_number?: string;
@@ -74,9 +68,6 @@ export interface UpdateInwardSlipPassDTO {
   bilti_pdf_url?: string;
   eway_bill_number?: string;
   eway_bill_url?: string;
-  full_truck_weight?: number;
-  empty_truck_weight?: number;
-  kaanta_weight?: number;
   notes?: string;
   updated_by?: string;
 }
@@ -86,7 +77,7 @@ export interface InwardSlipPassResponse {
   sauda_ids: string[]; // Array of linked sauda IDs
   slip_number: string;
   date: string;
-  vehicle_number: string;
+  vehicle_id: string | null;
   party_name: string;
   party_address: string | null;
   party_gst_number: string | null;
@@ -101,9 +92,6 @@ export interface InwardSlipPassResponse {
   bilti_pdf_url: string | null;
   eway_bill_number: string | null;
   eway_bill_url: string | null;
-  full_truck_weight: number | null;
-  empty_truck_weight: number | null;
-  kaanta_weight: number | null;
   notes: string | null;
   created_at: string;
   updated_at: string;

@@ -11,10 +11,12 @@ import riceCodeRoutes from './rice-code.routes';
 import pincodeRoutes from './pincode.routes';
 import bankRoutes from './bank.routes';
 import transporterRoutes from './transporter.routes';
+import vehicleRoutes from './vehicle.routes';
 import saudaRoutes from './sauda.routes';
 import inwardSlipPassRoutes from './inward-slip-pass.routes';
 import lotRoutes from './lot.routes';
-import purchaseRoutes from './purchase.routes';
+import kaantaRoutes from './kaanta.routes';
+import purchaseSummaryRoutes from './purchase-summary.routes';
 import paymentAdviceRoutes from './payment-advice.routes';
 
 const router = Router();
@@ -41,10 +43,12 @@ router.use('/riceCodes', riceCodeRoutes);
 router.use('/pincode', pincodeRoutes);
 router.use('/bank', bankRoutes);
 router.use('/transporters', transporterRoutes);
+router.use('/vehicles', vehicleRoutes);
 router.use('/saudas', saudaRoutes);
 router.use('/inward-slip-passes', inwardSlipPassRoutes);
 router.use('/lots', lotRoutes);
-router.use('/purchases', purchaseRoutes);
+router.use('/kaantas', kaantaRoutes);
+router.use('/purchase-summary', purchaseSummaryRoutes);
 router.use('/payment-advices', paymentAdviceRoutes);
 
 export default router;

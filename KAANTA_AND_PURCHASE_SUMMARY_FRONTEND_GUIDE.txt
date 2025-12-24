@@ -1,0 +1,729 @@
+===================================================================================
+BACKEND CHANGES - KAANTA ENTITY & PURCHASE SUMMARY API
+Frontend Integration Guide
+===================================================================================
+
+This document explains the backend changes made for Kaanta entity implementation and 
+Purchase module removal. Use this as a reference for updating the frontend.
+
+===================================================================================
+PART 1: KAANTA ENTITY IMPLEMENTATION
+===================================================================================
+
+OVERVIEW:
+---------
+Weight-related fields (full_truck_weight, empty_truck_weight, kaanta_weight) have been 
+REMOVED from Inward Slip Pass (ISP) and moved to a new separate entity called "Kaanta".
+
+Each Kaanta represents a weighbridge measurement for a specific sauda within an ISP.
+When a Kaanta is created, a Lot is AUTOMATICALLY created with calculated values.
+
+KEY CONCEPT:
+- ISP can have multiple Kaantas (one per sauda linked to that ISP)
+- Each Kaanta links to ONE sauda and ONE ISP
+- Each Kaanta auto-creates ONE lot upon creation
+
+DATA MODEL:
+-----------
+Kaanta Fields:
+- id (UUID, auto-generated)
+- kaanta_id (string, auto-generated: "KAANTA-{uuid}")
+- sauda_id (UUID, required)
+- inward_slip_pass_id (UUID, required)
+- full_truck_weight (number, required)
+- empty_truck_weight (number, required)
+- kaanta_weight (number, auto-calculated: full_truck_weight - empty_truck_weight)
+- bag_weight (number, required - weight of one bag)
+- no_of_bags (number, required)
+- bag_type (enum: 'jute' | 'pp', required)
+- created_at, updated_at, created_by, updated_by
+
+AUTO-LOT CREATION LOGIC:
+------------------------
+When you create a Kaanta, the backend automatically creates a Lot with:
+- lot_number: "LOT-KAANTA-{kaanta_id}"
+- sauda_id: from kaanta
+- rice_code_id: from sauda
+- rice_type: from sauda
+- no_of_bags: from kaanta
+- bag_weight: from kaanta
+- bill_weight: from sauda.quantity (expected weight)
+- received_weight: from kaanta.kaanta_weight (actual weight from weighbridge)
+- rate: from sauda.rate
+- amount: auto-calculated by database (received_weight × rate)
+
+KAANTA API ENDPOINTS:
+---------------------
+
+1. GET /api/v1/kaantas
+   Description: Get all kaantas
+   Query Params:
+   - sauda_id (optional): Filter by sauda
+   - inward_slip_pass_id (optional): Filter by ISP
+   Response: Array of kaanta objects
+
+2. GET /api/v1/kaantas/:id
+   Description: Get single kaanta by ID
+   Response: Single kaanta object
+
+3. POST /api/v1/kaantas
+   Description: Create new kaanta (auto-creates lot)
+   Body:
+   {
+     "sauda_id": "uuid",
+     "inward_slip_pass_id": "uuid",
+     "full_truck_weight": 5000,
+     "empty_truck_weight": 2000,
+     "bag_weight": 50,
+     "no_of_bags": 60,
+     "bag_type": "jute" // or "pp"
+   }
+   Response: Created kaanta with kaanta_id and kaanta_weight calculated
+   Note: Lot is automatically created in the background
+
+4. PUT /api/v1/kaantas/:id
+   Description: Update kaanta
+   Body: Any of the fields (except sauda_id, inward_slip_pass_id)
+   Note: Updating kaanta does NOT update the associated lot
+
+5. DELETE /api/v1/kaantas/:id
+   Description: Delete kaanta
+   Note: Associated lot is also deleted (cascade)
+
+ISP CHANGES:
+------------
+REMOVED from ISP endpoints (no longer returned in responses):
+- full_truck_weight
+- empty_truck_weight
+- kaanta_weight
+
+ISP creation/update no longer accepts these fields.
+
+FRONTEND WORKFLOW:
+------------------
+Old Flow:
+1. Create ISP with weight fields
+2. Manually create lots
+
+New Flow:
+1. Create ISP (without weight fields)
+2. For each sauda in the ISP:
+   a. Create Kaanta with sauda_id, isp_id, and weight measurements
+   b. Lot is automatically created
+3. To view weights: Fetch kaantas for the ISP
+
+Example: Creating Kaanta and viewing auto-created lot
+------------------------------------------------------
+// Step 1: Create Kaanta
+POST /api/v1/kaantas
+{
+  "sauda_id": "sauda-123",
+  "inward_slip_pass_id": "isp-456",
+  "full_truck_weight": 5000,
+  "empty_truck_weight": 2000,
+  "bag_weight": 50,
+  "no_of_bags": 60,
+  "bag_type": "jute"
+}
+
+Response:
+{
+  "success": true,
+  "data": {
+    "id": "kaanta-uuid",
+    "kaanta_id": "KAANTA-abc123",
+    "kaanta_weight": 3000, // Auto-calculated
+    ...
+  },
+  "message": "Kaanta created successfully (lot auto-created)"
+}
+
+// Step 2: View the auto-created lot
+GET /api/v1/lots?sauda_id=sauda-123
+
+Response will include:
+{
+  "lot_number": "LOT-KAANTA-abc123",
+  "received_weight": 3000,
+  "bill_weight": <from sauda.quantity>,
+  "rate": <from sauda.rate>,
+  "amount": 3000 × rate,
+  ...
+}
+
+// Step 3: View all kaantas for an ISP
+GET /api/v1/kaantas?inward_slip_pass_id=isp-456
+
+===================================================================================
+PART 2: PURCHASE MODULE REMOVAL & PURCHASE SUMMARY API
+===================================================================================
+
+OVERVIEW:
+---------
+The Purchase entity has been COMPLETELY REMOVED. It is replaced with on-the-fly 
+calculation APIs that aggregate data from Lots and apply Sauda-level discounts/commissions.
+
+No more storing purchase records. All totals are calculated in real-time.
+
+KEY CONCEPT:
+- Purchase table dropped from database
+- New "Purchase Summary" API calculates totals on-demand
+- Payment Advice now links directly to Sauda or ISP (not Purchase)
+
+PURCHASE SUMMARY API:
+---------------------
+Provides detailed step-by-step breakdown of purchase calculations from vendor's POV.
+
+1. GET /api/v1/purchase-summary/sauda/:saudaId
+   Description: Get purchase summary for a single sauda
+   Query Params:
+   - igst_percentage (optional, default: 0): IGST percentage to apply
+   
+   Response Structure:
+   {
+     "sauda_id": "uuid",
+     
+     // Aggregated counts
+     "total_lots": 3,
+     "total_bags": 150,
+     "total_weight": 7500,
+     
+     // Step-by-step calculation
+     "base_amount": 637500,              // Sum of all lot amounts
+     "cash_discount_amount": 5000,       // From sauda.cash_discount
+     "amount_after_discount": 632500,    // base - discount
+     "broker_commission_amount": 12650,  // From sauda.broker_commission
+     "amount_after_commission": 645150,  // after_discount + commission
+     "transportation_cost": 8000,        // Sum of ISP transport costs
+     "amount_after_transportation": 653150, // after_commission + transport
+     "igst_amount": 32657.50,            // Based on igst_percentage
+     "final_total_amount": 685807.50,    // after_transport + igst
+     "net_payable": 685807.50,           // Final amount to pay
+     
+     // Metadata
+     "sauda_details": { /* sauda info */ },
+     "isp_details": [ /* array of ISPs */ ],
+     "lot_details": [ /* array of lots */ ]
+   }
+
+2. GET /api/v1/purchase-summary/isp/:ispId
+   Description: Get purchase summary for an ISP (aggregates all saudas in that ISP)
+   Query Params:
+   - igst_percentage (optional, default: 0)
+   
+   Response Structure:
+   {
+     "inward_slip_pass_id": "uuid",
+     
+     // Aggregated totals across all saudas
+     "total_lots": 5,
+     "total_bags": 250,
+     "total_weight": 12500,
+     "base_amount": 1062500,
+     "cash_discount_amount": 8000,
+     "amount_after_discount": 1054500,
+     "broker_commission_amount": 21090,
+     "amount_after_commission": 1075590,
+     "transportation_cost": 8000,
+     "amount_after_transportation": 1083590,
+     "igst_amount": 54179.50,
+     "final_total_amount": 1137769.50,
+     "net_payable": 1137769.50,
+     
+     // Per-sauda breakdown
+     "saudas": [
+       {
+         "sauda_id": "uuid1",
+         "sauda_details": { /* sauda info */ },
+         "total_lots": 3,
+         "total_bags": 150,
+         "base_amount": 637500,
+         "final_total_amount": 685807.50,
+         "lot_details": [ /* lots for this sauda */ ],
+         ...
+       },
+       {
+         "sauda_id": "uuid2",
+         ...
+       }
+     ],
+     
+     "isp_details": [ /* ISP info */ ]
+   }
+
+CALCULATION LOGIC:
+------------------
+The summary API calculates totals in this order:
+
+1. Base Amount = Sum of all lot amounts (lot.received_weight × lot.rate)
+
+2. Cash Discount:
+   - If sauda.cash_discount_type = 'percentage': 
+     discount = base_amount × (sauda.cash_discount / 100)
+   - If sauda.cash_discount_type = 'rupees': 
+     discount = sauda.cash_discount
+
+3. Amount After Discount = base_amount - cash_discount_amount
+
+4. Broker Commission:
+   - If sauda.broker_commission_type = 'percentage': 
+     commission = amount_after_discount × (sauda.broker_commission / 100)
+   - If sauda.broker_commission_type = 'rupees': 
+     commission = sauda.broker_commission
+   - If sauda.broker_commission_type = 'weight': 
+     commission = sauda.broker_commission × total_weight
+
+5. Amount After Commission = amount_after_discount + broker_commission_amount
+
+6. Transportation Cost = Sum of transportation_cost from all ISPs linked to sauda
+
+7. Amount After Transportation = amount_after_commission + transportation_cost
+
+8. IGST Amount = amount_after_transportation × (igst_percentage / 100)
+
+9. Final Total Amount = amount_after_transportation + igst_amount
+
+REMOVED ENDPOINTS:
+------------------
+These endpoints NO LONGER EXIST:
+- GET /api/v1/purchases
+- GET /api/v1/purchases/:id
+- POST /api/v1/purchases
+- PUT /api/v1/purchases/:id
+- DELETE /api/v1/purchases/:id
+- POST /api/v1/purchases/:id/link-saudas
+- POST /api/v1/purchases/:id/link-lots
+- DELETE /api/v1/purchases/:id/unlink-sauda/:saudaId
+- DELETE /api/v1/purchases/:id/unlink-lot/:lotId
+
+REPLACEMENT WORKFLOW:
+---------------------
+Old Flow:
+1. Create lots
+2. Create purchase
+3. Link lots to purchase
+4. View purchase totals
+
+New Flow:
+1. Create lots (via Kaanta, which auto-creates lots)
+2. Call summary API to view totals
+3. No storage needed - calculations are real-time
+
+Example: Viewing purchase totals
+---------------------------------
+// For a single sauda
+GET /api/v1/purchase-summary/sauda/sauda-123?igst_percentage=5
+
+// For an ISP (multiple saudas)
+GET /api/v1/purchase-summary/isp/isp-456?igst_percentage=5
+
+===================================================================================
+PART 3: PAYMENT ADVICE UPDATES
+===================================================================================
+
+OVERVIEW:
+---------
+Payment Advice no longer links to Purchase. Instead, it links directly to:
+- Sauda (for single-sauda payment), OR
+- ISP (for multi-sauda payment covering all saudas in that ISP)
+
+Amount is AUTO-CALCULATED from the purchase summary API if not provided.
+
+DATA MODEL CHANGES:
+-------------------
+REMOVED field:
+- purchase_id
+
+ADDED fields:
+- sauda_id (UUID, optional)
+- inward_slip_pass_id (UUID, optional)
+- At least ONE of these must be provided
+
+PAYMENT ADVICE API CHANGES:
+----------------------------
+
+1. GET /api/v1/payment-advices
+   Query Params CHANGED:
+   - OLD: purchase_id
+   - NEW: sauda_id OR inward_slip_pass_id
+   - status (unchanged)
+   
+   Example:
+   GET /api/v1/payment-advices?sauda_id=sauda-123
+   GET /api/v1/payment-advices?inward_slip_pass_id=isp-456
+
+2. POST /api/v1/payment-advices
+   Body CHANGED:
+   {
+     // OLD: "purchase_id": "uuid"
+     // NEW: One of these (required):
+     "sauda_id": "uuid",              // For single sauda
+     // OR
+     "inward_slip_pass_id": "uuid",   // For ISP (multiple saudas)
+     
+     "payer_id": "uuid",
+     "recipient_id": "uuid",
+     "date_of_payment": "2024-01-20",
+     
+     // OPTIONAL - auto-calculated if not provided:
+     "amount": 685807.50,
+     
+     // OPTIONAL - used for auto-calculation:
+     "igst_percentage": 5,
+     
+     // Charges (unchanged):
+     "charges": [
+       {
+         "charge_name": "Bank Charges",
+         "charge_type": "fixed",
+         "charge_value": 500
+       },
+       {
+         "charge_name": "Processing Fee",
+         "charge_type": "percentage",
+         "charge_value": 1.5
+       }
+     ],
+     
+     // Other fields (unchanged):
+     "sr_number": "...",
+     "party_name": "...",
+     ...
+   }
+   
+   AUTO-CALCULATION LOGIC:
+   - If amount NOT provided:
+     - If sauda_id: Calls GET /purchase-summary/sauda/:id
+     - If inward_slip_pass_id: Calls GET /purchase-summary/isp/:id
+     - Sets amount = summary.final_total_amount
+   - Then applies charges (deductions)
+   - Calculates net_payable = amount - sum(charges)
+
+3. PUT /api/v1/payment-advices/:id
+   Body CHANGED:
+   - Can update sauda_id or inward_slip_pass_id
+   - Other fields unchanged
+
+4. GET /api/v1/payment-advices/:id
+   Response CHANGED:
+   - Returns sauda_id and inward_slip_pass_id instead of purchase_id
+   - Other fields unchanged
+
+FRONTEND WORKFLOW:
+------------------
+
+Scenario 1: Create Payment Advice for Single Sauda
+---------------------------------------------------
+// Step 1: Get summary to show user
+GET /api/v1/purchase-summary/sauda/sauda-123?igst_percentage=5
+
+// Step 2: Create payment advice (amount auto-calculated)
+POST /api/v1/payment-advices
+{
+  "sauda_id": "sauda-123",
+  "payer_id": "user-uuid",
+  "recipient_id": "vendor-uuid",
+  "date_of_payment": "2024-01-20",
+  "igst_percentage": 5,
+  "charges": [
+    {
+      "charge_name": "Bank Charges",
+      "charge_type": "fixed",
+      "charge_value": 500
+    }
+  ]
+}
+
+Response:
+{
+  "success": true,
+  "data": {
+    "id": "pa-uuid",
+    "sauda_id": "sauda-123",
+    "inward_slip_pass_id": null,
+    "amount": 685807.50,  // Auto-calculated from summary
+    "charges": [...],
+    "net_payable": 685307.50,  // amount - charges
+    ...
+  }
+}
+
+Scenario 2: Create Payment Advice for ISP (Multiple Saudas)
+------------------------------------------------------------
+// Step 1: Get summary to show user
+GET /api/v1/purchase-summary/isp/isp-456?igst_percentage=5
+
+// Step 2: Create payment advice
+POST /api/v1/payment-advices
+{
+  "inward_slip_pass_id": "isp-456",
+  "payer_id": "user-uuid",
+  "recipient_id": "vendor-uuid",
+  "date_of_payment": "2024-01-20",
+  "igst_percentage": 5,
+  "charges": [...]
+}
+
+Response:
+{
+  "success": true,
+  "data": {
+    "id": "pa-uuid",
+    "sauda_id": null,
+    "inward_slip_pass_id": "isp-456",
+    "amount": 1137769.50,  // Auto-calculated (sum of all saudas)
+    "charges": [...],
+    "net_payable": 1136269.50,
+    ...
+  }
+}
+
+Scenario 3: Manual Amount Entry (Optional)
+-------------------------------------------
+POST /api/v1/payment-advices
+{
+  "sauda_id": "sauda-123",
+  "amount": 700000,  // Manually specified, no auto-calculation
+  "payer_id": "user-uuid",
+  "recipient_id": "vendor-uuid",
+  "date_of_payment": "2024-01-20",
+  "charges": [...]
+}
+
+===================================================================================
+COMPLETE WORKFLOW EXAMPLE
+===================================================================================
+
+Scenario: Vendor delivers rice, create payment advice
+------------------------------------------------------
+
+1. CREATE ISP (Inward Slip Pass)
+   POST /api/v1/inward-slip-passes
+   {
+     "slip_number": "ISP-001",
+     "date": "2024-01-15",
+     "vehicle_number": "DL-01-AB-1234",
+     "party_name": "ABC Rice Traders",
+     "transporter_id": "trans-uuid",
+     "transportation_cost": 8000,
+     // Note: NO weight fields
+     ...
+   }
+   Response: { "id": "isp-456", ... }
+
+2. CREATE KAANTA FOR EACH SAUDA IN THE ISP
+   
+   // For Sauda 1
+   POST /api/v1/kaantas
+   {
+     "sauda_id": "sauda-123",
+     "inward_slip_pass_id": "isp-456",
+     "full_truck_weight": 5000,
+     "empty_truck_weight": 2000,
+     "bag_weight": 50,
+     "no_of_bags": 60,
+     "bag_type": "jute"
+   }
+   Response: Kaanta created, Lot auto-created
+   
+   // For Sauda 2 (if ISP has multiple saudas)
+   POST /api/v1/kaantas
+   {
+     "sauda_id": "sauda-789",
+     "inward_slip_pass_id": "isp-456",
+     "full_truck_weight": 3500,
+     "empty_truck_weight": 1500,
+     "bag_weight": 45,
+     "no_of_bags": 44,
+     "bag_type": "pp"
+   }
+   Response: Kaanta created, Lot auto-created
+
+3. VIEW PURCHASE SUMMARY
+   
+   // Option A: Per Sauda
+   GET /api/v1/purchase-summary/sauda/sauda-123?igst_percentage=5
+   
+   // Option B: Entire ISP
+   GET /api/v1/purchase-summary/isp/isp-456?igst_percentage=5
+   
+   Response: Detailed breakdown with all calculations
+
+4. CREATE PAYMENT ADVICE
+   
+   // Option A: For single sauda
+   POST /api/v1/payment-advices
+   {
+     "sauda_id": "sauda-123",
+     "payer_id": "user-uuid",
+     "recipient_id": "vendor-uuid",
+     "date_of_payment": "2024-01-20",
+     "igst_percentage": 5,
+     "charges": [
+       { "charge_name": "Bank Charges", "charge_type": "fixed", "charge_value": 500 }
+     ]
+   }
+   
+   // Option B: For entire ISP (all saudas)
+   POST /api/v1/payment-advices
+   {
+     "inward_slip_pass_id": "isp-456",
+     "payer_id": "user-uuid",
+     "recipient_id": "vendor-uuid",
+     "date_of_payment": "2024-01-20",
+     "igst_percentage": 5,
+     "charges": [...]
+   }
+
+5. VIEW PAYMENT ADVICES
+   
+   // Filter by sauda
+   GET /api/v1/payment-advices?sauda_id=sauda-123
+   
+   // Filter by ISP
+   GET /api/v1/payment-advices?inward_slip_pass_id=isp-456
+
+===================================================================================
+VALIDATION RULES
+===================================================================================
+
+Kaanta Creation:
+- sauda_id: Required, must exist
+- inward_slip_pass_id: Required, must exist
+- full_truck_weight: Required, must be > 0
+- empty_truck_weight: Required, must be > 0
+- bag_weight: Required, must be > 0
+- no_of_bags: Required, must be > 0
+- bag_type: Required, must be 'jute' or 'pp'
+
+Payment Advice Creation:
+- Must provide EITHER sauda_id OR inward_slip_pass_id (at least one required)
+- If sauda_id provided: must exist in database
+- If inward_slip_pass_id provided: must exist in database
+- amount: Optional (auto-calculated if not provided)
+- igst_percentage: Optional (default: 0, used for auto-calculation)
+- payer_id: Required, must exist
+- recipient_id: Required, must exist
+- date_of_payment: Required
+
+===================================================================================
+ERROR HANDLING
+===================================================================================
+
+Common Errors:
+
+1. Kaanta creation without valid sauda:
+   Status: 404
+   Message: "Sauda not found"
+
+2. Kaanta creation without valid ISP:
+   Status: 404
+   Message: "Inward slip pass not found"
+
+3. Payment Advice without sauda_id or isp_id:
+   Status: 400
+   Message: "Either sauda_id or inward_slip_pass_id must be provided"
+
+4. Summary API for ISP with no saudas:
+   Status: 404
+   Message: "No saudas found for this ISP"
+
+5. Accessing old purchase endpoints:
+   Status: 404
+   Message: "Not Found" (endpoints removed)
+
+===================================================================================
+MIGRATION NOTES FOR EXISTING DATA
+===================================================================================
+
+1. ISP Records:
+   - Existing ISPs will have weight fields set to null after migration
+   - No data migration needed - old weight data is lost
+   - Create new Kaantas going forward
+
+2. Purchase Records:
+   - All purchase records will be deleted when migration runs
+   - Historical purchase data will be lost
+   - Use summary API for new calculations
+
+3. Payment Advice Records:
+   - Existing payment advices will have purchase_id removed
+   - sauda_id and inward_slip_pass_id will be null
+   - Manually update if needed, or create new payment advices
+
+===================================================================================
+TESTING ENDPOINTS
+===================================================================================
+
+You can test the new endpoints with these example calls:
+
+# Create Kaanta
+curl -X POST http://localhost:3000/api/v1/kaantas \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sauda_id": "YOUR_SAUDA_ID",
+    "inward_slip_pass_id": "YOUR_ISP_ID",
+    "full_truck_weight": 5000,
+    "empty_truck_weight": 2000,
+    "bag_weight": 50,
+    "no_of_bags": 60,
+    "bag_type": "jute"
+  }'
+
+# Get Sauda Summary
+curl -X GET "http://localhost:3000/api/v1/purchase-summary/sauda/YOUR_SAUDA_ID?igst_percentage=5" \
+  -H "Authorization: Bearer YOUR_TOKEN"
+
+# Create Payment Advice
+curl -X POST http://localhost:3000/api/v1/payment-advices \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sauda_id": "YOUR_SAUDA_ID",
+    "payer_id": "YOUR_USER_ID",
+    "recipient_id": "YOUR_VENDOR_ID",
+    "date_of_payment": "2024-01-20",
+    "igst_percentage": 5,
+    "charges": [
+      {
+        "charge_name": "Bank Charges",
+        "charge_type": "fixed",
+        "charge_value": 500
+      }
+    ]
+  }'
+
+===================================================================================
+SUMMARY OF KEY CHANGES
+===================================================================================
+
+1. KAANTA ENTITY:
+   ✓ New entity for weighbridge measurements
+   ✓ Replaces weight fields in ISP
+   ✓ Auto-creates lots on creation
+   ✓ Links to one sauda and one ISP
+   ✓ Supports two bag types: jute and pp
+
+2. PURCHASE MODULE REMOVED:
+   ✓ All purchase endpoints deleted
+   ✓ Purchase tables dropped from database
+   ✓ Replaced with on-the-fly summary API
+   ✓ No more storing purchase records
+
+3. PURCHASE SUMMARY API:
+   ✓ Real-time calculation of totals
+   ✓ Step-by-step breakdown for transparency
+   ✓ Supports both sauda and ISP summaries
+   ✓ Configurable IGST percentage
+
+4. PAYMENT ADVICE UPDATES:
+   ✓ Links to sauda OR ISP (not purchase)
+   ✓ Auto-calculates amount from summary
+   ✓ Supports both single-sauda and multi-sauda payments
+   ✓ Charges/deductions work the same
+
+===================================================================================
+END OF GUIDE
+===================================================================================
+
