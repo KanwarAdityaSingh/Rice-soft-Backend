@@ -542,7 +542,7 @@ export const verifyVehicleSchema = Joi.object({
 
 export const createInwardSlipPassSchema = Joi.object({
   sauda_ids: Joi.array().items(Joi.string().uuid()).optional().min(1),
-  slip_number: Joi.string().required().max(255),
+  slip_number: Joi.string().optional().allow(null, '').max(255),
   date: Joi.string().required().isoDate(),
   vehicle_id: Joi.string().required().uuid(),
   party_name: Joi.string().required().max(255),

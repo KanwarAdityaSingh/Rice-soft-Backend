@@ -56,7 +56,7 @@ export class InwardSlipPassDAO {
     `;
     
     const values = [
-      inwardSlipPassData.slip_number,
+      inwardSlipPassData.slip_number || null, // null will trigger auto-generation
       inwardSlipPassData.date,
       inwardSlipPassData.vehicle_id,
       inwardSlipPassData.party_name,
@@ -221,6 +221,7 @@ export class InwardSlipPassDAO {
 }
 
 export const inwardSlipPassDAO = new InwardSlipPassDAO();
+
 
 
 

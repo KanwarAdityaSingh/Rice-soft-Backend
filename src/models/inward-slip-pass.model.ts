@@ -28,7 +28,7 @@ export interface InwardSlipPass {
 
 export interface CreateInwardSlipPassDTO {
   sauda_ids?: string[]; // Array of sauda IDs to link
-  slip_number: string;
+  slip_number?: string; // Optional - auto-generated as ISP-001, ISP-002, etc. if not provided
   date: string; // ISO date string
   vehicle_id: string;
   party_name: string;
