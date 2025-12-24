@@ -63,7 +63,7 @@ export class InwardSlipPassDAO {
                                       party_address, party_gst_number, party_pan_number, transporter_id, transportation_cost, status, other_bills,
                                       bill_pdf_url, bilti_image_url,
                                       bilti_pdf_url, eway_bill_number, eway_bill_url, notes, created_by)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
       RETURNING id
     `;
     
