@@ -175,7 +175,7 @@ export class PaymentAdviceController {
         
         // Get summary and auto-calculate amount if not provided
         if (!calculatedAmount) {
-          const summary = await purchaseSummaryDAO.getSaudaSummary(paymentAdviceData.sauda_id, {});
+          const summary = await purchaseSummaryDAO.getSaudaSummary(paymentAdviceData.sauda_id);
           calculatedAmount = summary.final_total_amount;
         }
       } else if (paymentAdviceData.inward_slip_pass_id) {
@@ -187,7 +187,7 @@ export class PaymentAdviceController {
         
         // Get summary and auto-calculate amount if not provided
         if (!calculatedAmount) {
-          const summary = await purchaseSummaryDAO.getIspSummary(paymentAdviceData.inward_slip_pass_id, {});
+          const summary = await purchaseSummaryDAO.getIspSummary(paymentAdviceData.inward_slip_pass_id);
           calculatedAmount = summary.final_total_amount;
         }
       }

@@ -1,7 +1,6 @@
 import { db } from '../database/connection';
 import { 
   PurchaseSummary, 
-  GetSummaryOptions,
   SaudaSummaryDetails,
   IspSummaryDetails,
   LotSummaryDetails,
@@ -14,7 +13,7 @@ export class PurchaseSummaryDAO {
    * Get purchase summary for a single sauda
    * Aggregates all lots and applies sauda-level discounts/commissions
    */
-  async getSaudaSummary(saudaId: string, options: GetSummaryOptions = {}): Promise<PurchaseSummary> {
+  async getSaudaSummary(saudaId: string): Promise<PurchaseSummary> {
     // IGST removed - always set to 0
     const igstPercentage = 0;
 
@@ -196,7 +195,7 @@ export class PurchaseSummaryDAO {
    * Get purchase summary for an ISP (aggregates all saudas in that ISP)
    * Returns combined summary with per-sauda breakdown
    */
-  async getIspSummary(ispId: string, options: GetSummaryOptions = {}): Promise<PurchaseSummary> {
+  async getIspSummary(ispId: string): Promise<PurchaseSummary> {
     // IGST removed - always set to 0
     const igstPercentage = 0;
 
@@ -246,7 +245,7 @@ export class PurchaseSummaryDAO {
     let totalFinalAmount = 0;
 
     for (const saudaId of saudaIds) {
-      const saudaSummary = await this.getSaudaSummary(saudaId, options);
+      const saudaSummary = await this.getSaudaSummary(saudaId);
       
       const breakdown: SaudaBreakdown = {
         sauda_id: saudaId,
