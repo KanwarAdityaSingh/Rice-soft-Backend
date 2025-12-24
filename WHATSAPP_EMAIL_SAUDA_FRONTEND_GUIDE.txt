@@ -10,16 +10,27 @@ provide IDs and recipients. No template knowledge required!
                             API ENDPOINTS
 ================================================================================
 
-Base URL: /api/v1/saudas
+IMPORTANT: Base URL Configuration
+----------------------------------
+If your frontend base URL is: http://localhost:3000/api/v1
+Then use endpoints like: /saudas/:id/send-via-email
+
+If your frontend base URL is: http://localhost:3000
+Then use endpoints like: /api/v1/saudas/:id/send-via-email
+
+⚠️  Common Error: Avoid duplicate /v1 in URL
+❌ Wrong: http://localhost:3000/api/v1/v1/saudas/...
+✅ Correct: http://localhost:3000/api/v1/saudas/...
+
 All endpoints require: Authorization: Bearer <token>
 
 | Method | Endpoint                        | Purpose                           |
 |--------|--------------------------------|-----------------------------------|
-| POST   | /:id/send-via-email            | Send sauda via email (auto-generated message) |
-| POST   | /:id/send-via-whatsapp         | Send sauda via WhatsApp (auto-generated message) |
-| POST   | /send-payment-advice-email     | Send payment advice via email |
-| POST   | /send-payment-advice-whatsapp  | Send payment advice via WhatsApp |
-| GET    | /:id/notification-preview      | Preview message (optional - for editing) |
+| POST   | /api/v1/saudas/:id/send-via-email            | Send sauda via email (auto-generated message) |
+| POST   | /api/v1/saudas/:id/send-via-whatsapp         | Send sauda via WhatsApp (auto-generated message) |
+| POST   | /api/v1/saudas/send-payment-advice-email     | Send payment advice via email |
+| POST   | /api/v1/saudas/send-payment-advice-whatsapp  | Send payment advice via WhatsApp |
+| GET    | /api/v1/saudas/:id/notification-preview      | Preview message (optional - for editing) |
 
 ================================================================================
                         1. SEND SAUDA VIA EMAIL
@@ -37,15 +48,24 @@ Optional:
 
 Example:
 --------
-const formData = new FormData();
-formData.append('emails', JSON.stringify(['vendor@example.com']));
-if (pdfFile) formData.append('file', pdfFile);
-
-const response = await fetch(`/api/v1/saudas/${saudaId}/send-via-email`, {
+// If your API_BASE_URL is "http://localhost:3000/api/v1"
+const response = await fetch(`${API_BASE_URL}/saudas/${saudaId}/send-via-email`, {
   method: 'POST',
   headers: { 'Authorization': `Bearer ${token}` },
   body: formData
 });
+
+// OR if your API_BASE_URL is "http://localhost:3000"
+const response = await fetch(`${API_BASE_URL}/api/v1/saudas/${saudaId}/send-via-email`, {
+  method: 'POST',
+  headers: { 'Authorization': `Bearer ${token}` },
+  body: formData
+});
+
+// FormData setup:
+const formData = new FormData();
+formData.append('emails', JSON.stringify(['vendor@example.com']));
+if (pdfFile) formData.append('file', pdfFile);
 
 Response:
 ---------
@@ -83,7 +103,8 @@ const formData = new FormData();
 formData.append('whatsappNumbers', JSON.stringify(['9876543210']));
 if (pdfFile) formData.append('file', pdfFile);
 
-const response = await fetch(`/api/v1/saudas/${saudaId}/send-via-whatsapp`, {
+// Adjust based on your API_BASE_URL (see Email example above)
+const response = await fetch(`${API_BASE_URL}/saudas/${saudaId}/send-via-whatsapp`, {
   method: 'POST',
   headers: { 'Authorization': `Bearer ${token}` },
   body: formData
@@ -132,7 +153,8 @@ formData.append('amount', '150000');
 formData.append('date', '2024-12-24');
 formData.append('file', pdfFile);
 
-const response = await fetch('/api/v1/saudas/send-payment-advice-email', {
+// Adjust based on your API_BASE_URL
+const response = await fetch(`${API_BASE_URL}/saudas/send-payment-advice-email`, {
   method: 'POST',
   headers: { 'Authorization': `Bearer ${token}` },
   body: formData
@@ -162,7 +184,8 @@ formData.append('amount', '150000');
 formData.append('date', '2024-12-24');
 formData.append('file', pdfFile);
 
-const response = await fetch('/api/v1/saudas/send-payment-advice-whatsapp', {
+// Adjust based on your API_BASE_URL
+const response = await fetch(`${API_BASE_URL}/saudas/send-payment-advice-whatsapp`, {
   method: 'POST',
   headers: { 'Authorization': `Bearer ${token}` },
   body: formData
@@ -175,6 +198,14 @@ const response = await fetch('/api/v1/saudas/send-payment-advice-whatsapp', {
 If you want users to edit messages before sending:
 
 GET /api/v1/saudas/:saudaId/notification-preview
+
+Example:
+--------
+// Adjust based on your API_BASE_URL
+const response = await fetch(`${API_BASE_URL}/saudas/${saudaId}/notification-preview`, {
+  headers: { 'Authorization': `Bearer ${token}` }
+});
+const { data } = await response.json();
 
 Returns:
 {
@@ -231,6 +262,7 @@ try {
 const SendSaudaButton = ({ saudaId }) => {
   const [emails, setEmails] = useState(['']);
   const [loading, setLoading] = useState(false);
+  const API_BASE_URL = 'http://localhost:3000/api/v1'; // Adjust to your base URL
 
   const handleSend = async () => {
     setLoading(true);
@@ -238,7 +270,8 @@ const SendSaudaButton = ({ saudaId }) => {
       const formData = new FormData();
       formData.append('emails', JSON.stringify(emails.filter(e => e.trim())));
       
-      const response = await fetch(`/api/v1/saudas/${saudaId}/send-via-email`, {
+      // Use API_BASE_URL to avoid duplicate /v1
+      const response = await fetch(`${API_BASE_URL}/saudas/${saudaId}/send-via-email`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` },
         body: formData
@@ -280,6 +313,11 @@ const SendSaudaButton = ({ saudaId }) => {
 ✅ Optional: Preview endpoints if you want users to edit messages
 ✅ WhatsApp: Check summary.failed for partial failures
 ✅ All endpoints use multipart/form-data for file uploads
+
+⚠️  URL Configuration:
+- If API_BASE_URL = "http://localhost:3000/api/v1" → use: `${API_BASE_URL}/saudas/...`
+- If API_BASE_URL = "http://localhost:3000" → use: `${API_BASE_URL}/api/v1/saudas/...`
+- Never use: `/api/v1/v1/...` (duplicate /v1 causes 404 errors)
 
 ================================================================================
                             END OF GUIDE
