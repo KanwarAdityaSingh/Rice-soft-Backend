@@ -237,35 +237,23 @@ export class SaudaDAO {
     }
 
     // Delete related records in the correct order to avoid foreign key constraint violations
-    // Note: Purchases are now linked to saudas via purchase_saudas junction table (many-to-many)
     
-    // 1. Delete payment advice charges linked to payment advices from purchases linked to this sauda
+    // 1. Delete payment advice charges linked to payment advices for this sauda
     const deletePaymentAdviceChargesQuery = `
       DELETE FROM payment_advice_charges
       WHERE payment_advice_id IN (
-        SELECT id FROM payment_advices
-        WHERE purchase_id IN (
-          SELECT purchase_id FROM purchase_saudas WHERE sauda_id = $1
-        )
+        SELECT id FROM payment_advices WHERE sauda_id = $1
       )
     `;
     await db.query(deletePaymentAdviceChargesQuery, [id]);
 
-    // 2. Delete payment advices linked to purchases from this sauda
+    // 2. Delete payment advices linked to this sauda
     const deletePaymentAdvicesQuery = `
-      DELETE FROM payment_advices
-      WHERE purchase_id IN (
-        SELECT purchase_id FROM purchase_saudas WHERE sauda_id = $1
-      )
+      DELETE FROM payment_advices WHERE sauda_id = $1
     `;
     await db.query(deletePaymentAdvicesQuery, [id]);
 
-    // 3. Unlink purchases from this sauda (via junction table)
-    //    Note: We don't delete purchases as they may be linked to other saudas
-    const unlinkPurchasesQuery = `DELETE FROM purchase_saudas WHERE sauda_id = $1`;
-    await db.query(unlinkPurchasesQuery, [id]);
-
-    // 4. Unlink inward slip passes from this sauda (via junction table)
+    // 3. Unlink inward slip passes from this sauda (via junction table)
     //    Note: ISPs are not deleted as they can be linked to multiple saudas
     const unlinkInwardSlipPassesQuery = `DELETE FROM inward_slip_pass_saudas WHERE sauda_id = $1`;
     await db.query(unlinkInwardSlipPassesQuery, [id]);
