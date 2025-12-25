@@ -1,0 +1,774 @@
+================================================================================
+PRODUCTION & INVENTORY MANAGEMENT SYSTEM - FRONTEND IMPLEMENTATION GUIDE
+================================================================================
+
+This document explains the complete business logic and API implementation for
+the Production & Inventory Management System. Use this as a reference for
+building the frontend interface.
+
+================================================================================
+BUSINESS OVERVIEW
+================================================================================
+
+The system manages the complete production lifecycle from recipe creation to
+finished goods inventory. Here's the business flow:
+
+1. RECIPES: Define formulas that specify which lots (by rice codes) to mix
+   and in what ratios (percentages). A recipe is a template, not an execution.
+
+2. PRODUCTS: The final products that will be sold. A product can have multiple
+   recipes (different ways to make the same product).
+
+3. PACKAGING: Defines the packet types (e.g., 25kg PP Bag, 50kg Jute Bag).
+   This is the material used to package finished products.
+
+4. BATCHES: The execution of a recipe. When a batch is created:
+   - The recipe formula is applied to the specified batch quantity
+   - Lots are consumed based on the recipe percentages
+   - Packets are consumed (empty packets become filled)
+   - Finished goods are created
+   - Bags inventory is updated (filled bags decrease, empty bags increase)
+
+5. INVENTORY: Four types of inventory are automatically managed:
+   - Finished Goods: Packets of products from batches
+   - Packets: Empty packets available by capacity
+   - Lots: Remaining quantity in specific lots
+   - Bags: Filled and empty bags by type and capacity
+
+================================================================================
+KEY BUSINESS RULES
+================================================================================
+
+RECIPE FORMULA:
+- Formula is an array of {lot_id, percentage}
+- All percentages MUST sum to exactly 100%
+- Each lot belongs to ONE rice code
+- Multiple lots can have the same rice code
+
+BATCH CREATION CALCULATION:
+- For a batch with quantity Q and recipe with percentages P1, P2, P3:
+  - Lot 1 quantity = Q × (P1 / 100)
+  - Lot 2 quantity = Q × (P2 / 100)
+  - Lot 3 quantity = Q × (P3 / 100)
+  - Total = Q (verification)
+
+EXAMPLE:
+- Batch: 1000 kg
+- Recipe: 30% Lot A, 40% Lot B, 30% Lot C
+- Calculations:
+  - Lot A: 1000 × 0.30 = 300 kg
+  - Lot B: 1000 × 0.40 = 400 kg
+  - Lot C: 1000 × 0.30 = 300 kg
+  - Total: 1000 kg ✓
+
+PACKETS CALCULATION:
+- Packets needed = ceil(batch_quantity / packaging_holding_capacity)
+- Example: 1000 kg batch, 25kg bags = ceil(1000/25) = 40 packets
+
+INVENTORY UPDATES (Automatic on Batch Creation):
+- Lot Inventory: Each lot decremented by calculated quantity
+- Packets Inventory: Decremented by packets needed
+- Finished Goods: Created with no_of_packets and total_weight
+- Bags Inventory: Filled bags decrease, empty bags increase (proportional)
+
+DUAL TRACKING:
+- Lot-Level: Individual tracking per lot used in batch
+- Rice Code-Level: Aggregated tracking by rice_code_id (sums quantities from
+  multiple lots with same rice code)
+
+================================================================================
+API ENDPOINTS
+================================================================================
+
+BASE URL: /api/v1
+All endpoints require authentication (Bearer token in Authorization header)
+
+--------------------------------------------------------------------------------
+RECIPES API
+--------------------------------------------------------------------------------
+
+GET    /recipes
+  - Get all recipes
+  - Response: { success: true, data: RecipeResponse[] }
+
+GET    /recipes/:id
+  - Get recipe by ID
+  - Response: { success: true, data: RecipeResponse }
+
+POST   /recipes
+  - Create new recipe
+  - Body: {
+      recipe_name: string (required, unique)
+      formula: Array<{
+        lot_id: string (required, must exist)
+        percentage: number (required, 0-100, must sum to 100)
+      }>
+    }
+  - Validation:
+    - recipe_name: required, unique
+    - formula: required, array, min 1 item
+    - formula[].lot_id: required, must be valid UUID
+    - formula[].percentage: required, number, min 0, max 100
+    - formula percentages must sum to exactly 100%
+  - Response: { success: true, message: string, data: RecipeResponse }
+
+PUT    /recipes/:id
+  - Update recipe
+  - Body: {
+      recipe_name?: string
+      formula?: Array<{lot_id: string, percentage: number}>
+    }
+  - Same validations as POST
+  - Response: { success: true, message: string, data: RecipeResponse }
+
+DELETE /recipes/:id
+  - Delete recipe
+  - Response: { success: true, message: string }
+
+RECIPE DATA STRUCTURE:
+{
+  id: string (UUID)
+  recipe_name: string (unique)
+  formula: [
+    {
+      lot_id: string (UUID)
+      percentage: number (0-100)
+    }
+  ]
+  created_at: string (ISO date)
+  updated_at: string (ISO date)
+}
+
+--------------------------------------------------------------------------------
+PRODUCTS API
+--------------------------------------------------------------------------------
+
+GET    /products
+  - Get all products
+  - Response: { success: true, data: ProductResponse[] }
+
+GET    /products/:id
+  - Get product by ID (includes linked recipes)
+  - Response: {
+      success: true,
+      data: {
+        id: string
+        name: string
+        description: string | null
+        brand: string | null
+        created_at: string
+        updated_at: string
+        recipes: Array<{
+          id: string
+          recipe_name: string
+        }>
+      }
+    }
+
+POST   /products
+  - Create new product
+  - Body: {
+      name: string (required)
+      description?: string
+      brand?: string
+    }
+  - Response: { success: true, message: string, data: ProductResponse }
+
+PUT    /products/:id
+  - Update product
+  - Body: {
+      name?: string
+      description?: string
+      brand?: string
+    }
+  - Response: { success: true, message: string, data: ProductResponse }
+
+DELETE /products/:id
+  - Delete product
+  - Response: { success: true, message: string }
+
+POST   /products/:id/recipes
+  - Link recipe to product (many-to-many relationship)
+  - Body: { recipe_id: string (required, must exist) }
+  - Validation: Recipe must exist, not already linked
+  - Response: { success: true, message: string }
+
+DELETE /products/:id/recipes/:recipeId
+  - Unlink recipe from product
+  - Response: { success: true, message: string }
+
+PRODUCT DATA STRUCTURE:
+{
+  id: string (UUID)
+  name: string
+  description: string | null
+  brand: string | null
+  created_at: string (ISO date)
+  updated_at: string (ISO date)
+  recipes?: Array<{ id: string, recipe_name: string }> (when fetched with recipes)
+}
+
+--------------------------------------------------------------------------------
+PACKAGING API
+--------------------------------------------------------------------------------
+
+GET    /packaging
+  - Get all packaging types
+  - Response: { success: true, data: PackagingResponse[] }
+
+GET    /packaging/:id
+  - Get packaging by ID
+  - Response: { success: true, data: PackagingResponse }
+
+POST   /packaging
+  - Create new packaging type
+  - Body: {
+      holding_capacity: number (required, > 0)
+      packet_type: string (required, enum: "PP Bag" | "Jute Bag" | "HDPE Bag" | etc.)
+      source?: string
+      no_of_packets?: number (deprecated, use inventory endpoint)
+    }
+  - Validation:
+    - holding_capacity: required, number, > 0
+    - packet_type: required, string
+    - Unique constraint: (holding_capacity, packet_type) combination must be unique
+  - Response: { success: true, message: string, data: PackagingResponse }
+
+PUT    /packaging/:id
+  - Update packaging
+  - Body: {
+      holding_capacity?: number
+      packet_type?: string
+      source?: string
+    }
+  - Response: { success: true, message: string, data: PackagingResponse }
+
+DELETE /packaging/:id
+  - Delete packaging
+  - Response: { success: true, message: string }
+
+POST   /packaging/:id/inventory
+  - Add empty packets to inventory
+  - Body: {
+      packaging_id: string (required, must match URL param)
+      available_quantity: number (required, > 0)
+    }
+  - Response: { success: true, message: string, data: PacketsInventoryResponse }
+
+PACKAGING DATA STRUCTURE:
+{
+  id: string (UUID)
+  holding_capacity: number (kg)
+  packet_type: string (enum)
+  source: string | null
+  created_at: string (ISO date)
+  updated_at: string (ISO date)
+}
+
+PACKET TYPES (enum):
+- "PP Bag"
+- "Jute Bag"
+- "HDPE Bag"
+- (configurable in database)
+
+--------------------------------------------------------------------------------
+BATCHES API
+--------------------------------------------------------------------------------
+
+GET    /batches
+  - Get all batches
+  - Response: { success: true, data: BatchResponse[] }
+
+GET    /batches/:id
+  - Get batch by ID with details
+  - Response: {
+      success: true,
+      data: BatchWithDetailsResponse (includes product, recipe, packaging,
+             lot_usage, rice_code_usage)
+    }
+
+POST   /batches
+  - Create new batch (TRIGGERS AUTOMATIC INVENTORY UPDATES)
+  - Body: {
+      product_id: string (required, must exist)
+      recipe_id: string (required, must exist and be linked to product)
+      packaging_id: string (required, must exist)
+      quantity: number (required, > 0.01)
+      status?: "planned" | "in_progress" | "completed" | "cancelled" (default: "planned")
+    }
+  - Validation:
+    - product_id: required, must exist
+    - recipe_id: required, must exist, must be linked to product
+    - packaging_id: required, must exist
+    - quantity: required, number, >= 0.01
+  - Business Logic (executed automatically):
+    1. Validates recipe formula sums to 100%
+    2. Calculates lot quantities: lot_qty = batch_qty × (percentage / 100)
+    3. Checks all lots have sufficient inventory
+    4. Checks packets inventory has sufficient empty packets
+    5. Creates batch record
+    6. Creates lot usage records (lot-level tracking)
+    7. Creates rice code usage records (aggregated tracking)
+    8. Decrements lot inventory for each lot
+    9. Decrements packets inventory
+    10. Creates finished goods inventory
+    11. Updates bags inventory (filled decrease, empty increase)
+  - Response: { success: true, message: string, data: BatchResponse }
+  - Errors:
+    - "Product not found"
+    - "Recipe not found"
+    - "Packaging not found"
+    - "Recipe formula percentages must sum to 100%"
+    - "Insufficient quantity in lot {lot_number}. Available: X kg, Required: Y kg"
+    - "Insufficient empty packets. Available: X, Required: Y"
+
+PUT    /batches/:id
+  - Update batch (mainly status)
+  - Body: {
+      status?: "planned" | "in_progress" | "completed" | "cancelled"
+      quantity?: number (if updating, must recalculate - use with caution)
+    }
+  - Response: { success: true, message: string, data: BatchResponse }
+
+GET    /batches/:id/lot-usage
+  - Get lot-level usage tracking for batch
+  - Response: {
+      success: true,
+      data: Array<{
+        id: string
+        batch_id: string
+        lot_id: string
+        quantity_used: number
+        percentage_used: number
+        created_at: string
+        updated_at: string
+      }>
+    }
+
+GET    /batches/:id/rice-code-usage
+  - Get rice code-level usage tracking for batch
+  - Response: {
+      success: true,
+      data: Array<{
+        id: string
+        batch_id: string
+        rice_code_id: string
+        rice_type: string | null
+        total_quantity_used: number
+        created_at: string
+        updated_at: string
+      }>
+    }
+
+BATCH DATA STRUCTURE:
+{
+  id: string (UUID)
+  batch_number: string (auto-generated: "BATCH-YYYYMMDD-{uuid}")
+  product_id: string (UUID)
+  recipe_id: string (UUID)
+  packaging_id: string (UUID)
+  quantity: number (kg)
+  status: "planned" | "in_progress" | "completed" | "cancelled"
+  created_at: string (ISO date)
+  updated_at: string (ISO date)
+}
+
+BATCH WITH DETAILS:
+{
+  ...BatchResponse,
+  product?: { id: string, name: string }
+  recipe?: { id: string, recipe_name: string }
+  packaging?: { id: string, holding_capacity: number, packet_type: string }
+  lot_usage?: BatchLotUsage[]
+  rice_code_usage?: BatchRiceCodeUsage[]
+}
+
+BATCH STATUS ENUM:
+- "planned": Batch is planned but not started
+- "in_progress": Batch production is in progress
+- "completed": Batch production is completed
+- "cancelled": Batch was cancelled
+
+--------------------------------------------------------------------------------
+INVENTORY API
+--------------------------------------------------------------------------------
+
+GET    /inventory/finished-goods
+  - Get finished goods inventory
+  - Query params:
+    - product_id?: string (filter by product)
+    - batch_id?: string (filter by batch)
+  - Response: {
+      success: true,
+      data: Array<{
+        id: string
+        product_id: string
+        batch_id: string
+        packaging_id: string
+        no_of_packets: number
+        total_weight: number (kg)
+        product?: { id: string, name: string }
+        batch?: { id: string, batch_number: string }
+        packaging?: { id: string, holding_capacity: number, packet_type: string }
+      }>
+    }
+
+GET    /inventory/packets
+  - Get packets inventory (empty packets available)
+  - Response: {
+      success: true,
+      data: Array<{
+        packaging_id: string
+        available_quantity: number
+        packaging?: {
+          id: string
+          holding_capacity: number
+          packet_type: string
+          source: string | null
+        }
+      }>
+    }
+  - Note: Grouped by (holding_capacity, packet_type) - shows total available
+    regardless of source
+
+GET    /inventory/lots
+  - Get lot inventory (remaining quantities in lots)
+  - Response: {
+      success: true,
+      data: Array<{
+        lot_id: string
+        available_quantity: number (kg)
+      }>
+    }
+  - Note: Only shows lots with available_quantity > 0 (or all if needed)
+
+GET    /inventory/bags
+  - Get bags inventory (filled and empty bags)
+  - Query params:
+    - bag_type?: "jute" | "pp" (filter by bag type)
+  - Response: {
+      success: true,
+      data: Array<{
+        bag_type: "jute" | "pp"
+        bag_capacity: number (kg)
+        filled_bags: number
+        empty_bags: number
+      }>
+    }
+  - Note: Grouped by (bag_type, bag_capacity) - shows totals regardless of source
+
+GET    /inventory/summary
+  - Get inventory summary (aggregated view)
+  - Response: {
+      success: true,
+      data: {
+        finished_goods: {
+          total_packets: number
+          total_weight_kg: number
+          items: number
+        }
+        packets: {
+          total_empty_packets: number
+          types: number
+        }
+        lots: {
+          total_available_quantity_kg: number
+          active_lots: number
+        }
+        bags: {
+          total_filled_bags: number
+          total_empty_bags: number
+          types: number
+        }
+      }
+    }
+
+================================================================================
+DATA FLOW & BUSINESS LOGIC
+================================================================================
+
+RECIPE CREATION FLOW:
+1. User selects lots (each lot has a rice_code_id)
+2. User specifies percentage for each lot
+3. Frontend validates: sum of percentages = 100%
+4. API validates: percentages sum to 100%, lots exist
+5. Recipe created and stored
+
+PRODUCT CREATION FLOW:
+1. User creates product with name, description, brand
+2. User can link multiple recipes to product
+3. Product can be made using any of its linked recipes
+
+BATCH CREATION FLOW (MOST CRITICAL):
+1. User selects:
+   - Product (must have recipes)
+   - Recipe (must be linked to selected product)
+   - Packaging (must exist)
+   - Quantity (total kg to produce)
+
+2. Frontend can pre-calculate and show:
+   - Lot quantities: quantity × (percentage / 100) for each lot
+   - Packets needed: ceil(quantity / holding_capacity)
+   - Can fetch lot inventory to show available quantities
+
+3. On submit, API:
+   - Validates all entities exist
+   - Validates recipe formula sums to 100%
+   - Calculates lot quantities
+   - Checks inventory availability (ALL lots must have enough)
+   - If any check fails, returns error (transaction rollback)
+   - If all checks pass:
+     * Creates batch
+     * Creates lot usage records
+     * Creates rice code usage records (aggregated)
+     * Decrements lot inventory
+     * Decrements packets inventory
+     * Creates finished goods
+     * Updates bags inventory
+
+4. Response includes batch details with tracking information
+
+INVENTORY QUERY FLOW:
+1. Finished Goods: Query by product_id or batch_id for filtering
+2. Packets: Shows available empty packets by capacity/type
+3. Lots: Shows remaining quantity per lot
+4. Bags: Shows filled/empty bags by type and capacity
+5. Summary: Aggregated view of all inventory types
+
+================================================================================
+FRONTEND IMPLEMENTATION CONSIDERATIONS
+================================================================================
+
+RECIPE FORMULA BUILDER:
+- Allow adding/removing lots dynamically
+- Show percentage input for each lot
+- Real-time validation: sum must equal 100%
+- Show error if sum != 100%
+- Fetch available lots with their rice codes for selection
+- Display rice code info for each selected lot
+
+PRODUCT-RECIPE LINKING:
+- Show list of available recipes
+- Allow selecting multiple recipes for a product
+- Show which recipes are already linked
+- Allow unlinking recipes
+
+BATCH CREATION FORM:
+- Product dropdown (fetch products)
+- Recipe dropdown (filtered by selected product)
+- Packaging dropdown (fetch packaging types)
+- Quantity input (number, min 0.01)
+- Show calculated values:
+  * Lot breakdown table (lot, rice code, percentage, calculated quantity, available)
+  * Packets needed
+  * Can show warnings if inventory is low
+- Validate before submit:
+  * All fields filled
+  * Recipe selected matches product
+  * Quantity > 0
+  * Show calculated lot quantities
+- On submit, show loading state
+- On success, show batch details
+- On error, show specific error message
+
+BATCH DETAILS VIEW:
+- Show batch information
+- Show lot usage table (lot-level tracking)
+- Show rice code usage table (aggregated tracking)
+- Show inventory impact (what was consumed/created)
+- Allow status updates
+
+INVENTORY DASHBOARD:
+- Show all four inventory types
+- Finished Goods: Table with filters (product, batch)
+- Packets: Table grouped by capacity/type
+- Lots: Table showing available quantities
+- Bags: Table grouped by type/capacity showing filled/empty
+- Summary: Cards showing totals
+- Real-time updates after batch creation
+
+LOT SELECTION:
+- When building recipe formula, need to fetch available lots
+- Show lot number, rice code, available quantity
+- Filter by rice code if needed
+- Show which lots are already in formula
+
+CALCULATION HELPERS:
+- lotQuantity(batchQty, percentage) = batchQty × (percentage / 100)
+- packetsNeeded(batchQty, capacity) = Math.ceil(batchQty / capacity)
+- validatePercentages(formula) = sum of percentages === 100
+
+ERROR HANDLING:
+- Handle 404 errors (entity not found)
+- Handle 400 errors (validation, insufficient inventory)
+- Show specific error messages from API
+- Handle network errors
+- Show user-friendly messages
+
+LOADING STATES:
+- Show loading during API calls
+- Disable forms during submission
+- Show progress for batch creation (complex operation)
+
+VALIDATION:
+- Client-side validation before API calls
+- Show validation errors inline
+- Real-time validation for percentage sums
+- Pre-check inventory availability before batch creation
+
+================================================================================
+KEY CALCULATIONS TO IMPLEMENT
+================================================================================
+
+1. RECIPE PERCENTAGE VALIDATION:
+   sum = formula.reduce((acc, item) => acc + item.percentage, 0)
+   isValid = Math.abs(sum - 100) < 0.01
+
+2. LOT QUANTITY CALCULATION:
+   lotQuantity = batchQuantity × (percentage / 100)
+
+3. PACKETS NEEDED:
+   packetsNeeded = Math.ceil(batchQuantity / packagingCapacity)
+
+4. TOTAL BATCH QUANTITY VERIFICATION:
+   total = lotQuantities.reduce((acc, lot) => acc + lot.quantity, 0)
+   shouldEqual = batchQuantity
+
+5. RICE CODE AGGREGATION (for display):
+   riceCodeMap = {}
+   for each lot in formula:
+     if riceCodeMap[lot.rice_code_id]:
+       riceCodeMap[lot.rice_code_id] += lot.quantity
+     else:
+       riceCodeMap[lot.rice_code_id] = lot.quantity
+
+================================================================================
+IMPORTANT NOTES
+================================================================================
+
+1. All endpoints require authentication (Bearer token)
+
+2. Batch creation is a TRANSACTION - if any step fails, everything rolls back
+
+3. Inventory updates are AUTOMATIC on batch creation - no separate API calls needed
+
+4. Recipe formula percentages MUST sum to exactly 100% (validated on both
+   frontend and backend)
+
+5. A product can have MULTIPLE recipes - user selects which recipe to use
+   when creating a batch
+
+6. Lot inventory is separate from the lots table - it tracks remaining
+   quantities for production system without affecting sauda flow
+
+7. Packets inventory is grouped by (holding_capacity, packet_type) - shows
+   total available regardless of source
+
+8. Bags inventory is grouped by (bag_type, bag_capacity) - shows total
+   filled/empty regardless of source
+
+9. Dual tracking means you can query both:
+   - Which specific lots were used (lot-level)
+   - How much of each rice code was used (rice_code-level, aggregated)
+
+10. Batch number is auto-generated: "BATCH-YYYYMMDD-{short-uuid}"
+
+11. Status workflow: planned → in_progress → completed (or cancelled)
+
+12. When fetching lots for recipe formula, show available_quantity from
+    lot_inventory, not received_weight from lots table
+
+================================================================================
+EXAMPLE API CALLS
+================================================================================
+
+CREATE RECIPE:
+POST /api/v1/recipes
+{
+  "recipe_name": "Premium Mix 30-40-30",
+  "formula": [
+    {"lot_id": "lot-a-uuid", "percentage": 30},
+    {"lot_id": "lot-b-uuid", "percentage": 40},
+    {"lot_id": "lot-c-uuid", "percentage": 30}
+  ]
+}
+
+CREATE PRODUCT:
+POST /api/v1/products
+{
+  "name": "Premium Mixed Rice",
+  "description": "High quality mixed rice",
+  "brand": "RiceSoft"
+}
+
+LINK RECIPE TO PRODUCT:
+POST /api/v1/products/{productId}/recipes
+{
+  "recipe_id": "recipe-uuid"
+}
+
+CREATE BATCH:
+POST /api/v1/batches
+{
+  "product_id": "product-uuid",
+  "recipe_id": "recipe-uuid",
+  "packaging_id": "packaging-uuid",
+  "quantity": 1000
+}
+
+GET BATCH WITH DETAILS:
+GET /api/v1/batches/{batchId}
+Response includes: product, recipe, packaging, lot_usage, rice_code_usage
+
+GET LOT USAGE:
+GET /api/v1/batches/{batchId}/lot-usage
+Shows individual lot consumption
+
+GET RICE CODE USAGE:
+GET /api/v1/batches/{batchId}/rice-code-usage
+Shows aggregated rice code consumption
+
+GET INVENTORY SUMMARY:
+GET /api/v1/inventory/summary
+Shows aggregated view of all inventory types
+
+================================================================================
+ERROR RESPONSES
+================================================================================
+
+All errors follow this format:
+{
+  "success": false,
+  "error": "Error message",
+  "timestamp": "ISO date string",
+  "isSessionValid": true
+}
+
+Common Errors:
+- "Product not found"
+- "Recipe not found"
+- "Packaging not found"
+- "Lot {lot_id} not found"
+- "Recipe formula percentages must sum to 100%, got X%"
+- "Insufficient quantity in lot {lot_number}. Available: X kg, Required: Y kg"
+- "Insufficient empty packets. Available: X, Required: Y"
+- "Recipe with this name already exists"
+- "Recipe already added to product"
+
+================================================================================
+SUCCESS RESPONSES
+================================================================================
+
+All success responses follow this format:
+{
+  "success": true,
+  "message": "Operation successful message",
+  "data": { ... },
+  "timestamp": "ISO date string",
+  "isSessionValid": true
+}
+
+================================================================================
+END OF DOCUMENT
+================================================================================
+

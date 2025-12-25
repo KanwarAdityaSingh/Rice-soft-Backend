@@ -18,6 +18,11 @@ import lotRoutes from './lot.routes';
 import kaantaRoutes from './kaanta.routes';
 import purchaseSummaryRoutes from './purchase-summary.routes';
 import paymentAdviceRoutes from './payment-advice.routes';
+import recipeRoutes from './recipe.routes';
+import productRoutes from './product.routes';
+import packagingRoutes from './packaging.routes';
+import batchRoutes from './batch.routes';
+import inventoryRoutes from './inventory.routes';
 
 const router = Router();
 
@@ -50,6 +55,11 @@ router.use('/lots', lotRoutes);
 router.use('/kaantas', kaantaRoutes);
 router.use('/purchase-summary', purchaseSummaryRoutes);
 router.use('/payment-advices', paymentAdviceRoutes);
+router.use('/recipes', recipeRoutes);
+router.use('/products', productRoutes);
+router.use('/packaging', packagingRoutes);
+router.use('/batches', batchRoutes);
+router.use('/inventory', inventoryRoutes);
 
 export default router;
 

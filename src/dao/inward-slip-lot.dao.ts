@@ -46,7 +46,7 @@ export class InwardSlipLotDAO {
                                    bill_weight, received_weight, rate, created_by)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       RETURNING id, sauda_id, lot_number, rice_code_id, rice_type, no_of_bags, bag_weight, total_weight,
-                bill_weight, received_weight, bardana, rate, amount, created_at, updated_at, created_by, updated_by
+                bill_weight, received_weight, rate, amount, created_at, updated_at, created_by, updated_by
     `;
     
     const values = [
@@ -139,7 +139,7 @@ export class InwardSlipLotDAO {
       SET ${fields.join(', ')}
       WHERE id = $${paramCount}
       RETURNING id, sauda_id, lot_number, rice_code_id, rice_type, no_of_bags, bag_weight, total_weight,
-                bill_weight, received_weight, bardana, rate, amount, created_at, updated_at, created_by, updated_by
+                bill_weight, received_weight, rate, amount, created_at, updated_at, created_by, updated_by
     `;
 
     try {

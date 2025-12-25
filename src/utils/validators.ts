@@ -730,4 +730,87 @@ export const createPaymentAdviceChargeSchema = Joi.object({
   charge_type: Joi.string().optional().valid('percentage', 'fixed'),
 });
 
+// Recipe validation schemas
+const recipeFormulaItemSchema = Joi.object({
+  lot_id: Joi.string().required().uuid(),
+  percentage: Joi.number().required().min(0).max(100).precision(2),
+});
+
+export const createRecipeSchema = Joi.object({
+  recipe_name: Joi.string().required().min(1).max(255),
+  formula: Joi.array().items(recipeFormulaItemSchema).required().min(1),
+  created_by: Joi.string().optional().uuid(),
+});
+
+export const updateRecipeSchema = Joi.object({
+  recipe_name: Joi.string().optional().min(1).max(255),
+  formula: Joi.array().items(recipeFormulaItemSchema).optional().min(1),
+  updated_by: Joi.string().optional().uuid(),
+}).min(1);
+
+// Product validation schemas
+export const createProductSchema = Joi.object({
+  name: Joi.string().required().min(1).max(255),
+  description: Joi.string().optional().allow(null, ''),
+  brand: Joi.string().optional().valid('Tamara', 'Hariom').allow(null, ''),
+  created_by: Joi.string().optional().uuid(),
+});
+
+export const updateProductSchema = Joi.object({
+  name: Joi.string().optional().min(1).max(255),
+  description: Joi.string().optional().allow(null, ''),
+  brand: Joi.string().optional().valid('Tamara', 'Hariom').allow(null, ''),
+  updated_by: Joi.string().optional().uuid(),
+}).min(1);
+
+// Packaging validation schemas
+export const createPackagingSchema = Joi.object({
+  holding_capacity: Joi.number().required().min(0.01).precision(2),
+  packet_type: Joi.string().required().min(1).max(255),
+  source: Joi.string().optional().allow(null, '').max(255),
+  created_by: Joi.string().optional().uuid(),
+});
+
+export const updatePackagingSchema = Joi.object({
+  holding_capacity: Joi.number().optional().min(0.01).precision(2),
+  packet_type: Joi.string().optional().min(1).max(255),
+  source: Joi.string().optional().allow(null, '').max(255),
+  updated_by: Joi.string().optional().uuid(),
+}).min(1);
+
+// Batch validation schemas
+export const createBatchSchema = Joi.object({
+  product_id: Joi.string().required().uuid(),
+  recipe_id: Joi.string().required().uuid(),
+  packaging_id: Joi.string().required().uuid(),
+  quantity: Joi.number().required().min(0.01).precision(2),
+  batch_number: Joi.string().optional().max(255),
+  status: Joi.string().optional().valid('planned', 'in_progress', 'completed', 'cancelled'),
+  created_by: Joi.string().optional().uuid(),
+});
+
+export const updateBatchSchema = Joi.object({
+  status: Joi.string().optional().valid('planned', 'in_progress', 'completed', 'cancelled'),
+  quantity: Joi.number().optional().min(0.01).precision(2),
+  updated_by: Joi.string().optional().uuid(),
+}).min(1);
+
+// Product Recipe junction validation schemas
+export const addRecipeToProductSchema = Joi.object({
+  recipe_id: Joi.string().required().uuid(),
+  created_by: Joi.string().optional().uuid(),
+});
+
+// Packets Inventory validation schemas
+export const createPacketsInventorySchema = Joi.object({
+  packaging_id: Joi.string().required().uuid(),
+  available_quantity: Joi.number().required().integer().min(0),
+  created_by: Joi.string().optional().uuid(),
+});
+
+export const updatePacketsInventorySchema = Joi.object({
+  available_quantity: Joi.number().optional().integer().min(0),
+  updated_by: Joi.string().optional().uuid(),
+}).min(1);
+
 
