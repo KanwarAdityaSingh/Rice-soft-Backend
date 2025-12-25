@@ -136,14 +136,6 @@ export class LeadController {
     try {
       const leadData = validate<CreateLeadDTO>(createLeadSchema, req.body);
 
-      // Check if email already exists (only if email is provided)
-      if (leadData.email) {
-        const emailExists = await leadDAO.emailExists(leadData.email);
-        if (emailExists) {
-          throw new ConflictError('Email already exists');
-        }
-      }
-
       // Validate assigned_to user exists if provided
       if (leadData.assigned_to) {
         const assignedUser = await userDAO.findById(leadData.assigned_to);
@@ -249,13 +241,6 @@ export class LeadController {
         throw new NotFoundError('Lead not found');
       }
 
-      // Check for duplicate email if email is being updated
-      if (leadData.email && leadData.email !== existingLead.email) {
-        const emailExists = await leadDAO.emailExists(leadData.email, id);
-        if (emailExists) {
-          throw new ConflictError('Email already exists');
-        }
-      }
 
       // Validate assigned_to user exists if provided
       if (leadData.assigned_to !== undefined && leadData.assigned_to !== null && leadData.assigned_to !== '') {
@@ -522,9 +507,24 @@ export class LeadController {
         throw new ConflictError('Lead is already converted');
       }
 
+      // Extract email from contact_persons if separate email field is not available
+      let leadEmail: string | null = lead.email || null;
+      if (!leadEmail && lead.contact_persons && lead.contact_persons.length > 0) {
+        // Get first email from contact_persons
+        for (const person of lead.contact_persons) {
+          if (person.emails && person.emails.length > 0) {
+            const foundEmail = person.emails.find((e: string) => e && e.trim() !== '');
+            if (foundEmail) {
+              leadEmail = foundEmail;
+              break;
+            }
+          }
+        }
+      }
+
       // Validate that email exists for vendor conversion
-      if (!lead.email) {
-        throw new ValidationError('Email is required to convert lead to vendor');
+      if (!leadEmail) {
+        throw new ValidationError('Email is required to convert lead to vendor. Please ensure at least one contact person has an email address.');
       }
 
       // Handle business card upload if provided
@@ -545,11 +545,11 @@ export class LeadController {
 
       // 1. Create a new user for the vendor (if not already existing via is_existing_customer)
       let vendorUser;
-      const existingVendor = await vendorDAO.findByEmail(lead.email);
+      const existingVendor = await vendorDAO.findByEmail(leadEmail);
 
       if (lead.is_existing_customer && existingVendor) {
         // If it's an existing customer and a vendor already exists with this email, link to it
-        vendorUser = await userDAO.findByEmail(lead.email);
+        vendorUser = await userDAO.findByEmail(leadEmail);
         if (!vendorUser) {
           // This scenario should ideally not happen if data integrity is maintained
           throw new NotFoundError('Existing vendor user not found');
@@ -572,15 +572,18 @@ export class LeadController {
           counter++;
         }
 
+        // Get phone from contact_persons if separate phone field is not available
+        const leadPhone = (firstContactPerson.phones && firstContactPerson.phones.length > 0) 
+          ? firstContactPerson.phones[0] 
+          : lead.phone || undefined;
+
         // Create a new user for the vendor
         const userData = {
           username: username,
-          email: lead.email,
+          email: leadEmail,
           password: 'defaultPassword123', // Default password, should be changed
           full_name: firstContactPerson.name,
-          phone: (firstContactPerson.phones && firstContactPerson.phones.length > 0) 
-            ? firstContactPerson.phones[0] 
-            : lead.phone || undefined,
+          phone: leadPhone,
           user_type: 'vendor' as const,
           is_active: true,
           created_by: req.user?.userId,
@@ -606,19 +609,22 @@ export class LeadController {
           : [];
         
         // If lead has email but no contact persons, create one
-        if (contactPersons.length === 0 && lead.email) {
+        if (contactPersons.length === 0 && leadEmail) {
+          const leadPhone = lead.contact_persons && lead.contact_persons.length > 0 && lead.contact_persons[0].phones && lead.contact_persons[0].phones.length > 0
+            ? lead.contact_persons[0].phones[0]
+            : lead.phone || '';
           contactPersons = [{
             name: lead.company_name || '',
-            phones: lead.phone ? [lead.phone] : [],
-            emails: lead.email ? [lead.email] : []
+            phones: leadPhone ? [leadPhone] : [],
+            emails: leadEmail ? [leadEmail] : []
           }];
-        } else if (contactPersons.length > 0 && lead.email) {
+        } else if (contactPersons.length > 0 && leadEmail) {
           // Add email to first contact person if it doesn't already have it
           const firstPerson = contactPersons[0];
-          if (!firstPerson.emails || !firstPerson.emails.includes(lead.email)) {
+          if (!firstPerson.emails || !firstPerson.emails.includes(leadEmail)) {
             contactPersons[0] = {
               ...firstPerson,
-              emails: [...(firstPerson.emails || []), lead.email]
+              emails: [...(firstPerson.emails || []), leadEmail]
             };
           }
         }

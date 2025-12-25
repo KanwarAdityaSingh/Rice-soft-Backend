@@ -239,16 +239,15 @@ export const createLeadSchema = Joi.object({
       emails: Joi.array().items(Joi.string().email().allow('', null)).optional()
     })
   ).required().min(1),
-  email: Joi.string().optional().allow(null, '').email(),
-  phone: Joi.string().optional().max(20),
   address: addressSchema.optional(),
   business_details: Joi.object({
-    pan_number: Joi.string().length(10),
-    gst_number: Joi.string().length(15),
-    industry: Joi.string().max(100),
-    company_size: Joi.string().max(50),
-    annual_revenue: Joi.number().min(0),
-  }).optional(),
+    pan_number: Joi.string().optional().allow(null, '').length(10),
+    gst_number: Joi.string().optional().allow(null, '').length(15),
+    business_type: Joi.string().optional().valid('individual', 'partnership', 'company', 'llp').allow(null, ''),
+    industry: Joi.string().optional().max(100).allow(null, ''),
+    company_size: Joi.string().optional().max(50).allow(null, ''),
+    annual_revenue: Joi.number().optional().min(0).allow(null),
+  }).optional().unknown(true),
   is_existing_customer: Joi.boolean().optional(),
   lead_status: Joi.string().optional().valid('new', 'contacted', 'engaged', 'converted', 'rejected'),
   customer_status: Joi.string().optional().max(100),
@@ -275,12 +274,11 @@ export const updateLeadSchema = Joi.object({
       emails: Joi.array().items(Joi.string().email().allow('', null)).optional()
     })
   ).optional().min(1),
-  email: Joi.string().optional().allow(null, '').email(),
-  phone: Joi.string().optional().allow(null, '').max(20),
   address: addressSchema.optional().allow(null),
   business_details: Joi.object({
     pan_number: Joi.string().optional().length(10).allow(null, ''),
     gst_number: Joi.string().optional().length(15).allow(null, ''),
+    business_type: Joi.string().optional().valid('individual', 'partnership', 'company', 'llp').allow(null, ''),
     industry: Joi.string().optional().max(100).allow(null, ''),
     company_size: Joi.string().optional().max(50).allow(null, ''),
     annual_revenue: Joi.number().optional().min(0).allow(null),
@@ -731,4 +729,5 @@ export const createPaymentAdviceChargeSchema = Joi.object({
   charge_value: Joi.number().required().min(0).precision(2),
   charge_type: Joi.string().optional().valid('percentage', 'fixed'),
 });
+
 
