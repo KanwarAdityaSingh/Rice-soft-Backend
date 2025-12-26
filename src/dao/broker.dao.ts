@@ -131,7 +131,7 @@ export class BrokerDAO {
   async create(brokerData: CreateBrokerDTO & { user_id?: string }): Promise<Broker> {
     // Extract first contact person data for legacy fields
     const firstContactPerson = brokerData.contact_persons[0];
-    const primaryEmail = firstContactPerson.emails?.[0] || '';
+    const primaryEmail = firstContactPerson.emails?.[0]?.trim() || null;
     const primaryPhone = firstContactPerson.phones[0];
 
     const query = `
@@ -189,7 +189,7 @@ export class BrokerDAO {
         updateFields.push(`phone = $${paramCount++}`);
         values.push(firstContactPerson.phones[0]);
         updateFields.push(`email = $${paramCount++}`);
-        values.push(firstContactPerson.emails?.[0] || '');
+        values.push(firstContactPerson.emails?.[0]?.trim() || null);
       }
     }
 

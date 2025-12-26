@@ -83,7 +83,7 @@ export class VendorDAO {
     const firstContactPerson = vendorData.contact_persons[0];
     const contactPersonName = firstContactPerson.name;
     const primaryPhone = firstContactPerson.phones[0];
-    const primaryEmail = firstContactPerson.emails?.[0] || null;
+    const primaryEmail = firstContactPerson.emails?.[0]?.trim() || null;
 
     const query = `
       INSERT INTO vendors (business_name, contact_persons, contact_person, email, phone, address, business_details, 
@@ -146,7 +146,7 @@ export class VendorDAO {
         updateFields.push(`phone = $${paramCount++}`);
         values.push(firstContactPerson.phones[0]);
         updateFields.push(`email = $${paramCount++}`);
-        values.push(firstContactPerson.emails?.[0] || null);
+        values.push(firstContactPerson.emails?.[0]?.trim() || null);
       }
     }
 
