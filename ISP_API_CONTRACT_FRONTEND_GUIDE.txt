@@ -1,0 +1,927 @@
+================================================================================
+                    ISP (INWARD SLIP PASS) API CONTRACT DOCUMENTATION
+                    Frontend Integration Guide
+================================================================================
+
+BASE URL: /api/v1/inward-slip-passes
+
+All endpoints require authentication. Include the authentication token in the 
+Authorization header.
+
+================================================================================
+1. CREATE INWARD SLIP PASS
+================================================================================
+
+Endpoint: POST /api/v1/inward-slip-passes
+Method: POST
+Authentication: Required
+Content-Type: application/json
+
+REQUEST BODY:
+{
+  "sauda_ids": array (optional, minimum 1 item if provided) [
+    "string (UUID)"
+  ],
+  "slip_number": string (optional, max 255 chars, can be null or empty) - 
+    Auto-generated as ISP-001, ISP-002, etc. if not provided,
+  "date": string (REQUIRED, ISO date format: YYYY-MM-DD),
+  "vehicle_id": string (REQUIRED, UUID) - must be a valid vehicle ID,
+  "party_name": string (REQUIRED, max 255 chars),
+  "party_address": string (optional, can be null or empty),
+  "party_gst_number": string (optional, exactly 15 chars, can be null or empty),
+  "party_pan_number": string (optional, exactly 10 chars, can be null or empty),
+  "transporter_id": string (optional, UUID, can be null) - must be a valid transporter ID if provided,
+  "transportation_cost": number (optional, minimum 0, precision 2 decimal places),
+  "status": string (optional) - must be one of: "pending", "completed" (default: "pending"),
+  "other_bills": array (optional) [
+    {
+      "name": string (REQUIRED),
+      "url": string (REQUIRED, valid URI),
+      "uploaded_at": string (REQUIRED, ISO date format)
+    }
+  ],
+  "bill_pdf_url": string (optional, valid URI, can be null or empty),
+  "bill_number": string (optional, can be null or empty),
+  "bill_date": string (optional, ISO date format, can be null or empty),
+  "bilti_image_url": string (optional, valid URI, can be null or empty),
+  "bilti_pdf_url": string (optional, valid URI, can be null or empty),
+  "eway_bill_number": string (optional, max 255 chars, can be null or empty),
+  "eway_bill_url": string (optional, valid URI, can be null or empty),
+  "notes": string (optional, max 1000 chars, can be null or empty)
+}
+
+IMPORTANT VALIDATION RULES:
+- vehicle_id MUST exist in the vehicles table
+- transporter_id (if provided) MUST exist in the transporters table
+- sauda_ids (if provided) - all IDs MUST exist in the saudas table
+- date must be in ISO date format (YYYY-MM-DD)
+- transportation_cost must be >= 0 with up to 2 decimal places
+- party_gst_number must be exactly 15 characters if provided
+- party_pan_number must be exactly 10 characters if provided
+
+SUCCESS RESPONSE (201 Created):
+{
+  "success": true,
+  "message": "Inward slip pass created successfully",
+  "data": {
+    "id": "uuid",
+    "sauda_ids": ["uuid1", "uuid2"] (array of linked sauda IDs),
+    "slip_number": "string",
+    "date": "YYYY-MM-DD",
+    "vehicle_id": "uuid or null",
+    "party_name": "string",
+    "party_address": "string or null",
+    "party_gst_number": "string or null",
+    "party_pan_number": "string or null",
+    "transporter_id": "uuid or null",
+    "transportation_cost": number or null,
+    "status": "pending" | "completed",
+    "other_bills": [
+      {
+        "name": "string",
+        "url": "string",
+        "uploaded_at": "ISO 8601 timestamp string"
+      }
+    ] or [],
+    "bill_pdf_url": "string or null",
+    "bill_number": "string or null",
+    "bill_date": "YYYY-MM-DD or null",
+    "bilti_image_url": "string or null",
+    "bilti_pdf_url": "string or null",
+    "eway_bill_number": "string or null",
+    "eway_bill_url": "string or null",
+    "notes": "string or null",
+    "created_at": "ISO 8601 timestamp string",
+    "updated_at": "ISO 8601 timestamp string"
+  },
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+ERROR RESPONSES:
+
+400 Bad Request - Validation Error:
+{
+  "success": false,
+  "message": "Validation error message",
+  "error": "Detailed validation error",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+Common validation errors:
+- "date is required"
+- "date must be a valid ISO date"
+- "vehicle_id is required"
+- "vehicle_id must be a valid UUID"
+- "party_name is required"
+- "party_name must be at most 255 characters"
+- "party_gst_number must be exactly 15 characters"
+- "party_pan_number must be exactly 10 characters"
+- "transportation_cost must be greater than or equal to 0"
+- "status must be one of: pending, completed"
+- "Invalid reference: vehicle or transporter does not exist"
+
+404 Not Found:
+{
+  "success": false,
+  "message": "Resource not found",
+  "error": "Vehicle not found" | "Transporter not found" | "Sauda not found: <sauda_id>",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+409 Conflict - Duplicate Data:
+{
+  "success": false,
+  "message": "Conflict error message",
+  "error": "An inward slip pass with this information already exists",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+500 Internal Server Error:
+{
+  "success": false,
+  "message": "An unexpected error occurred",
+  "error": "Failed to create inward slip pass. Please try again." | "Failed to link saudas to inward slip pass. Please try again." | "Error details (in development)",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+================================================================================
+2. UPDATE INWARD SLIP PASS
+================================================================================
+
+Endpoint: PUT /api/v1/inward-slip-passes/:id
+Method: PUT
+Authentication: Required
+Content-Type: application/json
+
+URL PARAMETERS:
+- id: string (REQUIRED) - UUID of the inward slip pass to update
+
+REQUEST BODY:
+All fields are OPTIONAL, but at least one field must be provided:
+{
+  "sauda_ids": array (optional, minimum 0 items) [
+    "string (UUID)"
+  ] - Replaces all existing sauda links,
+  "slip_number": string (optional, max 255 chars),
+  "date": string (optional, ISO date format: YYYY-MM-DD),
+  "vehicle_id": string (optional, UUID),
+  "party_name": string (optional, max 255 chars),
+  "party_address": string (optional, can be null or empty),
+  "party_gst_number": string (optional, exactly 15 chars, can be null or empty),
+  "party_pan_number": string (optional, exactly 10 chars, can be null or empty),
+  "transporter_id": string (optional, UUID, can be null),
+  "transportation_cost": number (optional, minimum 0, precision 2),
+  "status": string (optional) - must be one of: "pending", "completed",
+  "other_bills": array (optional) [
+    {
+      "name": string (REQUIRED),
+      "url": string (REQUIRED, valid URI),
+      "uploaded_at": string (REQUIRED, ISO date format)
+    }
+  ],
+  "bill_pdf_url": string (optional, valid URI, can be null or empty),
+  "bill_number": string (optional, can be null or empty),
+  "bill_date": string (optional, ISO date format, can be null or empty),
+  "bilti_image_url": string (optional, valid URI, can be null or empty),
+  "bilti_pdf_url": string (optional, valid URI, can be null or empty),
+  "eway_bill_number": string (optional, max 255 chars, can be null or empty),
+  "eway_bill_url": string (optional, valid URI, can be null or empty),
+  "notes": string (optional, max 1000 chars, can be null or empty)
+}
+
+IMPORTANT NOTES:
+- At least one field must be provided in the request body
+- If updating sauda_ids, it REPLACES all existing links (use empty array to remove all links)
+- If updating vehicle_id or transporter_id, they must exist in their respective tables
+- If updating sauda_ids, all IDs must exist in the saudas table
+- The ISP ID in the URL must be a valid UUID
+
+SUCCESS RESPONSE (200 OK):
+{
+  "success": true,
+  "message": "Inward slip pass updated successfully",
+  "data": {
+    // Same structure as create response
+  },
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+ERROR RESPONSES:
+
+400 Bad Request - Validation Error:
+Same as create endpoint
+
+404 Not Found:
+{
+  "success": false,
+  "message": "Resource not found",
+  "error": "Inward slip pass not found" | "Vehicle not found" | "Transporter not found" | "Sauda not found: <sauda_id>" | "Inward slip pass not found after update",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+409 Conflict - Duplicate Data:
+Same as create endpoint
+
+500 Internal Server Error:
+{
+  "success": false,
+  "message": "An unexpected error occurred",
+  "error": "Failed to update inward slip pass. Please try again." | "Failed to update sauda links. Please try again." | "Error details (in development)",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+================================================================================
+3. UPDATE INWARD SLIP PASS STATUS
+================================================================================
+
+Endpoint: PATCH /api/v1/inward-slip-passes/:id/status
+Method: PATCH
+Authentication: Required
+Content-Type: application/json
+
+URL PARAMETERS:
+- id: string (REQUIRED) - UUID of the inward slip pass
+
+REQUEST BODY:
+{
+  "status": string (REQUIRED) - must be one of: "pending", "completed"
+}
+
+SUCCESS RESPONSE (200 OK):
+{
+  "success": true,
+  "message": "Inward slip pass status updated successfully",
+  "data": {
+    // Same ISP object structure as create response
+  },
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+ERROR RESPONSES:
+
+400 Bad Request - Validation Error:
+{
+  "success": false,
+  "message": "Validation error message",
+  "error": "Invalid status. Must be one of: pending, completed",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+404 Not Found:
+{
+  "success": false,
+  "message": "Resource not found",
+  "error": "Inward slip pass not found",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+================================================================================
+4. GET ALL INWARD SLIP PASSES
+================================================================================
+
+Endpoint: GET /api/v1/inward-slip-passes
+Method: GET
+Authentication: Required
+
+QUERY PARAMETERS (optional):
+- sauda_id: string (UUID) - Filter by sauda ID
+
+EXAMPLES:
+GET /api/v1/inward-slip-passes
+GET /api/v1/inward-slip-passes?sauda_id=123e4567-e89b-12d3-a456-426614174000
+
+SUCCESS RESPONSE (200 OK):
+{
+  "success": true,
+  "message": undefined,
+  "data": [
+    {
+      // Same ISP object structure as create response
+    },
+    // ... more inward slip passes
+  ],
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+ERROR RESPONSES:
+
+500 Internal Server Error:
+Same as create endpoint
+
+================================================================================
+5. GET INWARD SLIP PASS BY ID
+================================================================================
+
+Endpoint: GET /api/v1/inward-slip-passes/:id
+Method: GET
+Authentication: Required
+
+URL PARAMETERS:
+- id: string (REQUIRED) - UUID of the inward slip pass
+
+SUCCESS RESPONSE (200 OK):
+{
+  "success": true,
+  "message": undefined,
+  "data": {
+    // Same ISP object structure as create response
+  },
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+ERROR RESPONSES:
+
+400 Bad Request - Invalid UUID:
+{
+  "success": false,
+  "message": "Validation error message",
+  "error": "Invalid UUID format",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+404 Not Found:
+{
+  "success": false,
+  "message": "Resource not found",
+  "error": "Inward slip pass not found",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+================================================================================
+6. DELETE INWARD SLIP PASS
+================================================================================
+
+Endpoint: DELETE /api/v1/inward-slip-passes/:id
+Method: DELETE
+Authentication: Required
+
+URL PARAMETERS:
+- id: string (REQUIRED) - UUID of the inward slip pass to delete
+
+SUCCESS RESPONSE (200 OK):
+{
+  "success": true,
+  "message": "Inward slip pass deleted successfully",
+  "data": null,
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+ERROR RESPONSES:
+
+400 Bad Request - Invalid UUID:
+Same as get by ID
+
+404 Not Found:
+{
+  "success": false,
+  "message": "Resource not found",
+  "error": "Inward slip pass not found" | "Inward slip pass not found or could not be deleted",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+409 Conflict - Cannot Delete:
+{
+  "success": false,
+  "message": "Conflict error message",
+  "error": "Cannot delete inward slip pass. It is being used in other records (lots, purchases, etc.).",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+500 Internal Server Error:
+Same as create endpoint
+
+================================================================================
+7. UPLOAD OTHER BILL
+================================================================================
+
+Endpoint: POST /api/v1/inward-slip-passes/:id/upload-other-bill
+Method: POST
+Authentication: Required
+Content-Type: multipart/form-data
+
+URL PARAMETERS:
+- id: string (REQUIRED) - UUID of the inward slip pass
+
+FORM DATA:
+- name: string (REQUIRED) - Name/description of the bill
+- file: File (REQUIRED) - Image or PDF file
+  - Maximum file size: 10MB
+  - Allowed MIME types: image/jpeg, image/jpg, image/png, image/gif, application/pdf
+
+DESCRIPTION:
+This endpoint allows uploading additional bills with custom names. Multiple bills
+can be uploaded to the same ISP. Each bill is added to the "other_bills" array.
+
+SUCCESS RESPONSE (200 OK):
+{
+  "success": true,
+  "message": "Other bill uploaded successfully",
+  "data": {
+    "bill": {
+      "name": "string",
+      "url": "https://s3.amazonaws.com/bucket/path/to/file.pdf",
+      "uploaded_at": "ISO 8601 timestamp string"
+    }
+  },
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+ERROR RESPONSES:
+
+400 Bad Request - Validation Error:
+{
+  "success": false,
+  "message": "Validation error message",
+  "error": "File is required" | "Bill name is required" | "Invalid file type. Only JPEG, PNG, JPG, GIF images and PDF files are allowed" | "File size exceeds maximum limit of 10MB",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+404 Not Found:
+{
+  "success": false,
+  "message": "Resource not found",
+  "error": "Inward slip pass not found",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+500 Internal Server Error:
+{
+  "success": false,
+  "message": "An unexpected error occurred",
+  "error": "Failed to upload file. Please try again." | "Failed to update inward slip pass with bill. Please try again.",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+================================================================================
+8. DELETE OTHER BILL
+================================================================================
+
+Endpoint: DELETE /api/v1/inward-slip-passes/:id/delete-other-bill
+Method: DELETE
+Authentication: Required
+Content-Type: application/json
+
+URL PARAMETERS:
+- id: string (REQUIRED) - UUID of the inward slip pass
+
+REQUEST BODY:
+{
+  "url": string (REQUIRED) - URL of the bill to delete (must match exactly)
+}
+
+DESCRIPTION:
+This endpoint removes a bill from the "other_bills" array by matching the URL.
+
+SUCCESS RESPONSE (200 OK):
+{
+  "success": true,
+  "message": "Other bill deleted successfully",
+  "data": {
+    "other_bills": [
+      // Remaining bills array
+    ]
+  },
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+ERROR RESPONSES:
+
+400 Bad Request - Validation Error:
+{
+  "success": false,
+  "message": "Validation error message",
+  "error": "Bill URL is required",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+404 Not Found:
+{
+  "success": false,
+  "message": "Resource not found",
+  "error": "Inward slip pass not found" | "Bill not found in other bills",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+================================================================================
+9. UPLOAD PURCHASE BILL
+================================================================================
+
+Endpoint: POST /api/v1/inward-slip-passes/:id/upload-purchase-bill
+Method: POST
+Authentication: Required
+Content-Type: multipart/form-data
+
+URL PARAMETERS:
+- id: string (REQUIRED) - UUID of the inward slip pass
+
+FORM DATA:
+- file: File (REQUIRED) - Image or PDF file
+  - Maximum file size: 10MB
+  - Allowed MIME types: image/jpeg, image/jpg, image/png, image/gif, application/pdf
+- bill_number: string (optional) - Purchase bill number
+- bill_date: string (optional, ISO date format: YYYY-MM-DD) - Purchase bill date
+
+DESCRIPTION:
+This endpoint uploads the purchase bill (main bill) for the ISP. Both images and
+PDFs are supported. The bill_number and bill_date can be provided as form fields.
+
+SUCCESS RESPONSE (200 OK):
+{
+  "success": true,
+  "message": "Purchase bill uploaded successfully",
+  "data": {
+    "url": "https://s3.amazonaws.com/bucket/path/to/bill.pdf"
+  },
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+ERROR RESPONSES:
+
+400 Bad Request - Validation Error:
+{
+  "success": false,
+  "message": "Validation error message",
+  "error": "File is required" | "Invalid file type. Only JPEG, PNG, JPG, GIF images and PDF files are allowed" | "File size exceeds maximum limit of 10MB",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+404 Not Found:
+{
+  "success": false,
+  "message": "Resource not found",
+  "error": "Inward slip pass not found",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+500 Internal Server Error:
+{
+  "success": false,
+  "message": "An unexpected error occurred",
+  "error": "Failed to upload purchase bill. Please try again." | "Failed to update inward slip pass with purchase bill. Please try again.",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+================================================================================
+10. UPLOAD BILTI
+================================================================================
+
+Endpoint: POST /api/v1/inward-slip-passes/:id/upload-bilti
+Method: POST
+Authentication: Required
+Content-Type: multipart/form-data
+
+URL PARAMETERS:
+- id: string (REQUIRED) - UUID of the inward slip pass
+
+FORM DATA:
+- file: File (REQUIRED) - Image or PDF file
+  - Maximum file size: 10MB
+  - Allowed MIME types: image/jpeg, image/jpg, image/png, image/gif, application/pdf
+
+DESCRIPTION:
+This endpoint uploads the bilti (delivery challan) for the ISP. If the file is
+a PDF, it's stored in bilti_pdf_url. If it's an image, it's stored in 
+bilti_image_url.
+
+SUCCESS RESPONSE (200 OK):
+{
+  "success": true,
+  "message": "Bilti uploaded successfully",
+  "data": {
+    "url": "https://s3.amazonaws.com/bucket/path/to/bilti.pdf"
+  },
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+ERROR RESPONSES:
+Same as upload purchase bill endpoint
+
+================================================================================
+11. UPLOAD E-WAY BILL
+================================================================================
+
+Endpoint: POST /api/v1/inward-slip-passes/:id/upload-eway-bill
+Method: POST
+Authentication: Required
+Content-Type: multipart/form-data
+
+URL PARAMETERS:
+- id: string (REQUIRED) - UUID of the inward slip pass
+
+FORM DATA:
+- file: File (REQUIRED) - Image or PDF file
+  - Maximum file size: 10MB
+  - Allowed MIME types: image/jpeg, image/jpg, image/png, image/gif, application/pdf
+- eway_bill_number: string (optional, max 255 chars) - E-way bill number
+
+DESCRIPTION:
+This endpoint uploads the e-way bill for the ISP. The e-way bill number can be
+provided as a form field.
+
+SUCCESS RESPONSE (200 OK):
+{
+  "success": true,
+  "message": "E-way bill uploaded successfully",
+  "data": {
+    "url": "https://s3.amazonaws.com/bucket/path/to/eway-bill.pdf"
+  },
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+ERROR RESPONSES:
+Same as upload purchase bill endpoint
+
+================================================================================
+COMMON ERROR HANDLING
+================================================================================
+
+All endpoints follow a consistent error response format:
+
+{
+  "success": false,
+  "message": "Error message",
+  "error": "Detailed error description",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true | false
+}
+
+HTTP STATUS CODES:
+- 200 OK: Successful GET/PUT/PATCH/DELETE request
+- 201 Created: Successful resource creation
+- 400 Bad Request: Validation errors, invalid input
+- 401 Unauthorized: Missing or invalid authentication token
+- 404 Not Found: Resource not found
+- 409 Conflict: Duplicate data, constraint violations, cannot delete
+- 500 Internal Server Error: Server errors, database errors, file upload failures
+
+ERROR HANDLING BEST PRACTICES:
+1. Always check the "success" field first
+2. If success is false, check the "error" field for details
+3. Handle 400 errors by showing validation messages to the user
+4. Handle 409 errors by informing the user about conflicts (duplicate data, cannot delete)
+5. Handle 404 errors by showing "not found" messages
+6. Handle 500 errors by showing a generic error message and asking user to retry
+7. Check "isSessionValid" to determine if user needs to re-authenticate
+
+================================================================================
+DATA TYPE REFERENCE
+================================================================================
+
+InwardSlipStatus: "pending" | "completed"
+
+OtherBill:
+{
+  name: string
+  url: string (valid URI)
+  uploaded_at: string (ISO 8601 timestamp)
+}
+
+InwardSlipPass Object:
+{
+  id: string (UUID)
+  sauda_ids: string[] (array of UUIDs)
+  slip_number: string
+  date: string (YYYY-MM-DD)
+  vehicle_id: string | null (UUID)
+  party_name: string (max 255 chars)
+  party_address: string | null
+  party_gst_number: string | null (exactly 15 chars)
+  party_pan_number: string | null (exactly 10 chars)
+  transporter_id: string | null (UUID)
+  transportation_cost: number | null (>= 0, 2 decimal places)
+  status: InwardSlipStatus
+  other_bills: OtherBill[]
+  bill_pdf_url: string | null (valid URI)
+  bill_number: string | null
+  bill_date: string | null (YYYY-MM-DD)
+  bilti_image_url: string | null (valid URI)
+  bilti_pdf_url: string | null (valid URI)
+  eway_bill_number: string | null (max 255 chars)
+  eway_bill_url: string | null (valid URI)
+  notes: string | null (max 1000 chars)
+  created_at: string (ISO 8601 timestamp)
+  updated_at: string (ISO 8601 timestamp)
+}
+
+================================================================================
+VALIDATION RULES SUMMARY
+================================================================================
+
+1. REQUIRED FIELDS FOR CREATE:
+   - date (ISO date format: YYYY-MM-DD)
+   - vehicle_id (UUID, must exist in vehicles table)
+   - party_name (max 255 chars)
+
+2. OPTIONAL FIELDS WITH DEFAULTS:
+   - status: defaults to "pending" if not provided
+   - slip_number: auto-generated as ISP-001, ISP-002, etc. if not provided
+
+3. REFERENCE VALIDATION:
+   - vehicle_id: Must exist in vehicles table
+   - transporter_id: Must exist in transporters table (if provided)
+   - sauda_ids: All IDs must exist in saudas table (if provided)
+
+4. FORMAT VALIDATION:
+   - date: Must be valid ISO date format (YYYY-MM-DD)
+   - party_gst_number: Exactly 15 characters (if provided)
+   - party_pan_number: Exactly 10 characters (if provided)
+   - transportation_cost: >= 0, precision 2 decimal places (if provided)
+
+5. STRING VALIDATION:
+   - party_name: max 255 characters
+   - slip_number: max 255 characters
+   - eway_bill_number: max 255 characters
+   - notes: max 1000 characters
+
+6. FILE UPLOAD VALIDATION:
+   - All file uploads: max 10MB
+   - Allowed types: image/jpeg, image/jpg, image/png, image/gif, application/pdf
+
+7. SAUDA LINKS:
+   - sauda_ids is an array that can be provided during create or update
+   - During update, providing sauda_ids REPLACES all existing links
+   - Use empty array [] to remove all links
+   - All sauda IDs must be valid UUIDs and must exist
+
+================================================================================
+FRONTEND INTEGRATION TIPS
+================================================================================
+
+1. FORM VALIDATION:
+   - Validate UUID format for vehicle_id, transporter_id, sauda_ids
+   - Validate date format (YYYY-MM-DD)
+   - Validate numeric fields (transportation_cost >= 0, 2 decimal places)
+   - Validate GST/PAN format if provided
+   - Show clear error messages for validation failures
+
+2. USER EXPERIENCE:
+   - Show loading states during API calls
+   - Display success/error messages clearly
+   - Handle network errors gracefully
+   - For file uploads, show upload progress
+   - Auto-generate slip_number if not provided (or let backend handle it)
+
+3. ERROR HANDLING:
+   - Parse error responses and show user-friendly messages
+   - Handle 401 errors by redirecting to login
+   - Handle 409 errors by highlighting conflicts
+   - Show retry options for 500 errors
+   - Handle file upload errors gracefully
+
+4. DATA PREPARATION:
+   - Ensure dates are in YYYY-MM-DD format
+   - Ensure numeric values are properly formatted (2 decimal places)
+   - Validate file sizes before upload
+   - Validate file types before upload
+
+5. FILE UPLOAD:
+   - Use multipart/form-data for file uploads
+   - Show file size and type validation before upload
+   - Display upload progress
+   - Handle upload failures gracefully
+   - For other_bills, allow multiple uploads
+
+6. SAUDA LINKS:
+   - Allow selecting multiple saudas when creating/updating ISP
+   - Show linked saudas in the UI
+   - Allow removing/adding saudas when updating
+   - Validate that selected saudas exist before submission
+
+7. VEHICLE HANDLING:
+   - Vehicle must exist before creating ISP
+   - If vehicle doesn't exist, create it first using vehicle API
+   - Display vehicle details using vehicle_id (fetch from vehicle API)
+
+8. STATUS MANAGEMENT:
+   - Use status update endpoint for quick status changes
+   - Show status badges/indicators in UI
+   - Validate status transitions
+
+9. FILTERING AND SEARCH:
+   - Use sauda_id query parameter to filter ISPs by sauda
+   - Show active filters in UI
+   - Provide clear filter options
+
+================================================================================
+BUSINESS LOGIC NOTES
+================================================================================
+
+1. SLIP NUMBER:
+   - Auto-generated as ISP-001, ISP-002, etc. if not provided
+   - Can be manually set if needed
+   - Should be unique (enforced by database)
+
+2. STATUS FLOW:
+   - pending: Initial state, ISP is being processed
+   - completed: ISP processing is completed
+
+3. SAUDA LINKS:
+   - An ISP can be linked to multiple saudas
+   - Links are managed via junction table
+   - When updating sauda_ids, all existing links are replaced
+   - Use empty array to remove all links
+
+4. VEHICLE REQUIREMENT:
+   - Vehicle MUST exist before creating ISP
+   - Vehicle is referenced by vehicle_id (not vehicle_number)
+   - If vehicle doesn't exist, create it first
+
+5. TRANSPORTER:
+   - Optional field
+   - If provided, must exist in transporters table
+   - Used for transportation cost tracking
+
+6. BILLS AND DOCUMENTS:
+   - Purchase bill: Main bill (bill_pdf_url, bill_number, bill_date)
+   - Bilti: Delivery challan (bilti_image_url or bilti_pdf_url)
+   - E-way bill: E-way bill document (eway_bill_url, eway_bill_number)
+   - Other bills: Additional bills with custom names (other_bills array)
+
+7. OTHER BILLS:
+   - Multiple bills can be uploaded
+   - Each bill has a name and URL
+   - Bills are stored in an array
+   - Bills can be deleted individually by URL
+
+8. DATE HANDLING:
+   - All dates are in YYYY-MM-DD format
+   - date field is required for ISP
+   - bill_date is optional
+
+9. TRANSPORTATION COST:
+   - Optional field
+   - Must be >= 0
+   - Stored with 2 decimal places precision
+
+10. NOTES:
+    - Optional field for additional information
+    - Maximum 1000 characters
+    - Can be null or empty
+
+================================================================================
+WORKFLOW RECOMMENDATIONS
+================================================================================
+
+1. CREATING ISP WITH NEW VEHICLE:
+   a. User enters vehicle number
+   b. Check if vehicle exists: GET /api/v1/vehicles/byNumber/{number}
+   c. If not exists, create vehicle: POST /api/v1/vehicles
+   d. Create ISP with vehicle_id: POST /api/v1/inward-slip-passes
+
+2. CREATING ISP WITH SAUDAS:
+   a. User selects saudas from list
+   b. Create ISP with sauda_ids array
+   c. ISP will be linked to selected saudas
+
+3. UPLOADING DOCUMENTS:
+   a. Upload purchase bill first (if available)
+   b. Upload bilti (delivery challan)
+   c. Upload e-way bill (if required)
+   d. Upload other bills as needed
+
+4. UPDATING SAUDA LINKS:
+   a. Fetch current ISP: GET /api/v1/inward-slip-passes/:id
+   b. Modify sauda_ids array
+   c. Update ISP: PUT /api/v1/inward-slip-passes/:id with new sauda_ids
+   d. All existing links will be replaced
+
+5. COMPLETING ISP:
+   a. Upload all required documents
+   b. Update status: PATCH /api/v1/inward-slip-passes/:id/status
+   c. Set status to "completed"
+
+================================================================================
+END OF DOCUMENTATION
+================================================================================
+

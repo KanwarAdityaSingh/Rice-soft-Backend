@@ -14,6 +14,8 @@ import {
 import {
   NotFoundError,
   ValidationError,
+  ConflictError,
+  InternalServerError,
 } from '../utils/errors';
 import { CreateInwardSlipPassDTO, UpdateInwardSlipPassDTO, InwardSlipPassResponse, InwardSlipStatus } from '../models/inward-slip-pass.model';
 import { AuthRequest } from '../middleware/auth.middleware';
@@ -146,11 +148,29 @@ export class InwardSlipPassController {
       delete (inwardSlipPassData as any).sauda_ids;
 
       // Create inward slip pass
-      const inwardSlipPass = await inwardSlipPassDAO.create(inwardSlipPassData);
+      let inwardSlipPass;
+      try {
+        inwardSlipPass = await inwardSlipPassDAO.create(inwardSlipPassData);
+      } catch (dbError: any) {
+        // Check for database constraint violations
+        if (dbError?.code === '23505') {
+          throw new ConflictError('An inward slip pass with this information already exists');
+        }
+        if (dbError?.code === '23503') {
+          throw new ValidationError('Invalid reference: vehicle or transporter does not exist');
+        }
+        throw new InternalServerError('Failed to create inward slip pass. Please try again.');
+      }
 
       // Link saudas if provided
       if (saudaIds.length > 0) {
-        await inwardSlipPassSaudaDAO.linkSaudas(inwardSlipPass.id, saudaIds);
+        try {
+          await inwardSlipPassSaudaDAO.linkSaudas(inwardSlipPass.id, saudaIds);
+        } catch (linkError: any) {
+          // If linking fails, we should ideally rollback the ISP creation
+          // For now, log the error and provide a clear message
+          throw new InternalServerError('Failed to link saudas to inward slip pass. Please try again.');
+        }
       }
 
       const linkedSaudaIds = await inwardSlipPassSaudaDAO.getLinkedSaudaIds(inwardSlipPass.id);
@@ -226,17 +246,36 @@ export class InwardSlipPassController {
       const saudaIds = inwardSlipPassData.sauda_ids;
       delete (inwardSlipPassData as any).sauda_ids;
 
-      const inwardSlipPass = await inwardSlipPassDAO.update(id, inwardSlipPassData);
-      if (!inwardSlipPass) {
-        throw new NotFoundError('Inward slip pass not found after update');
+      let inwardSlipPass;
+      try {
+        inwardSlipPass = await inwardSlipPassDAO.update(id, inwardSlipPassData);
+        if (!inwardSlipPass) {
+          throw new NotFoundError('Inward slip pass not found after update');
+        }
+      } catch (dbError: any) {
+        if (dbError instanceof NotFoundError) {
+          throw dbError;
+        }
+        // Check for database constraint violations
+        if (dbError?.code === '23505') {
+          throw new ConflictError('An inward slip pass with this information already exists');
+        }
+        if (dbError?.code === '23503') {
+          throw new ValidationError('Invalid reference: vehicle or transporter does not exist');
+        }
+        throw new InternalServerError('Failed to update inward slip pass. Please try again.');
       }
 
       // Update linked saudas if sauda_ids was provided
       if (saudaIds !== undefined) {
-        // Replace all existing links with the new array
-        await inwardSlipPassSaudaDAO.unlinkAllSaudas(id);
-        if (saudaIds.length > 0) {
-          await inwardSlipPassSaudaDAO.linkSaudas(id, saudaIds);
+        try {
+          // Replace all existing links with the new array
+          await inwardSlipPassSaudaDAO.unlinkAllSaudas(id);
+          if (saudaIds.length > 0) {
+            await inwardSlipPassSaudaDAO.linkSaudas(id, saudaIds);
+          }
+        } catch (linkError: any) {
+          throw new InternalServerError('Failed to update sauda links. Please try again.');
         }
       }
 
@@ -352,11 +391,16 @@ export class InwardSlipPassController {
       }
 
       // Upload to S3
-      const uploadResult = await uploadToS3(
-        req.file.buffer,
-        req.file.originalname,
-        appConfig.aws.s3.inwardSlipBillsFolder
-      );
+      let uploadResult;
+      try {
+        uploadResult = await uploadToS3(
+          req.file.buffer,
+          req.file.originalname,
+          appConfig.aws.s3.inwardSlipBillsFolder
+        );
+      } catch (uploadError: any) {
+        throw new InternalServerError('Failed to upload file. Please try again.');
+      }
 
       // Add new bill to other_bills array
       const newBill = {
@@ -368,13 +412,21 @@ export class InwardSlipPassController {
       const updatedOtherBills = [...(currentISP.other_bills || []), newBill];
 
       // Update inward slip pass with the new bill added to other_bills
-      const inwardSlipPass = await inwardSlipPassDAO.update(id, {
-        other_bills: updatedOtherBills,
-        updated_by: req.user?.userId,
-      });
+      let inwardSlipPass;
+      try {
+        inwardSlipPass = await inwardSlipPassDAO.update(id, {
+          other_bills: updatedOtherBills,
+          updated_by: req.user?.userId,
+        });
 
-      if (!inwardSlipPass) {
-        throw new NotFoundError('Inward slip pass not found');
+        if (!inwardSlipPass) {
+          throw new NotFoundError('Inward slip pass not found');
+        }
+      } catch (dbError: any) {
+        if (dbError instanceof NotFoundError) {
+          throw dbError;
+        }
+        throw new InternalServerError('Failed to update inward slip pass with bill. Please try again.');
       }
 
       return ResponseHandler.success(res, { bill: newBill }, 'Other bill uploaded successfully');
@@ -435,11 +487,16 @@ export class InwardSlipPassController {
       validateFileSize(req.file.size, 10);
       validateFileType(req.file.mimetype, ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'application/pdf']);
 
-      const uploadResult = await uploadToS3(
-        req.file.buffer,
-        req.file.originalname,
-        appConfig.aws.s3.purchaseBillsFolder
-      );
+      let uploadResult;
+      try {
+        uploadResult = await uploadToS3(
+          req.file.buffer,
+          req.file.originalname,
+          appConfig.aws.s3.purchaseBillsFolder
+        );
+      } catch (uploadError: any) {
+        throw new InternalServerError('Failed to upload purchase bill. Please try again.');
+      }
 
       const isPdf = req.file.mimetype === 'application/pdf';
       const updateData: UpdateInwardSlipPassDTO = {
@@ -461,10 +518,18 @@ export class InwardSlipPassController {
         updateData.bill_date = req.body.bill_date;
       }
 
-      const inwardSlipPass = await inwardSlipPassDAO.update(id, updateData);
+      let inwardSlipPass;
+      try {
+        inwardSlipPass = await inwardSlipPassDAO.update(id, updateData);
 
-      if (!inwardSlipPass) {
-        throw new NotFoundError('Inward slip pass not found');
+        if (!inwardSlipPass) {
+          throw new NotFoundError('Inward slip pass not found');
+        }
+      } catch (dbError: any) {
+        if (dbError instanceof NotFoundError) {
+          throw dbError;
+        }
+        throw new InternalServerError('Failed to update inward slip pass with purchase bill. Please try again.');
       }
 
       return ResponseHandler.success(res, { url: uploadResult.url }, 'Purchase bill uploaded successfully');
@@ -484,11 +549,16 @@ export class InwardSlipPassController {
       validateFileSize(req.file.size, 10);
       validateFileType(req.file.mimetype, ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'application/pdf']);
 
-      const uploadResult = await uploadToS3(
-        req.file.buffer,
-        req.file.originalname,
-        appConfig.aws.s3.biltiFolder
-      );
+      let uploadResult;
+      try {
+        uploadResult = await uploadToS3(
+          req.file.buffer,
+          req.file.originalname,
+          appConfig.aws.s3.biltiFolder
+        );
+      } catch (uploadError: any) {
+        throw new InternalServerError('Failed to upload bilti. Please try again.');
+      }
 
       const isPdf = req.file.mimetype === 'application/pdf';
       const updateData: UpdateInwardSlipPassDTO = {
@@ -501,10 +571,18 @@ export class InwardSlipPassController {
         updateData.bilti_image_url = uploadResult.url;
       }
 
-      const inwardSlipPass = await inwardSlipPassDAO.update(id, updateData);
+      let inwardSlipPass;
+      try {
+        inwardSlipPass = await inwardSlipPassDAO.update(id, updateData);
 
-      if (!inwardSlipPass) {
-        throw new NotFoundError('Inward slip pass not found');
+        if (!inwardSlipPass) {
+          throw new NotFoundError('Inward slip pass not found');
+        }
+      } catch (dbError: any) {
+        if (dbError instanceof NotFoundError) {
+          throw dbError;
+        }
+        throw new InternalServerError('Failed to update inward slip pass with bilti. Please try again.');
       }
 
       return ResponseHandler.success(res, { url: uploadResult.url }, 'Bilti uploaded successfully');
@@ -525,20 +603,33 @@ export class InwardSlipPassController {
       validateFileSize(req.file.size, 10);
       validateFileType(req.file.mimetype, ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'application/pdf']);
 
-      const uploadResult = await uploadToS3(
-        req.file.buffer,
-        req.file.originalname,
-        appConfig.aws.s3.ewayBillsFolder
-      );
+      let uploadResult;
+      try {
+        uploadResult = await uploadToS3(
+          req.file.buffer,
+          req.file.originalname,
+          appConfig.aws.s3.ewayBillsFolder
+        );
+      } catch (uploadError: any) {
+        throw new InternalServerError('Failed to upload e-way bill. Please try again.');
+      }
 
-      const inwardSlipPass = await inwardSlipPassDAO.update(id, {
-        eway_bill_number: eway_bill_number || null,
-        eway_bill_url: uploadResult.url,
-        updated_by: req.user?.userId,
-      });
+      let inwardSlipPass;
+      try {
+        inwardSlipPass = await inwardSlipPassDAO.update(id, {
+          eway_bill_number: eway_bill_number || null,
+          eway_bill_url: uploadResult.url,
+          updated_by: req.user?.userId,
+        });
 
-      if (!inwardSlipPass) {
-        throw new NotFoundError('Inward slip pass not found');
+        if (!inwardSlipPass) {
+          throw new NotFoundError('Inward slip pass not found');
+        }
+      } catch (dbError: any) {
+        if (dbError instanceof NotFoundError) {
+          throw dbError;
+        }
+        throw new InternalServerError('Failed to update inward slip pass with e-way bill. Please try again.');
       }
 
       return ResponseHandler.success(res, { url: uploadResult.url }, 'E-way bill uploaded successfully');
@@ -556,9 +647,20 @@ export class InwardSlipPassController {
         throw new NotFoundError('Inward slip pass not found');
       }
 
-      const deleted = await inwardSlipPassDAO.delete(id);
-      if (!deleted) {
-        throw new NotFoundError('Inward slip pass not found or could not be deleted');
+      try {
+        const deleted = await inwardSlipPassDAO.delete(id);
+        if (!deleted) {
+          throw new NotFoundError('Inward slip pass not found or could not be deleted');
+        }
+      } catch (dbError: any) {
+        if (dbError instanceof NotFoundError) {
+          throw dbError;
+        }
+        // Check for foreign key constraint violations (ISP might be referenced elsewhere)
+        if (dbError?.code === '23503') {
+          throw new ConflictError('Cannot delete inward slip pass. It is being used in other records (lots, purchases, etc.).');
+        }
+        throw new InternalServerError('Failed to delete inward slip pass. Please try again.');
       }
 
       return ResponseHandler.success(res, null, 'Inward slip pass deleted successfully');
