@@ -18,5 +18,8 @@ router.put('/:id', batchController.update.bind(batchController));
 router.get('/:id/lot-usage', batchController.getLotUsage.bind(batchController));
 router.get('/:id/rice-code-usage', batchController.getRiceCodeUsage.bind(batchController));
 
+// Batch inventory audit route - Get all inventory changes caused by this batch
+router.get('/:id/inventory-audit', batchController.getInventoryAudit.bind(batchController));
+
 export default router;
 

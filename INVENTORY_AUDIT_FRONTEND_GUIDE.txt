@@ -1,0 +1,478 @@
+================================================================================
+INVENTORY AUDIT SYSTEM - FRONTEND IMPLEMENTATION GUIDE
+================================================================================
+
+This document explains the complete inventory audit logging system that tracks
+all inventory additions and removals with reasons based on business logic.
+
+================================================================================
+OVERVIEW
+================================================================================
+
+The inventory audit system automatically logs every change to the four inventory
+types with detailed information about:
+- What changed (quantity before/after)
+- Why it changed (business reason)
+- When it changed (timestamp)
+- Who made the change (user)
+- What triggered the change (batch, kaanta, manual addition, etc.)
+
+================================================================================
+AUDIT TABLES
+================================================================================
+
+1. LOT INVENTORY AUDIT (lot_inventory_audit)
+   - Tracks lot quantity changes
+   - Addition reasons: "Lot created from inward slip"
+   - Reduction reasons: "Consumed in batch production"
+
+2. PACKETS INVENTORY AUDIT (packets_inventory_audit)
+   - Tracks empty packets count changes
+   - Addition reasons: "Empty packets added to inventory"
+   - Reduction reasons: "Consumed for batch packaging"
+
+3. BAGS INVENTORY AUDIT (bags_inventory_audit)
+   - Tracks filled_bags and empty_bags changes
+   - Addition (filled_bags): "Filled bags received from kaanta weighing"
+   - Reduction (filled_bags): "Bags emptied during batch production"
+   - Addition (empty_bags): "Empty bags from batch production"
+
+4. FINISHED GOODS INVENTORY AUDIT (finished_goods_inventory_audit)
+   - Tracks finished goods packets and weight changes
+   - Addition reasons: "Finished goods created from batch production"
+   - Reduction reasons: "Goods sold to customer" (future)
+
+================================================================================
+API ENDPOINTS
+================================================================================
+
+BASE URL: /api/v1
+
+--------------------------------------------------------------------------------
+LOT INVENTORY AUDIT
+--------------------------------------------------------------------------------
+
+GET /inventory/audit/lots/recent
+  - Get recent lot inventory audit logs
+  - Query params:
+    - limit?: number (default: 100)
+  - Response: { success: true, data: LotInventoryAuditResponse[] }
+
+GET /inventory/audit/lots/lot/:lotId
+  - Get audit logs for a specific lot
+  - Path params:
+    - lotId: string (UUID)
+  - Query params:
+    - limit?: number (default: 100)
+  - Response: { success: true, data: LotInventoryAuditResponse[] }
+
+GET /inventory/audit/lots/:lotInventoryId
+  - Get audit logs by lot inventory ID
+  - Path params:
+    - lotInventoryId: string (UUID)
+  - Query params:
+    - limit?: number (default: 100)
+  - Response: { success: true, data: LotInventoryAuditResponse[] }
+
+RESPONSE STRUCTURE (LotInventoryAuditResponse):
+{
+  id: string (UUID)
+  lot_inventory_id: string | null
+  lot_id: string
+  operation_type: "addition" | "reduction" | "adjustment"
+  quantity_change: number (kg)
+  quantity_before: number (kg)
+  quantity_after: number (kg)
+  reason: string
+  reference_type: string | null
+  reference_id: string | null
+  batch_id: string | null
+  batch_number: string | null
+  notes: string | null
+  created_at: string (ISO date)
+  created_by: string | null
+  lot?: {
+    id: string
+    lot_number: string
+    rice_code_id: string | null
+    rice_type: string | null
+  }
+  user?: {
+    id: string
+    name: string
+  }
+}
+
+--------------------------------------------------------------------------------
+PACKETS INVENTORY AUDIT
+--------------------------------------------------------------------------------
+
+GET /inventory/audit/packets/recent
+  - Get recent packets inventory audit logs
+  - Query params:
+    - limit?: number (default: 100)
+  - Response: { success: true, data: PacketsInventoryAuditResponse[] }
+
+GET /inventory/audit/packets/packaging/:packagingId
+  - Get audit logs for a specific packaging type
+  - Path params:
+    - packagingId: string (UUID)
+  - Query params:
+    - limit?: number (default: 100)
+  - Response: { success: true, data: PacketsInventoryAuditResponse[] }
+
+GET /inventory/audit/packets/:packetsInventoryId
+  - Get audit logs by packets inventory ID
+  - Path params:
+    - packetsInventoryId: string (UUID)
+  - Query params:
+    - limit?: number (default: 100)
+  - Response: { success: true, data: PacketsInventoryAuditResponse[] }
+
+RESPONSE STRUCTURE (PacketsInventoryAuditResponse):
+{
+  id: string (UUID)
+  packets_inventory_id: string | null
+  packaging_id: string
+  operation_type: "addition" | "reduction" | "adjustment"
+  quantity_change: number (integer)
+  quantity_before: number (integer)
+  quantity_after: number (integer)
+  reason: string
+  reference_type: string | null
+  reference_id: string | null
+  batch_id: string | null
+  batch_number: string | null
+  notes: string | null
+  created_at: string (ISO date)
+  created_by: string | null
+  packaging?: {
+    id: string
+    holding_capacity: number
+    packet_type: string
+  }
+  user?: {
+    id: string
+    name: string
+  }
+}
+
+--------------------------------------------------------------------------------
+BAGS INVENTORY AUDIT
+--------------------------------------------------------------------------------
+
+GET /inventory/audit/bags/recent
+  - Get recent bags inventory audit logs
+  - Query params:
+    - limit?: number (default: 100)
+  - Response: { success: true, data: BagsInventoryAuditResponse[] }
+
+GET /inventory/audit/bags/type/:bagType/capacity/:bagCapacity
+  - Get audit logs for a specific bag type and capacity
+  - Path params:
+    - bagType: "jute" | "pp"
+    - bagCapacity: number (kg)
+  - Query params:
+    - limit?: number (default: 100)
+  - Response: { success: true, data: BagsInventoryAuditResponse[] }
+
+GET /inventory/audit/bags/kaanta/:kaantaId
+  - Get audit logs for a specific kaanta entry
+  - Path params:
+    - kaantaId: string (UUID)
+  - Response: { success: true, data: BagsInventoryAuditResponse[] }
+
+GET /inventory/audit/bags/:bagsInventoryId
+  - Get audit logs by bags inventory ID
+  - Path params:
+    - bagsInventoryId: string (UUID)
+  - Query params:
+    - limit?: number (default: 100)
+  - Response: { success: true, data: BagsInventoryAuditResponse[] }
+
+RESPONSE STRUCTURE (BagsInventoryAuditResponse):
+{
+  id: string (UUID)
+  bags_inventory_id: string | null
+  bag_type: "jute" | "pp"
+  bag_capacity: number (kg)
+  operation_type: "addition" | "reduction" | "adjustment"
+  field_changed: "filled_bags" | "empty_bags"
+  quantity_change: number (integer)
+  quantity_before: number (integer)
+  quantity_after: number (integer)
+  reason: string
+  reference_type: string | null
+  reference_id: string | null
+  batch_id: string | null
+  batch_number: string | null
+  kaanta_id: string | null
+  notes: string | null
+  created_at: string (ISO date)
+  created_by: string | null
+  user?: {
+    id: string
+    name: string
+  }
+}
+
+--------------------------------------------------------------------------------
+FINISHED GOODS INVENTORY AUDIT
+--------------------------------------------------------------------------------
+
+GET /inventory/audit/finished-goods/recent
+  - Get recent finished goods inventory audit logs
+  - Query params:
+    - limit?: number (default: 100)
+  - Response: { success: true, data: FinishedGoodsInventoryAuditResponse[] }
+
+GET /inventory/audit/finished-goods/product/:productId
+  - Get audit logs for a specific product
+  - Path params:
+    - productId: string (UUID)
+  - Query params:
+    - limit?: number (default: 100)
+  - Response: { success: true, data: FinishedGoodsInventoryAuditResponse[] }
+
+GET /inventory/audit/finished-goods/batch/:batchId
+  - Get audit logs for a specific batch
+  - Path params:
+    - batchId: string (UUID)
+  - Response: { success: true, data: FinishedGoodsInventoryAuditResponse[] }
+
+GET /inventory/audit/finished-goods/:fgInventoryId
+  - Get audit logs by finished goods inventory ID
+  - Path params:
+    - fgInventoryId: string (UUID)
+  - Query params:
+    - limit?: number (default: 100)
+  - Response: { success: true, data: FinishedGoodsInventoryAuditResponse[] }
+
+RESPONSE STRUCTURE (FinishedGoodsInventoryAuditResponse):
+{
+  id: string (UUID)
+  finished_goods_inventory_id: string | null
+  product_id: string
+  batch_id: string | null
+  batch_number: string | null
+  packaging_id: string | null
+  operation_type: "addition" | "reduction" | "adjustment"
+  packets_change: number (integer)
+  packets_before: number (integer)
+  packets_after: number (integer)
+  weight_change: number (kg)
+  weight_before: number (kg)
+  weight_after: number (kg)
+  reason: string
+  reference_type: string | null
+  reference_id: string | null
+  notes: string | null
+  created_at: string (ISO date)
+  created_by: string | null
+  product?: {
+    id: string
+    name: string
+  }
+  packaging?: {
+    id: string
+    holding_capacity: number
+    packet_type: string
+  }
+  user?: {
+    id: string
+    name: string
+  }
+}
+
+--------------------------------------------------------------------------------
+COMBINED BATCH AUDIT
+--------------------------------------------------------------------------------
+
+GET /inventory/audit/batch/:batchId
+  - Get ALL inventory audit logs caused by a specific batch
+  - Path params:
+    - batchId: string (UUID)
+  - Response: {
+      success: true,
+      data: {
+        lot_inventory_audit: LotInventoryAuditResponse[]
+        packets_inventory_audit: PacketsInventoryAuditResponse[]
+        bags_inventory_audit: BagsInventoryAuditResponse[]
+        finished_goods_inventory_audit: FinishedGoodsInventoryAuditResponse[]
+        summary: {
+          lot_operations: number
+          packets_operations: number
+          bags_operations: number
+          finished_goods_operations: number
+          total_operations: number
+        }
+      }
+    }
+
+GET /batches/:id/inventory-audit
+  - Alternative endpoint - same as above but under batches route
+  - Path params:
+    - id: string (UUID) - batch ID
+  - Response: Same as above
+
+================================================================================
+BUSINESS LOGIC - WHEN AUDITS ARE CREATED
+================================================================================
+
+1. LOT INVENTORY ADDITIONS:
+   - Trigger: Inward slip lot is created
+   - Reason: "Lot created from inward slip"
+   - Notes Format: "Initial Stock | Lot: {lot_number} | Received Weight: {weight} kg"
+
+2. LOT INVENTORY REDUCTIONS:
+   - Trigger: Batch is created and consumes lot quantities
+   - Reason: "Consumed in batch production"
+   - Notes Format: "Batch Quantity: {batch_qty} kg | Recipe Share: {percentage}% | 
+                    Lot Consumption = {batch_qty} x {percentage}/100 = {result} kg"
+
+3. PACKETS INVENTORY ADDITIONS:
+   - Trigger: POST /packaging/:id/inventory (manual addition)
+   - Reason: "Empty packets added to inventory"
+   - Notes Format: "Manual Stock Addition | Quantity Added: {qty} packets | 
+                    Type: {packet_type} ({capacity} kg capacity)"
+
+4. PACKETS INVENTORY REDUCTIONS:
+   - Trigger: Batch is created and consumes empty packets
+   - Reason: "Consumed for batch packaging"
+   - Notes Format: "Batch Quantity: {batch_qty} kg | Packet Capacity: {capacity} kg | 
+                    Packets Required = ceil({batch_qty}/{capacity}) = {result} {packet_type} packets"
+
+5. BAGS INVENTORY - FILLED BAGS ADDITIONS:
+   - Trigger: Kaanta entry is created
+   - Reason: "Filled bags received from kaanta weighing"
+   - Notes Format: "Kaanta Weighing | Bags Received: {count} | Type: {BAG_TYPE} | 
+                    Capacity: {capacity} kg"
+
+6. BAGS INVENTORY - FILLED BAGS REDUCTIONS:
+   - Trigger: Batch is created and empties bags from lots
+   - Reason: "Bags emptied during batch production"
+   - Notes Format: "Quantity Used: {qty} kg | Lot Total: {lot_weight} kg | Lot Bags: {total_bags} | 
+                    Bags Emptied = floor(({qty}/{lot_weight}) x {total_bags}) = {result} bags 
+                    ({usage_percent}% of lot consumed)"
+
+7. BAGS INVENTORY - EMPTY BAGS ADDITIONS:
+   - Trigger: Batch is created (emptied bags become empty)
+   - Reason: "Empty bags from batch production"
+   - Notes Format: "{count} {BAG_TYPE} bags ({capacity} kg capacity) transferred from 
+                    filled to empty inventory"
+
+8. FINISHED GOODS ADDITIONS:
+   - Trigger: Batch is created and produces finished goods
+   - Reason: "Finished goods created from batch production"
+   - Notes Format: "Packets Produced: {packets} | Packet Capacity: {capacity} kg | 
+                    Total Weight = {packets} x {capacity} = {total_weight} kg | Product: {name}"
+
+================================================================================
+FRONTEND IMPLEMENTATION SUGGESTIONS
+================================================================================
+
+1. INVENTORY DETAIL PAGES:
+   - On each inventory detail page (lot, packets, bags, finished goods)
+   - Add a "History" or "Audit Log" tab/section
+   - Show chronological list of all changes with reasons
+   - Color-code: Green for additions, Red for reductions
+
+2. BATCH DETAIL PAGE:
+   - Add an "Inventory Impact" section
+   - Use GET /batches/:id/inventory-audit to get all changes
+   - Group by inventory type
+   - Show summary of total operations
+
+3. TIMELINE VIEW:
+   - Consider a timeline visualization
+   - Show quantity_before → quantity_after with arrow
+   - Display reason and notes prominently
+
+4. FILTERING:
+   - Filter by operation_type (addition/reduction/adjustment)
+   - Filter by date range (created_at)
+   - Filter by reference_type (batch/kaanta/manual_addition)
+
+5. SEARCH:
+   - Search by batch_number
+   - Search by lot_number (for lot audits)
+   - Search in notes field
+
+6. EXAMPLE TABLE COLUMNS FOR LOT AUDIT:
+   | Date & Time | Operation | Change | Before | After | Reason | Reference | User |
+   |-------------|-----------|--------|--------|-------|--------|-----------|------|
+   | 2024-01-15 10:30 | Addition | +500 kg | 0 | 500 | Lot created from inward slip | LOT-001 | John |
+   | 2024-01-16 14:00 | Reduction | -150 kg | 500 | 350 | Consumed in batch production | BATCH-20240116-abc123 | Jane |
+
+7. VISUAL INDICATORS:
+   - Use icons: ⬆️ for additions, ⬇️ for reductions, 🔄 for adjustments
+   - Show batch_number as clickable link to batch details
+   - Show user name with avatar if available
+
+================================================================================
+OPERATION TYPES
+================================================================================
+
+- "addition": Quantity increased (positive change)
+- "reduction": Quantity decreased (negative change)
+- "adjustment": Manual correction (can be positive or negative)
+
+================================================================================
+REFERENCE TYPES
+================================================================================
+
+- "inward_slip_lot": Change triggered by creating an inward slip lot
+- "batch": Change triggered by batch production
+- "kaanta": Change triggered by kaanta weighing
+- "manual_addition": Manual inventory addition
+- "manual_adjustment": Manual inventory correction
+- "sale": (Future) Goods sold
+- "dispatch": (Future) Goods dispatched
+- "return": (Future) Goods returned
+- "damage": (Future) Damaged goods removed
+
+================================================================================
+EXAMPLE API CALLS
+================================================================================
+
+GET RECENT LOT AUDITS:
+GET /api/v1/inventory/audit/lots/recent?limit=50
+
+GET LOT AUDIT BY LOT ID:
+GET /api/v1/inventory/audit/lots/lot/{lotId}
+
+GET ALL AUDITS FOR A BATCH:
+GET /api/v1/inventory/audit/batch/{batchId}
+or
+GET /api/v1/batches/{batchId}/inventory-audit
+
+GET PACKETS AUDIT BY PACKAGING:
+GET /api/v1/inventory/audit/packets/packaging/{packagingId}
+
+GET BAGS AUDIT BY TYPE AND CAPACITY:
+GET /api/v1/inventory/audit/bags/type/jute/capacity/40
+
+GET FINISHED GOODS AUDIT BY PRODUCT:
+GET /api/v1/inventory/audit/finished-goods/product/{productId}
+
+================================================================================
+ERROR RESPONSES
+================================================================================
+
+All errors follow this format:
+{
+  "success": false,
+  "error": "Error message",
+  "timestamp": "ISO date string",
+  "isSessionValid": true
+}
+
+Common Errors:
+- "Invalid UUID" - ID format is incorrect
+- "Invalid bag type. Must be 'jute' or 'pp'"
+- "Invalid bag capacity"
+
+================================================================================
+END OF DOCUMENT
+================================================================================
+

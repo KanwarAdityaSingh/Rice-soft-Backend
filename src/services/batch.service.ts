@@ -8,6 +8,13 @@ import { lotInventoryDAO } from '../dao/lot-inventory.dao';
 import { packetsInventoryDAO } from '../dao/packets-inventory.dao';
 import { finishedGoodsInventoryDAO } from '../dao/finished-goods-inventory.dao';
 import { bagsInventoryDAO } from '../dao/bags-inventory.dao';
+import { 
+  lotInventoryAuditDAO, 
+  packetsInventoryAuditDAO, 
+  bagsInventoryAuditDAO, 
+  finishedGoodsInventoryAuditDAO 
+} from '../dao/inventory-audit.dao';
+import { INVENTORY_AUDIT_REASONS } from '../models/inventory-audit.model';
 import { CreateBatchDTO, Batch } from '../models/batch.model';
 import { NotFoundError, BadRequestError } from '../utils/errors';
 import { logger } from '../utils/logger';
@@ -109,11 +116,35 @@ export class BatchService {
           }
         }
 
+        // Get current lot inventory for audit
+        const lotInventory = await lotInventoryDAO.findByLotId(lotQty.lotId);
+        const quantityBefore = lotInventory?.available_quantity || 0;
+        const quantityAfter = quantityBefore - lotQty.quantity;
+
         // 9. Decrement lot inventory for each lot used
         const decremented = await lotInventoryDAO.decrementQuantity(lotQty.lotId, lotQty.quantity);
         if (!decremented) {
           throw new BadRequestError(`Failed to decrement lot inventory for lot ${lot.lot_number}`);
         }
+
+        // Log lot inventory reduction audit
+        const lotCalculation = `Batch Quantity: ${batchData.quantity} kg | Recipe Share: ${lotQty.percentage}% | Lot Consumption = ${batchData.quantity} x ${lotQty.percentage}/100 = ${lotQty.quantity.toFixed(2)} kg`;
+        
+        await lotInventoryAuditDAO.create({
+          lot_inventory_id: lotInventory?.id,
+          lot_id: lotQty.lotId,
+          operation_type: 'reduction',
+          quantity_change: lotQty.quantity,
+          quantity_before: quantityBefore,
+          quantity_after: quantityAfter,
+          reason: INVENTORY_AUDIT_REASONS.LOT.BATCH_CONSUMPTION,
+          reference_type: 'batch',
+          reference_id: batch.id,
+          batch_id: batch.id,
+          batch_number: batch.batch_number,
+          notes: lotCalculation,
+          created_by: batchData.created_by
+        });
 
         // 13. Update bags inventory: filled_bags decrease, empty_bags increase (based on lot bag info)
         if (lot.bag_weight && lot.no_of_bags && lot.received_weight > 0) {
@@ -121,7 +152,6 @@ export class BatchService {
           const bagsEmptied = Math.floor((lotQty.quantity / lot.received_weight) * lot.no_of_bags);
           if (bagsEmptied > 0) {
             // Get bag type from kaanta - find kaanta with same sauda_id and matching bag_weight
-            // Typically one kaanta creates one lot, so we match by sauda_id and bag_weight
             const kaantaQuery = `
               SELECT k.bag_type, k.bag_weight
               FROM kaantas k
@@ -133,8 +163,62 @@ export class BatchService {
             if (kaantaResult.rows.length > 0) {
               const kaanta = kaantaResult.rows[0];
               const bagType = kaanta.bag_type as 'jute' | 'pp';
-              await bagsInventoryDAO.decrementFilledBags(bagType, parseFloat(kaanta.bag_weight.toString()), bagsEmptied);
-              await bagsInventoryDAO.incrementEmptyBags(bagType, parseFloat(kaanta.bag_weight.toString()), bagsEmptied);
+              const bagCapacity = parseFloat(kaanta.bag_weight.toString());
+
+              // Get current bags inventory for audit
+              const bagsInventory = await bagsInventoryDAO.findByTypeAndCapacity(bagType, bagCapacity);
+              const filledBefore = bagsInventory?.filled_bags || 0;
+              const emptyBefore = bagsInventory?.empty_bags || 0;
+
+              await bagsInventoryDAO.decrementFilledBags(bagType, bagCapacity, bagsEmptied);
+              await bagsInventoryDAO.incrementEmptyBags(bagType, bagCapacity, bagsEmptied);
+
+              // Get updated bags inventory for audit
+              const updatedBagsInventory = await bagsInventoryDAO.findByTypeAndCapacity(bagType, bagCapacity);
+
+              // Calculate usage ratio for notes
+              const usageRatio = (lotQty.quantity / lot.received_weight * 100).toFixed(2);
+              const bagsCalculation = `Quantity Used: ${lotQty.quantity.toFixed(2)} kg | Lot Total: ${lot.received_weight} kg | Lot Bags: ${lot.no_of_bags} | Bags Emptied = floor((${lotQty.quantity.toFixed(2)}/${lot.received_weight}) x ${lot.no_of_bags}) = ${bagsEmptied} bags (${usageRatio}% of lot consumed)`;
+
+              // Log filled bags reduction audit
+              await bagsInventoryAuditDAO.create({
+                bags_inventory_id: bagsInventory?.id,
+                bag_type: bagType,
+                bag_capacity: bagCapacity,
+                operation_type: 'reduction',
+                field_changed: 'filled_bags',
+                quantity_change: bagsEmptied,
+                quantity_before: filledBefore,
+                quantity_after: updatedBagsInventory?.filled_bags || filledBefore - bagsEmptied,
+                reason: INVENTORY_AUDIT_REASONS.BAGS.BATCH_EMPTIED,
+                reference_type: 'batch',
+                reference_id: batch.id,
+                batch_id: batch.id,
+                batch_number: batch.batch_number,
+                notes: bagsCalculation,
+                created_by: batchData.created_by
+              });
+
+              // Log empty bags addition audit
+              const emptyBagsNote = `${bagsEmptied} ${bagType.toUpperCase()} bags (${bagCapacity} kg capacity) transferred from filled to empty inventory`;
+              
+              await bagsInventoryAuditDAO.create({
+                bags_inventory_id: bagsInventory?.id,
+                bag_type: bagType,
+                bag_capacity: bagCapacity,
+                operation_type: 'addition',
+                field_changed: 'empty_bags',
+                quantity_change: bagsEmptied,
+                quantity_before: emptyBefore,
+                quantity_after: updatedBagsInventory?.empty_bags || emptyBefore + bagsEmptied,
+                reason: INVENTORY_AUDIT_REASONS.BAGS.BATCH_EMPTY_ADDED,
+                reference_type: 'batch',
+                reference_id: batch.id,
+                batch_id: batch.id,
+                batch_number: batch.batch_number,
+                notes: emptyBagsNote,
+                created_by: batchData.created_by
+              });
             }
           }
         }
@@ -153,6 +237,8 @@ export class BatchService {
 
       // 10. Calculate packets needed: batch.quantity / packaging.holding_capacity
       // Already calculated above as packetsNeeded
+      const packetsQuantityBefore = packetsInventory.available_quantity;
+      const packetsQuantityAfter = packetsQuantityBefore - packetsNeeded;
 
       // 11. Decrement packets inventory
       const packetsDecremented = await packetsInventoryDAO.decrementQuantity(batchData.packaging_id, packetsNeeded);
@@ -160,9 +246,28 @@ export class BatchService {
         throw new BadRequestError('Failed to decrement packets inventory');
       }
 
+      // Log packets inventory reduction audit
+      const packetsCalculation = `Batch Quantity: ${batchData.quantity} kg | Packet Capacity: ${packaging.holding_capacity} kg | Packets Required = ceil(${batchData.quantity}/${packaging.holding_capacity}) = ${packetsNeeded} ${packaging.packet_type} packets`;
+      
+      await packetsInventoryAuditDAO.create({
+        packets_inventory_id: packetsInventory.id,
+        packaging_id: batchData.packaging_id,
+        operation_type: 'reduction',
+        quantity_change: packetsNeeded,
+        quantity_before: packetsQuantityBefore,
+        quantity_after: packetsQuantityAfter,
+        reason: INVENTORY_AUDIT_REASONS.PACKETS.BATCH_CONSUMPTION,
+        reference_type: 'batch',
+        reference_id: batch.id,
+        batch_id: batch.id,
+        batch_number: batch.batch_number,
+        notes: packetsCalculation,
+        created_by: batchData.created_by
+      });
+
       // 12. Create finished goods inventory entry
       const totalWeight = packetsNeeded * packaging.holding_capacity;
-      await finishedGoodsInventoryDAO.create({
+      const finishedGoods = await finishedGoodsInventoryDAO.create({
         product_id: batchData.product_id,
         batch_id: batch.id,
         packaging_id: batchData.packaging_id,
@@ -171,8 +276,31 @@ export class BatchService {
         created_by: batchData.created_by
       });
 
+      // Log finished goods inventory addition audit
+      const finishedGoodsCalculation = `Packets Produced: ${packetsNeeded} | Packet Capacity: ${packaging.holding_capacity} kg | Total Weight = ${packetsNeeded} x ${packaging.holding_capacity} = ${totalWeight} kg | Product: ${product.name}`;
+      
+      await finishedGoodsInventoryAuditDAO.create({
+        finished_goods_inventory_id: finishedGoods.id,
+        product_id: batchData.product_id,
+        batch_id: batch.id,
+        batch_number: batch.batch_number,
+        packaging_id: batchData.packaging_id,
+        operation_type: 'addition',
+        packets_change: packetsNeeded,
+        packets_before: 0,
+        packets_after: packetsNeeded,
+        weight_change: totalWeight,
+        weight_before: 0,
+        weight_after: totalWeight,
+        reason: INVENTORY_AUDIT_REASONS.FINISHED_GOODS.BATCH_PRODUCTION,
+        reference_type: 'batch',
+        reference_id: batch.id,
+        notes: finishedGoodsCalculation,
+        created_by: batchData.created_by
+      });
+
       await client.query('COMMIT');
-      logger.info('Batch created successfully', { batch_id: batch.id, batch_number: batch.batch_number });
+      logger.info('Batch created successfully with inventory audit logs', { batch_id: batch.id, batch_number: batch.batch_number });
 
       return batch;
     } catch (error) {
@@ -218,4 +346,3 @@ export class BatchService {
 }
 
 export const batchService = new BatchService();
-

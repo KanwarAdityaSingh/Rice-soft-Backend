@@ -1,6 +1,7 @@
 import { Response, NextFunction } from 'express';
 import { batchService } from '../services/batch.service';
 import { batchDAO } from '../dao/batch.dao';
+import { inventoryAuditService } from '../services/inventory-audit.service';
 import { ResponseHandler } from '../utils/response';
 import { validate, uuidSchema } from '../utils/validators';
 import { AuthRequest } from '../middleware/auth.middleware';
@@ -175,6 +176,18 @@ export class BatchController {
         created_at: usage.created_at instanceof Date ? usage.created_at.toISOString() : usage.created_at,
         updated_at: usage.updated_at instanceof Date ? usage.updated_at.toISOString() : usage.updated_at,
       })));
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getInventoryAudit(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const batchId = validate<string>(uuidSchema, req.params.id);
+
+      const audits = await inventoryAuditService.getAllAuditsByBatchId(batchId);
+
+      return ResponseHandler.success(res, audits);
     } catch (error) {
       next(error);
     }

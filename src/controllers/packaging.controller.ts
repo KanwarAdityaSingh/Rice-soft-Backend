@@ -1,6 +1,8 @@
 import { Response, NextFunction } from 'express';
 import { packagingDAO } from '../dao/packaging.dao';
 import { packetsInventoryDAO } from '../dao/packets-inventory.dao';
+import { packetsInventoryAuditDAO } from '../dao/inventory-audit.dao';
+import { INVENTORY_AUDIT_REASONS } from '../models/inventory-audit.model';
 import { ResponseHandler } from '../utils/response';
 import { validate, uuidSchema } from '../utils/validators';
 import { AuthRequest } from '../middleware/auth.middleware';
@@ -138,9 +140,29 @@ export class PackagingController {
         inventoryData.created_by = req.user.userId;
       }
 
+      // Get current inventory for audit
+      const existingInventory = await packetsInventoryDAO.findByPackagingId(packagingId);
+      const quantityBefore = existingInventory?.available_quantity || 0;
+
       const inventory = await packetsInventoryDAO.create({
         packaging_id: packagingId,
         available_quantity: inventoryData.available_quantity,
+        created_by: inventoryData.created_by
+      });
+
+      // Log the audit for packets addition
+      const stockNote = `Manual Stock Addition | Quantity Added: ${inventoryData.available_quantity} packets | Type: ${packaging.packet_type} (${packaging.holding_capacity} kg capacity)`;
+      
+      await packetsInventoryAuditDAO.create({
+        packets_inventory_id: inventory.id,
+        packaging_id: packagingId,
+        operation_type: 'addition',
+        quantity_change: inventoryData.available_quantity,
+        quantity_before: quantityBefore,
+        quantity_after: inventory.available_quantity,
+        reason: INVENTORY_AUDIT_REASONS.PACKETS.STOCK_ADDITION,
+        reference_type: 'manual_addition',
+        notes: stockNote,
         created_by: inventoryData.created_by
       });
 
@@ -156,4 +178,3 @@ export class PackagingController {
     }
   }
 }
-
