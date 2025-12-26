@@ -1,0 +1,1102 @@
+================================================================================
+                    SAUDA API CONTRACT DOCUMENTATION
+                    Frontend Integration Guide
+================================================================================
+
+BASE URL: /api/v1/saudas
+
+All endpoints require authentication. Include the authentication token in the 
+Authorization header.
+
+================================================================================
+1. CREATE SAUDA
+================================================================================
+
+Endpoint: POST /api/v1/saudas
+Method: POST
+Authentication: Required
+Content-Type: application/json
+
+REQUEST BODY:
+{
+  "sauda_type": string (REQUIRED) - must be one of: "exgodown", "for",
+  "rice_type": string (REQUIRED) - must be one of: "basmati", "non_basmati", 
+    "parboiled", "raw", "raw_basmati", "steam_basmati", "white_sella", "golden_sella",
+  "rice_code_id": string (optional, UUID, can be null),
+  "rate": number (REQUIRED, minimum 0, precision 2 decimal places),
+  "broker_id": string (optional, UUID, can be null),
+  "broker_commission": number (optional, minimum 0, precision 2, can be null),
+  "broker_commission_type": string (optional, default: "percentage") - must be one of: 
+    "rupees", "percentage", "weight",
+  "quantity": number (optional, minimum 0, precision 2, can be null),
+  "cash_discount": number (optional, minimum 0, precision 2, can be null),
+  "cash_discount_type": string (optional, default: "rupees") - must be one of: 
+    "rupees", "percentage",
+  "estimated_delivery_time": number (optional, integer, minimum 0, can be null) - in days,
+  "purchaser_id": string (REQUIRED, UUID) - must be a valid vendor ID,
+  "cooked_rice_image_url": string (optional, valid URI, can be null or empty),
+  "uncooked_rice_image_url": string (optional, valid URI, can be null or empty),
+  "status": string (optional) - must be one of: "draft", "active", "completed", "cancelled",
+  "notes": string (optional, max 1000 chars, can be null or empty),
+  "is_dana_required": boolean (optional, default: true)
+}
+
+IMPORTANT VALIDATION RULES:
+- purchaser_id MUST exist in the vendors table
+- broker_id (if provided) MUST exist in the brokers table
+- rice_code_id (if provided) MUST exist in the rice_codes table
+- rate must be a positive number with up to 2 decimal places
+- All numeric fields (rate, broker_commission, quantity, cash_discount) must be >= 0
+- estimated_delivery_time must be a non-negative integer (days)
+
+SUCCESS RESPONSE (201 Created):
+{
+  "success": true,
+  "message": "Sauda created successfully",
+  "data": {
+    "id": "uuid",
+    "sauda_type": "exgodown" | "for",
+    "rice_type": "basmati" | "non_basmati" | "parboiled" | "raw" | "raw_basmati" | 
+      "steam_basmati" | "white_sella" | "golden_sella",
+    "rice_code_id": "uuid or null",
+    "rate": number,
+    "broker_id": "uuid or null",
+    "broker_commission": number or null,
+    "broker_commission_type": "rupees" | "percentage" | "weight",
+    "quantity": number or null,
+    "received_until_now": number (default: 0),
+    "completion_percentage": number or null,
+    "cash_discount": number or null,
+    "cash_discount_type": "rupees" | "percentage",
+    "estimated_delivery_time": number or null,
+    "purchaser_id": "uuid",
+    "cooked_rice_image_url": "string or null",
+    "uncooked_rice_image_url": "string or null",
+    "status": "draft" | "active" | "completed" | "cancelled",
+    "notes": "string or null",
+    "is_dana_required": boolean,
+    "created_at": "ISO 8601 timestamp string",
+    "updated_at": "ISO 8601 timestamp string"
+  },
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+ERROR RESPONSES:
+
+400 Bad Request - Validation Error:
+{
+  "success": false,
+  "message": "Validation error message",
+  "error": "Detailed validation error",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+Common validation errors:
+- "sauda_type is required"
+- "sauda_type must be one of: exgodown, for"
+- "rice_type is required"
+- "rice_type must be one of: basmati, non_basmati, parboiled, raw, raw_basmati, steam_basmati, white_sella, golden_sella"
+- "rate is required"
+- "rate must be a number"
+- "rate must be greater than or equal to 0"
+- "purchaser_id is required"
+- "purchaser_id must be a valid UUID"
+- "Invalid reference: purchaser, broker, or rice code does not exist"
+
+404 Not Found:
+{
+  "success": false,
+  "message": "Resource not found",
+  "error": "Purchaser (vendor) not found" | "Broker not found" | "Rice code not found",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+409 Conflict - Duplicate Data:
+{
+  "success": false,
+  "message": "Conflict error message",
+  "error": "A sauda with this information already exists",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+500 Internal Server Error:
+{
+  "success": false,
+  "message": "An unexpected error occurred",
+  "error": "Failed to create sauda. Please try again." | "Error details (in development)",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+================================================================================
+2. UPDATE SAUDA
+================================================================================
+
+Endpoint: PUT /api/v1/saudas/:id
+Method: PUT
+Authentication: Required
+Content-Type: application/json
+
+URL PARAMETERS:
+- id: string (REQUIRED) - UUID of the sauda to update
+
+REQUEST BODY:
+All fields are OPTIONAL, but at least one field must be provided:
+{
+  "sauda_type": string (optional) - must be one of: "exgodown", "for",
+  "rice_type": string (optional) - must be one of: "basmati", "non_basmati", 
+    "parboiled", "raw", "raw_basmati", "steam_basmati", "white_sella", "golden_sella",
+  "rice_code_id": string (optional, UUID, can be null),
+  "rate": number (optional, minimum 0, precision 2),
+  "broker_id": string (optional, UUID, can be null),
+  "broker_commission": number (optional, minimum 0, precision 2, can be null),
+  "broker_commission_type": string (optional) - must be one of: "rupees", "percentage", "weight",
+  "quantity": number (optional, minimum 0, precision 2, can be null),
+  "cash_discount": number (optional, minimum 0, precision 2, can be null),
+  "cash_discount_type": string (optional) - must be one of: "rupees", "percentage",
+  "estimated_delivery_time": number (optional, integer, minimum 0, can be null),
+  "purchaser_id": string (optional, UUID),
+  "cooked_rice_image_url": string (optional, valid URI, can be null or empty),
+  "uncooked_rice_image_url": string (optional, valid URI, can be null or empty),
+  "status": string (optional) - must be one of: "draft", "active", "completed", "cancelled",
+  "notes": string (optional, max 1000 chars, can be null or empty),
+  "is_dana_required": boolean (optional)
+}
+
+IMPORTANT NOTES:
+- At least one field must be provided in the request body
+- If updating purchaser_id, broker_id, or rice_code_id, they must exist in their respective tables
+- The sauda ID in the URL must be a valid UUID
+
+SUCCESS RESPONSE (200 OK):
+{
+  "success": true,
+  "message": "Sauda updated successfully",
+  "data": {
+    // Same structure as create response
+  },
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+ERROR RESPONSES:
+
+400 Bad Request - Validation Error:
+Same as create endpoint
+
+404 Not Found:
+{
+  "success": false,
+  "message": "Resource not found",
+  "error": "Sauda not found" | "Purchaser (vendor) not found" | "Broker not found" | "Rice code not found" | "Sauda not found after update",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+409 Conflict - Duplicate Data:
+Same as create endpoint
+
+500 Internal Server Error:
+{
+  "success": false,
+  "message": "An unexpected error occurred",
+  "error": "Failed to update sauda. Please try again." | "Error details (in development)",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+================================================================================
+3. UPDATE SAUDA STATUS
+================================================================================
+
+Endpoint: PATCH /api/v1/saudas/:id/status
+Method: PATCH
+Authentication: Required
+Content-Type: application/json
+
+URL PARAMETERS:
+- id: string (REQUIRED) - UUID of the sauda
+
+REQUEST BODY:
+{
+  "status": string (REQUIRED) - must be one of: "draft", "active", "completed", "cancelled"
+}
+
+SUCCESS RESPONSE (200 OK):
+{
+  "success": true,
+  "message": "Sauda status updated successfully",
+  "data": {
+    // Same sauda object structure as create response
+  },
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+ERROR RESPONSES:
+
+400 Bad Request - Validation Error:
+{
+  "success": false,
+  "message": "Validation error message",
+  "error": "Invalid status. Must be one of: draft, active, completed, cancelled",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+404 Not Found:
+{
+  "success": false,
+  "message": "Resource not found",
+  "error": "Sauda not found",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+================================================================================
+4. GET ALL SAUDAS
+================================================================================
+
+Endpoint: GET /api/v1/saudas
+Method: GET
+Authentication: Required
+
+QUERY PARAMETERS (all optional):
+- include_inactive: boolean (default: false) - Set to "true" to include inactive saudas
+- status: string (optional) - Filter by status: "draft", "active", "completed", "cancelled"
+- sauda_type: string (optional) - Filter by type: "exgodown" or "for"
+- purchaser_id: string (optional, UUID) - Filter by purchaser ID
+
+EXAMPLES:
+GET /api/v1/saudas
+GET /api/v1/saudas?include_inactive=true
+GET /api/v1/saudas?status=active
+GET /api/v1/saudas?sauda_type=exgodown
+GET /api/v1/saudas?purchaser_id=123e4567-e89b-12d3-a456-426614174000
+GET /api/v1/saudas?status=active&sauda_type=for&purchaser_id=123e4567-e89b-12d3-a456-426614174000
+
+SUCCESS RESPONSE (200 OK):
+{
+  "success": true,
+  "message": undefined,
+  "data": [
+    {
+      // Same sauda object structure as create response
+    },
+    // ... more saudas
+  ],
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+ERROR RESPONSES:
+
+500 Internal Server Error:
+Same as create endpoint
+
+================================================================================
+5. GET SAUDA BY ID
+================================================================================
+
+Endpoint: GET /api/v1/saudas/:id
+Method: GET
+Authentication: Required
+
+URL PARAMETERS:
+- id: string (REQUIRED) - UUID of the sauda
+
+SUCCESS RESPONSE (200 OK):
+{
+  "success": true,
+  "message": undefined,
+  "data": {
+    // Same sauda object structure as create response
+  },
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+ERROR RESPONSES:
+
+400 Bad Request - Invalid UUID:
+{
+  "success": false,
+  "message": "Validation error message",
+  "error": "Invalid UUID format",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+404 Not Found:
+{
+  "success": false,
+  "message": "Resource not found",
+  "error": "Sauda not found",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+================================================================================
+6. DELETE SAUDA
+================================================================================
+
+Endpoint: DELETE /api/v1/saudas/:id
+Method: DELETE
+Authentication: Required
+
+URL PARAMETERS:
+- id: string (REQUIRED) - UUID of the sauda to delete
+
+SUCCESS RESPONSE (200 OK):
+{
+  "success": true,
+  "message": "Sauda deleted successfully",
+  "data": null,
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+ERROR RESPONSES:
+
+400 Bad Request - Invalid UUID:
+Same as get by ID
+
+404 Not Found:
+{
+  "success": false,
+  "message": "Resource not found",
+  "error": "Sauda not found" | "Sauda not found after deletion",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+409 Conflict - Cannot Delete:
+{
+  "success": false,
+  "message": "Conflict error message",
+  "error": "Cannot delete sauda. It is being used in other records (lots, purchases, etc.).",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+500 Internal Server Error:
+Same as create endpoint
+
+================================================================================
+7. UPLOAD COOKED RICE IMAGE
+================================================================================
+
+Endpoint: POST /api/v1/saudas/:id/upload-cooked-rice-image
+Method: POST
+Authentication: Required
+Content-Type: multipart/form-data
+
+URL PARAMETERS:
+- id: string (REQUIRED) - UUID of the sauda
+
+FORM DATA:
+- file: File (REQUIRED) - Image file (JPEG, JPG, PNG, GIF)
+  - Maximum file size: 5MB
+  - Allowed MIME types: image/jpeg, image/jpg, image/png, image/gif
+
+SUCCESS RESPONSE (200 OK):
+{
+  "success": true,
+  "message": "Cooked rice image uploaded successfully",
+  "data": {
+    "url": "https://s3.amazonaws.com/bucket/path/to/image.jpg"
+  },
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+ERROR RESPONSES:
+
+400 Bad Request - Validation Error:
+{
+  "success": false,
+  "message": "Validation error message",
+  "error": "File is required" | "Invalid file type. Only JPEG, JPG, PNG, GIF are allowed" | "File size exceeds maximum limit of 5MB",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+404 Not Found:
+{
+  "success": false,
+  "message": "Resource not found",
+  "error": "Sauda not found",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+500 Internal Server Error:
+{
+  "success": false,
+  "message": "An unexpected error occurred",
+  "error": "Failed to upload image. Please try again." | "Failed to update sauda with image URL. Please try again.",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+================================================================================
+8. UPLOAD UNCOOKED RICE IMAGE
+================================================================================
+
+Endpoint: POST /api/v1/saudas/:id/upload-uncooked-rice-image
+Method: POST
+Authentication: Required
+Content-Type: multipart/form-data
+
+URL PARAMETERS:
+- id: string (REQUIRED) - UUID of the sauda
+
+FORM DATA:
+- file: File (REQUIRED) - Image file (JPEG, JPG, PNG, GIF)
+  - Maximum file size: 5MB
+  - Allowed MIME types: image/jpeg, image/jpg, image/png, image/gif
+
+SUCCESS RESPONSE (200 OK):
+{
+  "success": true,
+  "message": "Uncooked rice image uploaded successfully",
+  "data": {
+    "url": "https://s3.amazonaws.com/bucket/path/to/image.jpg"
+  },
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+ERROR RESPONSES:
+Same as upload cooked rice image endpoint
+
+================================================================================
+9. GET NOTIFICATION PREVIEW
+================================================================================
+
+Endpoint: GET /api/v1/saudas/:id/notification-preview
+Method: GET
+Authentication: Required
+
+URL PARAMETERS:
+- id: string (REQUIRED) - UUID of the sauda
+
+DESCRIPTION:
+This endpoint returns a preview of the email and WhatsApp notification content
+that will be sent for this sauda. Use this to preview before sending.
+
+SUCCESS RESPONSE (200 OK):
+{
+  "success": true,
+  "message": undefined,
+  "data": {
+    "saudaId": "uuid",
+    "email": {
+      "subject": "string",
+      "html": "string (HTML content)",
+      "text": "string (plain text content)"
+    },
+    "whatsapp": {
+      "message": "string"
+    }
+  },
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+ERROR RESPONSES:
+
+400 Bad Request - Invalid UUID:
+Same as get by ID
+
+404 Not Found:
+{
+  "success": false,
+  "message": "Resource not found",
+  "error": "Sauda not found",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+================================================================================
+10. SEND SAUDA VIA EMAIL
+================================================================================
+
+Endpoint: POST /api/v1/saudas/:id/send-via-email
+Method: POST
+Authentication: Required
+Content-Type: multipart/form-data (if file is provided) or application/json
+
+URL PARAMETERS:
+- id: string (REQUIRED) - UUID of the sauda
+
+REQUEST BODY (JSON or Form Data):
+{
+  "emails": array (REQUIRED, minimum 1 email) [
+    "string (valid email address)"
+  ],
+  "file": File (optional) - PDF file to attach
+  - Maximum file size: 10MB
+  - Allowed MIME type: application/pdf
+  "customSubject": string (optional) - Custom email subject
+  "customHtml": string (optional) - Custom HTML email body
+  "customText": string (optional) - Custom plain text email body
+}
+
+IMPORTANT NOTES:
+- At least one valid email address is required
+- All email addresses must be in valid format
+- PDF file is optional but if provided, must be valid PDF (max 10MB)
+- If customSubject, customHtml, or customText is provided, they will override the default content
+
+SUCCESS RESPONSE (200 OK):
+{
+  "success": true,
+  "message": "Sauda details sent via email successfully",
+  "data": {
+    "sent": true,
+    "messageId": "string (email message ID)",
+    "recipients": ["email1@example.com", "email2@example.com"]
+  },
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+ERROR RESPONSES:
+
+400 Bad Request - Validation Error:
+{
+  "success": false,
+  "message": "Validation error message",
+  "error": "At least one email address is required" | "Invalid email format: <email>" | "Invalid file type. Only PDF files are allowed" | "File size exceeds maximum limit of 10MB",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+404 Not Found:
+{
+  "success": false,
+  "message": "Resource not found",
+  "error": "Sauda not found",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+500 Internal Server Error:
+{
+  "success": false,
+  "message": "An unexpected error occurred",
+  "error": "Failed to send email: <error details>" | "Failed to send email. Please try again later.",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+================================================================================
+11. SEND SAUDA VIA WHATSAPP
+================================================================================
+
+Endpoint: POST /api/v1/saudas/:id/send-via-whatsapp
+Method: POST
+Authentication: Required
+Content-Type: multipart/form-data (if file is provided) or application/json
+
+URL PARAMETERS:
+- id: string (REQUIRED) - UUID of the sauda
+
+REQUEST BODY (JSON or Form Data):
+{
+  "whatsappNumbers": array (REQUIRED, minimum 1 number) [
+    "string (WhatsApp phone number)"
+  ],
+  "pdfUrl": string (optional) - URL of PDF file already uploaded to S3
+  "file": File (optional) - PDF file to upload and attach
+  - Maximum file size: 10MB
+  - Allowed MIME type: application/pdf
+  "customMessage": string (optional) - Custom WhatsApp message
+}
+
+IMPORTANT NOTES:
+- At least one WhatsApp number is required
+- Either pdfUrl OR file must be provided (file will be uploaded to S3 first)
+- If both pdfUrl and file are provided, file will be used and uploaded
+- Custom message is optional - if not provided, default message will be used
+- Messages are sent to all numbers in the array
+- Some numbers may fail while others succeed - check the results array
+
+SUCCESS RESPONSE (200 OK):
+{
+  "success": true,
+  "message": "Sauda details sent via WhatsApp to <count> recipient(s)" | "Failed to send WhatsApp messages",
+  "data": {
+    "sent": boolean,
+    "results": [
+      {
+        "number": "string",
+        "success": boolean,
+        "error": "string (if failed)",
+        "messageId": "string (if successful)"
+      },
+      // ... more results
+    ],
+    "summary": {
+      "total": number,
+      "success": number,
+      "failed": number
+    }
+  },
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+ERROR RESPONSES:
+
+400 Bad Request - Validation Error:
+{
+  "success": false,
+  "message": "Validation error message",
+  "error": "At least one WhatsApp number is required" | "Invalid file type. Only PDF files are allowed" | "File size exceeds maximum limit of 10MB",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+404 Not Found:
+{
+  "success": false,
+  "message": "Resource not found",
+  "error": "Sauda not found",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+500 Internal Server Error:
+{
+  "success": false,
+  "message": "An unexpected error occurred",
+  "error": "Failed to upload PDF file. Please try again." | "Error details (in development)",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+NOTE: Even if some WhatsApp messages fail, the request may return 200 OK with 
+partial success. Always check the "results" array and "summary" to see which 
+numbers succeeded or failed.
+
+================================================================================
+12. GET PAYMENT ADVICE PREVIEW
+================================================================================
+
+Endpoint: POST /api/v1/saudas/payment-advice-preview
+Method: POST
+Authentication: Required
+Content-Type: application/json
+
+DESCRIPTION:
+This endpoint returns a preview of the email and WhatsApp notification content
+for a payment advice. Use this to preview before sending.
+
+REQUEST BODY:
+{
+  "adviceNumber": string (REQUIRED) - Payment advice number
+  "vendorName": string (REQUIRED) - Vendor name
+  "amount": number or string (REQUIRED) - Payment amount
+  "date": string (REQUIRED) - Payment date (ISO 8601 format or any date string)
+  "bankDetails": object (optional) {
+    "account_holder_name": string (optional),
+    "account_number": string (optional),
+    "ifsc_code": string (optional),
+    "bank_name": string (optional),
+    "branch": string (optional)
+  }
+}
+
+SUCCESS RESPONSE (200 OK):
+{
+  "success": true,
+  "message": undefined,
+  "data": {
+    "email": {
+      "subject": "string",
+      "html": "string (HTML content)",
+      "text": "string (plain text content)"
+    },
+    "whatsapp": {
+      "message": "string"
+    }
+  },
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+ERROR RESPONSES:
+
+400 Bad Request - Validation Error:
+{
+  "success": false,
+  "message": "Validation error message",
+  "error": "adviceNumber, vendorName, amount, and date are required",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+================================================================================
+13. SEND PAYMENT ADVICE VIA EMAIL
+================================================================================
+
+Endpoint: POST /api/v1/saudas/send-payment-advice-email
+Method: POST
+Authentication: Required
+Content-Type: multipart/form-data
+
+REQUEST BODY (Form Data):
+{
+  "emails": array (REQUIRED, minimum 1 email) [
+    "string (valid email address)"
+  ],
+  "adviceNumber": string (REQUIRED) - Payment advice number
+  "vendorName": string (REQUIRED) - Vendor name
+  "amount": number or string (REQUIRED) - Payment amount
+  "date": string (REQUIRED) - Payment date
+  "bankDetails": object (optional) - Bank details JSON string
+  "file": File (REQUIRED) - PDF file containing payment advice
+  - Maximum file size: 10MB
+  - Allowed MIME type: application/pdf
+  "customSubject": string (optional) - Custom email subject
+  "customHtml": string (optional) - Custom HTML email body
+  "customText": string (optional) - Custom plain text email body
+}
+
+IMPORTANT NOTES:
+- PDF file is REQUIRED for payment advice
+- All email addresses must be in valid format
+- If customSubject, customHtml, or customText is provided, they will override the default content
+
+SUCCESS RESPONSE (200 OK):
+{
+  "success": true,
+  "message": "Payment advice sent via email successfully",
+  "data": {
+    "sent": true,
+    "messageId": "string (email message ID)",
+    "recipients": ["email1@example.com", "email2@example.com"]
+  },
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+ERROR RESPONSES:
+
+400 Bad Request - Validation Error:
+{
+  "success": false,
+  "message": "Validation error message",
+  "error": "At least one email address is required" | "Invalid email format: <email>" | "adviceNumber, vendorName, amount, and date are required" | "PDF file is required for payment advice" | "Invalid file type. Only PDF files are allowed" | "File size exceeds maximum limit of 10MB",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+500 Internal Server Error:
+{
+  "success": false,
+  "message": "An unexpected error occurred",
+  "error": "Failed to send email: <error details>" | "Failed to send email. Please try again later.",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+================================================================================
+14. SEND PAYMENT ADVICE VIA WHATSAPP
+================================================================================
+
+Endpoint: POST /api/v1/saudas/send-payment-advice-whatsapp
+Method: POST
+Authentication: Required
+Content-Type: multipart/form-data (if file is provided) or application/json
+
+REQUEST BODY (JSON or Form Data):
+{
+  "whatsappNumbers": array (REQUIRED, minimum 1 number) [
+    "string (WhatsApp phone number)"
+  ],
+  "adviceNumber": string (REQUIRED) - Payment advice number
+  "vendorName": string (REQUIRED) - Vendor name
+  "amount": number or string (REQUIRED) - Payment amount
+  "date": string (REQUIRED) - Payment date
+  "pdfUrl": string (optional) - URL of PDF file already uploaded to S3
+  "file": File (optional) - PDF file to upload and attach
+  - Maximum file size: 10MB
+  - Allowed MIME type: application/pdf
+  "customMessage": string (optional) - Custom WhatsApp message
+}
+
+IMPORTANT NOTES:
+- At least one WhatsApp number is required
+- Either pdfUrl OR file MUST be provided (PDF is required for payment advice)
+- If both pdfUrl and file are provided, file will be used and uploaded
+- Custom message is optional
+- Messages are sent to all numbers in the array
+- Some numbers may fail while others succeed - check the results array
+
+SUCCESS RESPONSE (200 OK):
+{
+  "success": true,
+  "message": "Payment advice sent via WhatsApp to <count> recipient(s)" | "Failed to send WhatsApp messages",
+  "data": {
+    "sent": boolean,
+    "results": [
+      {
+        "number": "string",
+        "success": boolean,
+        "error": "string (if failed)",
+        "messageId": "string (if successful)"
+      },
+      // ... more results
+    ],
+    "summary": {
+      "total": number,
+      "success": number,
+      "failed": number
+    }
+  },
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+ERROR RESPONSES:
+
+400 Bad Request - Validation Error:
+{
+  "success": false,
+  "message": "Validation error message",
+  "error": "At least one WhatsApp number is required" | "adviceNumber, vendorName, amount, and date are required" | "PDF file or pdfUrl is required for payment advice" | "Invalid file type. Only PDF files are allowed" | "File size exceeds maximum limit of 10MB",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+500 Internal Server Error:
+{
+  "success": false,
+  "message": "An unexpected error occurred",
+  "error": "Failed to upload PDF file. Please try again." | "Error details (in development)",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+NOTE: Even if some WhatsApp messages fail, the request may return 200 OK with 
+partial success. Always check the "results" array and "summary" to see which 
+numbers succeeded or failed.
+
+================================================================================
+COMMON ERROR HANDLING
+================================================================================
+
+All endpoints follow a consistent error response format:
+
+{
+  "success": false,
+  "message": "Error message",
+  "error": "Detailed error description",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true | false
+}
+
+HTTP STATUS CODES:
+- 200 OK: Successful GET/PUT/PATCH/DELETE request
+- 201 Created: Successful resource creation
+- 400 Bad Request: Validation errors, invalid input
+- 401 Unauthorized: Missing or invalid authentication token
+- 404 Not Found: Resource not found
+- 409 Conflict: Duplicate data, constraint violations, cannot delete
+- 500 Internal Server Error: Server errors, database errors, external service failures
+
+ERROR HANDLING BEST PRACTICES:
+1. Always check the "success" field first
+2. If success is false, check the "error" field for details
+3. Handle 400 errors by showing validation messages to the user
+4. Handle 409 errors by informing the user about conflicts (duplicate data, cannot delete)
+5. Handle 404 errors by showing "not found" messages
+6. Handle 500 errors by showing a generic error message and asking user to retry
+7. Check "isSessionValid" to determine if user needs to re-authenticate
+8. For WhatsApp endpoints, always check the "results" array for individual success/failure
+
+================================================================================
+DATA TYPE REFERENCE
+================================================================================
+
+SaudaType: "exgodown" | "for"
+SaudaStatus: "draft" | "active" | "completed" | "cancelled"
+RiceType: "basmati" | "non_basmati" | "parboiled" | "raw" | "raw_basmati" | 
+  "steam_basmati" | "white_sella" | "golden_sella"
+CashDiscountType: "rupees" | "percentage"
+BrokerCommissionType: "rupees" | "percentage" | "weight"
+
+Sauda Object:
+{
+  id: string (UUID)
+  sauda_type: SaudaType
+  rice_type: RiceType
+  rice_code_id: string | null (UUID)
+  rate: number (>= 0, 2 decimal places)
+  broker_id: string | null (UUID)
+  broker_commission: number | null (>= 0, 2 decimal places)
+  broker_commission_type: BrokerCommissionType
+  quantity: number | null (>= 0, 2 decimal places)
+  received_until_now: number (>= 0, 2 decimal places, default: 0)
+  completion_percentage: number | null (0-100)
+  cash_discount: number | null (>= 0, 2 decimal places)
+  cash_discount_type: CashDiscountType
+  estimated_delivery_time: number | null (integer, >= 0, days)
+  purchaser_id: string (UUID)
+  cooked_rice_image_url: string | null (valid URI)
+  uncooked_rice_image_url: string | null (valid URI)
+  status: SaudaStatus
+  notes: string | null (max 1000 chars)
+  is_dana_required: boolean
+  created_at: string (ISO 8601 timestamp)
+  updated_at: string (ISO 8601 timestamp)
+}
+
+================================================================================
+VALIDATION RULES SUMMARY
+================================================================================
+
+1. REQUIRED FIELDS FOR CREATE:
+   - sauda_type
+   - rice_type
+   - rate
+   - purchaser_id
+
+2. OPTIONAL FIELDS WITH DEFAULTS:
+   - broker_commission_type: defaults to "percentage"
+   - cash_discount_type: defaults to "rupees"
+   - status: defaults to "draft" (if not provided)
+   - is_dana_required: defaults to true
+
+3. REFERENCE VALIDATION:
+   - purchaser_id: Must exist in vendors table
+   - broker_id: Must exist in brokers table (if provided)
+   - rice_code_id: Must exist in rice_codes table (if provided)
+
+4. NUMERIC VALIDATION:
+   - rate: >= 0, precision 2 decimal places
+   - broker_commission: >= 0, precision 2 decimal places (if provided)
+   - quantity: >= 0, precision 2 decimal places (if provided)
+   - cash_discount: >= 0, precision 2 decimal places (if provided)
+   - estimated_delivery_time: >= 0, integer (if provided)
+
+5. STRING VALIDATION:
+   - notes: max 1000 characters (if provided)
+   - image URLs: must be valid URIs (if provided)
+
+6. FILE UPLOAD VALIDATION:
+   - Image files: max 5MB, types: JPEG, JPG, PNG, GIF
+   - PDF files: max 10MB, type: application/pdf
+
+7. EMAIL VALIDATION:
+   - Must be valid email format
+   - At least one email required for email endpoints
+
+8. WHATSAPP VALIDATION:
+   - At least one WhatsApp number required
+   - Numbers should be in international format
+
+================================================================================
+FRONTEND INTEGRATION TIPS
+================================================================================
+
+1. FORM VALIDATION:
+   - Validate UUID format for purchaser_id, broker_id, rice_code_id
+   - Validate numeric fields (rate, commission, quantity, discount) >= 0
+   - Validate rate has max 2 decimal places
+   - Show clear error messages for validation failures
+   - Validate email format before sending
+   - Validate WhatsApp number format
+
+2. USER EXPERIENCE:
+   - Show loading states during API calls
+   - Display success/error messages clearly
+   - Handle network errors gracefully
+   - For file uploads, show upload progress
+   - For WhatsApp endpoints, show individual success/failure for each number
+
+3. ERROR HANDLING:
+   - Parse error responses and show user-friendly messages
+   - Handle 401 errors by redirecting to login
+   - Handle 409 errors by highlighting conflicts
+   - Show retry options for 500 errors
+   - For WhatsApp endpoints, display which numbers succeeded/failed
+
+4. DATA PREPARATION:
+   - Ensure numeric values are properly formatted (2 decimal places)
+   - Convert dates to appropriate format
+   - Validate file sizes before upload
+   - Validate file types before upload
+
+5. FILE UPLOAD:
+   - Use multipart/form-data for file uploads
+   - Show file size and type validation before upload
+   - Display upload progress
+   - Handle upload failures gracefully
+
+6. NOTIFICATION FLOW:
+   - Use preview endpoints to show content before sending
+   - Allow users to customize email/WhatsApp content
+   - Show success/failure for each recipient
+   - Provide option to retry failed sends
+
+7. STATUS MANAGEMENT:
+   - Use status update endpoint for quick status changes
+   - Validate status transitions (e.g., cannot change from cancelled to active)
+   - Show status badges/indicators in UI
+
+8. FILTERING AND SEARCH:
+   - Use query parameters for filtering saudas
+   - Combine multiple filters (status + type + purchaser)
+   - Show active filters in UI
+   - Provide clear filter options
+
+================================================================================
+BUSINESS LOGIC NOTES
+================================================================================
+
+1. SAUDA TYPES:
+   - "exgodown": Sauda for ex-godown (warehouse) transactions
+   - "for": Sauda for forward transactions
+
+2. STATUS FLOW:
+   - draft: Initial state, can be edited freely
+   - active: Sauda is active and in progress
+   - completed: Sauda is completed
+   - cancelled: Sauda is cancelled
+
+3. COMMISSION TYPES:
+   - "rupees": Fixed commission in rupees
+   - "percentage": Commission as percentage of rate
+   - "weight": Commission based on weight
+
+4. CASH DISCOUNT:
+   - "rupees": Fixed discount in rupees
+   - "percentage": Discount as percentage of rate
+
+5. RECEIVED UNTIL NOW:
+   - Automatically calculated based on received quantities
+   - Starts at 0 for new saudas
+   - Updated when lots/purchases are received
+
+6. COMPLETION PERCENTAGE:
+   - Calculated based on received_until_now / quantity
+   - Only available if quantity is set
+   - Automatically updated
+
+7. DANA REQUIREMENT:
+   - is_dana_required: Indicates if dana (husk) deduction is required
+   - Defaults to true
+   - Used in purchase calculations
+
+================================================================================
+END OF DOCUMENTATION
+================================================================================
+

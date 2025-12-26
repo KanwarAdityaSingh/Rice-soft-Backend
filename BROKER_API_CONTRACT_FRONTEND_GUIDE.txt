@@ -1,0 +1,948 @@
+================================================================================
+                    BROKER API CONTRACT DOCUMENTATION
+                    Frontend Integration Guide
+================================================================================
+
+BASE URL: /api/v1/brokers
+
+All endpoints require authentication. Include the authentication token in the 
+Authorization header.
+
+================================================================================
+1. CREATE BROKER (Standard)
+================================================================================
+
+Endpoint: POST /api/v1/brokers/createBroker
+Method: POST
+Authentication: Required
+Content-Type: application/json
+
+REQUEST BODY:
+{
+  "business_name": string (optional, 2-255 chars, can be null or empty),
+  "contact_persons": array (REQUIRED, minimum 1 item) [
+    {
+      "name": string (REQUIRED, 2-255 chars),
+      "phones": array (REQUIRED, minimum 1 phone) [
+        string (max 20 chars)
+      ],
+      "emails": array (optional) [
+        string (valid email format, can be empty string or null)
+      ]
+    }
+  ],
+  "address": object (REQUIRED) {
+    "street": string (REQUIRED, max 255 chars),
+    "city": string (REQUIRED, max 100 chars),
+    "state": string (REQUIRED, max 100 chars),
+    "pincode": string (optional, can be empty, max 10 chars),
+    "country": string (REQUIRED, max 100 chars)
+  },
+  "business_details": object (REQUIRED) {
+    "pan_number": string (optional, exactly 10 chars, uppercase, can be null/empty),
+    "aadhaar_number": string (optional, 12 digits, cannot start with 0 or 1, can be null/empty),
+    "gst_number": string (optional, exactly 15 chars, uppercase, can be null/empty),
+    "business_type": string (REQUIRED) - must be one of: "individual", "partnership", "company", "llp"
+  },
+  "bank_details": object (optional) {
+    "account_holder_name": string (optional, max 255 chars, can be null/empty),
+    "account_number": string (optional, max 50 chars, can be null/empty),
+    "ifsc_code": string (optional, exactly 11 chars, can be null/empty),
+    "bank_name": string (optional, max 255 chars, can be null/empty),
+    "branch": string (optional, max 255 chars, can be null/empty)
+  },
+  "broker_details": object (optional) {
+    "commission_rate": number (optional, 0-100),
+    "specialization": string (optional, max 255 chars, can be null/empty),
+    "experience_years": string (optional, max 100 chars, can be null/empty)
+  },
+  "type": string (REQUIRED) - must be one of: "purchase", "sale", "both",
+  "is_active": boolean (optional, defaults to true)
+}
+
+IMPORTANT VALIDATION RULES:
+- For business_type "individual": Either PAN number OR Aadhaar number MUST be provided
+- For business_type "company", "partnership", or "llp": GST number MUST be provided
+- At least one contact person with at least one phone number is REQUIRED
+- If email is provided in contact_persons[0].emails[0], it must be unique across all brokers and users
+- PAN, Aadhaar, and GST numbers must be unique if provided
+- PAN number will be automatically converted to uppercase
+- Aadhaar number spaces will be automatically removed
+
+SUCCESS RESPONSE (201 Created):
+{
+  "success": true,
+  "message": "Broker created successfully",
+  "data": {
+    "id": "uuid",
+    "business_name": "string or null",
+    "contact_persons": [
+      {
+        "name": "string",
+        "phones": ["string"],
+        "emails": ["string"] (optional)
+      }
+    ],
+    "address": {
+      "street": "string",
+      "city": "string",
+      "state": "string",
+      "pincode": "string",
+      "country": "string"
+    },
+    "business_details": {
+      "pan_number": "string or null",
+      "aadhaar_number": "string or null",
+      "gst_number": "string or null",
+      "business_type": "string"
+    },
+    "bank_details": {
+      "account_holder_name": "string or null",
+      "account_number": "string or null",
+      "ifsc_code": "string or null",
+      "bank_name": "string or null",
+      "branch": "string or null"
+    } or null,
+    "broker_details": {
+      "commission_rate": "number or null",
+      "specialization": "string or null",
+      "experience_years": "string or null"
+    } or null,
+    "type": "purchase" | "sale" | "both",
+    "is_active": boolean,
+    "created_at": "ISO 8601 timestamp string",
+    "updated_at": "ISO 8601 timestamp string"
+  },
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+ERROR RESPONSES:
+
+400 Bad Request - Validation Error:
+{
+  "success": false,
+  "message": "Validation error message",
+  "error": "Detailed validation error",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+Common validation errors:
+- "At least one contact person with a phone number is required"
+- "Either PAN number or Aadhaar number must be provided for individual brokers"
+- "GST number is required for company/partnership/llp brokers"
+- "PAN number must be exactly 10 characters"
+- "Invalid Aadhaar number format. Expected format: 12 digits (not starting with 0 or 1)"
+- "GST number must be exactly 15 characters"
+- "Type must be one of: purchase, sale, both"
+
+409 Conflict - Duplicate Data:
+{
+  "success": false,
+  "message": "Conflict error message",
+  "error": "Email already exists" | "PAN number already exists" | "Aadhaar number already exists" | "GST number already exists" | "A broker with this information already exists",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+500 Internal Server Error:
+{
+  "success": false,
+  "message": "An unexpected error occurred",
+  "error": "Error details (in development) or generic message (in production)",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+================================================================================
+2. UPDATE BROKER
+================================================================================
+
+Endpoint: POST /api/v1/brokers/updateBroker/:id
+Method: POST
+Authentication: Required
+Content-Type: application/json
+
+URL PARAMETERS:
+- id: string (REQUIRED) - UUID of the broker to update
+
+REQUEST BODY:
+All fields are OPTIONAL, but at least one field must be provided:
+{
+  "business_name": string (optional, 2-255 chars, can be null or empty),
+  "contact_persons": array (optional, minimum 1 item if provided) [
+    {
+      "name": string (REQUIRED if contact_persons provided, 2-255 chars),
+      "phones": array (REQUIRED if contact_persons provided, minimum 1 phone) [
+        string (max 20 chars)
+      ],
+      "emails": array (optional) [
+        string (valid email format, can be empty string or null)
+      ]
+    }
+  ],
+  "address": object (optional) {
+    "street": string (REQUIRED if address provided, max 255 chars),
+    "city": string (REQUIRED if address provided, max 100 chars),
+    "state": string (REQUIRED if address provided, max 100 chars),
+    "pincode": string (optional, can be empty, max 10 chars),
+    "country": string (REQUIRED if address provided, max 100 chars)
+  },
+  "business_details": object (optional) {
+    "pan_number": string (optional, exactly 10 chars, uppercase, can be null/empty),
+    "aadhaar_number": string (optional, 12 digits, cannot start with 0 or 1, can be null/empty),
+    "gst_number": string (optional, exactly 15 chars, uppercase, can be null/empty),
+    "business_type": string (optional) - must be one of: "individual", "partnership", "company", "llp"
+  },
+  "bank_details": object (optional) {
+    "account_holder_name": string (optional, max 255 chars, can be null/empty),
+    "account_number": string (optional, max 50 chars, can be null/empty),
+    "ifsc_code": string (optional, exactly 11 chars, can be null/empty),
+    "bank_name": string (optional, max 255 chars, can be null/empty),
+    "branch": string (optional, max 255 chars, can be null/empty)
+  },
+  "broker_details": object (optional) {
+    "commission_rate": number (optional, 0-100),
+    "specialization": string (optional, max 255 chars, can be null/empty),
+    "experience_years": string (optional, max 100 chars, can be null/empty)
+  },
+  "type": string (optional) - must be one of: "purchase", "sale", "both",
+  "is_active": boolean (optional)
+}
+
+IMPORTANT NOTES:
+- At least one field must be provided in the request body
+- If updating contact_persons, all validation rules apply (name required, phones required, etc.)
+- If updating business_details, validation rules still apply:
+  * For "individual": Either PAN or Aadhaar must be present
+  * For "company"/"partnership"/"llp": GST must be present
+- Email, PAN, Aadhaar, and GST uniqueness checks are performed if those fields are being updated
+- The broker ID in the URL must be a valid UUID
+
+SUCCESS RESPONSE (200 OK):
+{
+  "success": true,
+  "message": "Broker updated successfully",
+  "data": {
+    // Same structure as create response
+  },
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+ERROR RESPONSES:
+
+400 Bad Request - Validation Error:
+Same as create endpoint
+
+404 Not Found:
+{
+  "success": false,
+  "message": "Resource not found",
+  "error": "Broker not found",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+409 Conflict - Duplicate Data:
+Same as create endpoint
+
+500 Internal Server Error:
+Same as create endpoint
+
+================================================================================
+3. GET ALL BROKERS
+================================================================================
+
+Endpoint: GET /api/v1/brokers/getAllBrokers
+Method: GET
+Authentication: Required
+
+QUERY PARAMETERS (all optional):
+- include_inactive: boolean (default: false) - Set to "true" to include inactive brokers
+- type: string (optional) - Filter by type: "purchase", "sale", or "both"
+
+EXAMPLES:
+GET /api/v1/brokers/getAllBrokers
+GET /api/v1/brokers/getAllBrokers?include_inactive=true
+GET /api/v1/brokers/getAllBrokers?type=purchase
+GET /api/v1/brokers/getAllBrokers?include_inactive=true&type=both
+
+SUCCESS RESPONSE (200 OK):
+{
+  "success": true,
+  "message": undefined,
+  "data": [
+    {
+      // Same broker object structure as create response
+    },
+    // ... more brokers
+  ],
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+ERROR RESPONSES:
+
+500 Internal Server Error:
+Same as create endpoint
+
+================================================================================
+4. GET BROKER BY ID
+================================================================================
+
+Endpoint: GET /api/v1/brokers/getBrokerById/:id
+Method: GET
+Authentication: Required
+
+URL PARAMETERS:
+- id: string (REQUIRED) - UUID of the broker
+
+SUCCESS RESPONSE (200 OK):
+{
+  "success": true,
+  "message": undefined,
+  "data": {
+    // Same broker object structure as create response
+  },
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+ERROR RESPONSES:
+
+400 Bad Request - Invalid UUID:
+{
+  "success": false,
+  "message": "Validation error message",
+  "error": "Invalid UUID format",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+404 Not Found:
+{
+  "success": false,
+  "message": "Resource not found",
+  "error": "Broker not found",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+================================================================================
+5. DELETE BROKER
+================================================================================
+
+Endpoint: POST /api/v1/brokers/deleteBroker/:id
+Method: POST
+Authentication: Required
+
+URL PARAMETERS:
+- id: string (REQUIRED) - UUID of the broker to delete
+
+SUCCESS RESPONSE (200 OK):
+{
+  "success": true,
+  "message": "Broker deleted successfully",
+  "data": null,
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+ERROR RESPONSES:
+
+400 Bad Request - Invalid UUID:
+Same as get by ID
+
+404 Not Found:
+{
+  "success": false,
+  "message": "Resource not found",
+  "error": "Broker not found",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+409 Conflict - Cannot Delete:
+{
+  "success": false,
+  "message": "Conflict error message",
+  "error": "Cannot delete broker. It is being used in other records.",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+500 Internal Server Error:
+Same as create endpoint
+
+================================================================================
+6. QUICK CREATE FROM PAN (For Individual Brokers)
+================================================================================
+
+Endpoint: POST /api/v1/brokers/quickCreateFromPAN
+Method: POST
+Authentication: Required
+Content-Type: application/json
+
+DESCRIPTION:
+This endpoint fetches PAN details from an external API and creates a broker.
+Use this for individual brokers where you have a PAN number.
+
+REQUEST BODY:
+{
+  "pan_number": string (REQUIRED, exactly 10 characters, will be converted to uppercase),
+  "business_name": string (optional, 2-255 chars) - If not provided, will use name from PAN lookup,
+  "contact_persons": array (REQUIRED, minimum 1 item) [
+    {
+      "name": string (REQUIRED, 2-255 chars),
+      "phones": array (REQUIRED, minimum 1 phone) [
+        string (max 20 chars)
+      ],
+      "emails": array (optional) [
+        string (valid email format)
+      ]
+    }
+  ],
+  "address": object (REQUIRED) {
+    "street": string (REQUIRED, max 255 chars),
+    "city": string (REQUIRED, max 100 chars),
+    "state": string (REQUIRED, max 100 chars),
+    "pincode": string (REQUIRED, can be empty string, max 10 chars),
+    "country": string (REQUIRED, max 100 chars)
+  },
+  "type": string (REQUIRED) - must be one of: "purchase", "sale", "both",
+  "broker_details": object (optional) {
+    "commission_rate": number (optional, 0-100),
+    "specialization": string (optional, can be null/empty, max 255 chars),
+    "experience_years": string (optional, can be null/empty, max 100 chars)
+  }
+}
+
+IMPORTANT NOTES:
+- PAN number will be validated for format (10 characters)
+- PAN number will be checked for uniqueness
+- PAN details will be fetched from external API
+- If business_name is not provided, it will use the name from PAN lookup
+- Email uniqueness will be checked if provided
+- The PAN lookup may fail if the PAN is invalid or not found
+
+SUCCESS RESPONSE (201 Created):
+Same structure as standard create endpoint
+
+ERROR RESPONSES:
+
+400 Bad Request - Validation Error:
+{
+  "success": false,
+  "message": "Validation error message",
+  "error": "Detailed error message",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+Common validation errors:
+- "PAN number must be exactly 10 characters"
+- "PAN number is required"
+- "Contact person name is required"
+- "At least one phone number is required"
+- "Street address is required"
+- "City is required"
+- "State is required"
+- "Country is required"
+- "Broker type is required"
+- "Type must be one of: purchase, sale, both"
+- "Invalid PAN number format"
+
+404 Not Found - PAN Not Found:
+{
+  "success": false,
+  "message": "Resource not found",
+  "error": "PAN number not found. Please verify the PAN number and try again.",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+409 Conflict - Duplicate Data:
+Same as standard create endpoint
+
+500 Internal Server Error:
+{
+  "success": false,
+  "message": "An unexpected error occurred",
+  "error": "Failed to fetch PAN details. Please try again later." | "Failed to create broker. Please try again.",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+================================================================================
+7. QUICK CREATE FROM GST (For Company/Partnership/LLP Brokers)
+================================================================================
+
+Endpoint: POST /api/v1/brokers/quickCreateFromGST
+Method: POST
+Authentication: Required
+Content-Type: application/json
+
+DESCRIPTION:
+This endpoint fetches GST details from an external API and creates a broker.
+Use this for company, partnership, or LLP brokers where you have a GST number.
+
+REQUEST BODY:
+{
+  "gst_number": string (REQUIRED, exactly 15 characters, will be converted to uppercase),
+  "contact_persons": array (REQUIRED, minimum 1 item) [
+    {
+      "name": string (REQUIRED, 2-255 chars),
+      "phones": array (REQUIRED, minimum 1 phone) [
+        string (max 20 chars)
+      ],
+      "emails": array (optional) [
+        string (valid email format)
+      ]
+    }
+  ],
+  "type": string (REQUIRED) - must be one of: "purchase", "sale", "both",
+  "broker_details": object (optional) {
+    "commission_rate": number (optional, 0-100),
+    "specialization": string (optional, can be null/empty, max 255 chars),
+    "experience_years": string (optional, can be null/empty, max 100 chars)
+  },
+  "bank_details": object (optional) {
+    "account_holder_name": string (optional, can be null/empty),
+    "account_number": string (optional, can be null/empty),
+    "ifsc_code": string (optional, exactly 11 chars if provided, can be null/empty),
+    "bank_name": string (optional, can be null/empty),
+    "branch": string (optional, can be null/empty)
+  }
+}
+
+IMPORTANT NOTES:
+- GST number will be validated for format (15 characters)
+- GST number will be checked for uniqueness
+- GST details (including business name, address, PAN) will be fetched from external API
+- Business type will be automatically determined from GST data (company/partnership/llp)
+- Email uniqueness will be checked if provided
+- The GST lookup may fail if the GST is invalid or not found
+
+SUCCESS RESPONSE (201 Created):
+Same structure as standard create endpoint
+
+ERROR RESPONSES:
+
+400 Bad Request - Validation Error:
+{
+  "success": false,
+  "message": "Validation error message",
+  "error": "Detailed error message",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+Common validation errors:
+- "GST number must be exactly 15 characters"
+- "GST number is required"
+- "Contact person name is required"
+- "At least one phone number is required"
+- "Broker type is required"
+- "Type must be one of: purchase, sale, both"
+- "Invalid GST number format"
+- "IFSC code must be exactly 11 characters" (if provided)
+
+404 Not Found - GST Not Found:
+{
+  "success": false,
+  "message": "Resource not found",
+  "error": "GST number not found. Please verify the GST number and try again.",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+409 Conflict - Duplicate Data:
+Same as standard create endpoint
+
+500 Internal Server Error:
+{
+  "success": false,
+  "message": "An unexpected error occurred",
+  "error": "Failed to fetch GST details. Please try again later." | "Failed to create broker. Please try again.",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+================================================================================
+8. LOOKUP GST NUMBER
+================================================================================
+
+Endpoint: GET /api/v1/brokers/lookupGST
+Method: GET
+Authentication: Required
+
+QUERY PARAMETERS:
+- gst_number: string (REQUIRED) - GST number to lookup (15 characters)
+
+EXAMPLE:
+GET /api/v1/brokers/lookupGST?gst_number=27ABCDE1234F1Z5
+
+SUCCESS RESPONSE (200 OK):
+{
+  "success": true,
+  "message": "GST details fetched successfully",
+  "data": {
+    "gst_data": {
+      // Raw GST API response
+    },
+    "mapped_data": {
+      // Mapped data in application format
+      "business_name": "string",
+      "address": {
+        "street": "string",
+        "city": "string",
+        "state": "string",
+        "pincode": "string",
+        "country": "string"
+      },
+      "business_details": {
+        "pan_number": "string",
+        "gst_number": "string",
+        "business_type": "string"
+      }
+    }
+  },
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+ERROR RESPONSES:
+
+400 Bad Request:
+{
+  "success": false,
+  "message": "Validation error message",
+  "error": "GST number is required" | "Invalid GST number format. Expected format: 27ABCDE1234F1Z5",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+404 Not Found:
+{
+  "success": false,
+  "message": "Resource not found",
+  "error": "GST number not found. Please verify the GST number and try again.",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+500 Internal Server Error:
+{
+  "success": false,
+  "message": "An unexpected error occurred",
+  "error": "Failed to fetch GST details. Please try again later.",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+================================================================================
+9. LOOKUP PAN NUMBER
+================================================================================
+
+Endpoint: GET /api/v1/brokers/lookupPAN
+Method: GET
+Authentication: Required
+
+QUERY PARAMETERS:
+- pan_number: string (REQUIRED) - PAN number to lookup (10 characters)
+
+EXAMPLE:
+GET /api/v1/brokers/lookupPAN?pan_number=ABCDE1234F
+
+SUCCESS RESPONSE (200 OK):
+{
+  "success": true,
+  "message": "PAN details fetched successfully",
+  "data": {
+    "pan_data": {
+      // Raw PAN API response
+    },
+    "mapped_data": {
+      // Mapped data in application format
+      "business_name": "string",
+      "business_details": {
+        "pan_number": "string",
+        "business_type": "string"
+      }
+    }
+  },
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+ERROR RESPONSES:
+
+400 Bad Request:
+{
+  "success": false,
+  "message": "Validation error message",
+  "error": "PAN number is required" | "Invalid PAN number format. Expected format: ABCDE1234F",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+404 Not Found:
+{
+  "success": false,
+  "message": "Resource not found",
+  "error": "PAN number not found. Please verify the PAN number and try again.",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+500 Internal Server Error:
+{
+  "success": false,
+  "message": "An unexpected error occurred",
+  "error": "Failed to fetch PAN details. Please try again later.",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+================================================================================
+10. LOOKUP AADHAAR NUMBER
+================================================================================
+
+Endpoint: GET /api/v1/brokers/lookupAadhaar
+Method: GET
+Authentication: Required
+
+QUERY PARAMETERS:
+- aadhaar_number: string (REQUIRED) - Aadhaar number to validate (12 digits)
+
+DESCRIPTION:
+This endpoint validates the Aadhaar number format and checks if it already exists
+in the system. Note: Aadhaar lookup APIs are not publicly available, so this only
+validates the format.
+
+EXAMPLE:
+GET /api/v1/brokers/lookupAadhaar?aadhaar_number=234567890123
+
+SUCCESS RESPONSE (200 OK):
+{
+  "success": true,
+  "message": "Aadhaar number validation completed",
+  "data": {
+    "is_valid": true,
+    "already_exists": boolean,
+    "message": "Aadhaar number is valid and available" | "Aadhaar number is valid but already exists in system"
+  },
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+ERROR RESPONSES:
+
+400 Bad Request:
+{
+  "success": false,
+  "message": "Validation error message",
+  "error": "Aadhaar number is required" | "Invalid Aadhaar number format. Expected format: 12 digits (not starting with 0 or 1)",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+================================================================================
+11. VERIFY BANK ACCOUNT
+================================================================================
+
+Endpoint: GET /api/v1/brokers/verifyBankAccount
+Method: GET
+Authentication: Required
+
+QUERY PARAMETERS:
+- id_number: string (REQUIRED) - Bank account number (9-18 digits)
+- ifsc: string (REQUIRED) - IFSC code (11 characters)
+
+DESCRIPTION:
+This endpoint verifies bank account details using Surepass API.
+
+EXAMPLE:
+GET /api/v1/brokers/verifyBankAccount?id_number=1234567890&ifsc=ABCD0123456
+
+SUCCESS RESPONSE (200 OK):
+{
+  "success": true,
+  "message": "Bank account verified successfully",
+  "data": {
+    // Verification result from Surepass API
+  },
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+ERROR RESPONSES:
+
+400 Bad Request:
+{
+  "success": false,
+  "message": "Validation error message",
+  "error": "id_number is required and must be a valid string" | "ifsc is required and must be a valid string" | "Invalid bank account details. Please verify the account number and IFSC code.",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+500 Internal Server Error:
+{
+  "success": false,
+  "message": "An unexpected error occurred",
+  "error": "Failed to verify bank account. Please try again later.",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true
+}
+
+================================================================================
+COMMON ERROR HANDLING
+================================================================================
+
+All endpoints follow a consistent error response format:
+
+{
+  "success": false,
+  "message": "Error message",
+  "error": "Detailed error description",
+  "timestamp": "ISO 8601 timestamp string",
+  "isSessionValid": true | false
+}
+
+HTTP STATUS CODES:
+- 200 OK: Successful GET/POST request
+- 201 Created: Successful resource creation
+- 400 Bad Request: Validation errors, invalid input
+- 401 Unauthorized: Missing or invalid authentication token
+- 404 Not Found: Resource not found
+- 409 Conflict: Duplicate data, constraint violations
+- 500 Internal Server Error: Server errors, database errors, external API failures
+
+ERROR HANDLING BEST PRACTICES:
+1. Always check the "success" field first
+2. If success is false, check the "error" field for details
+3. Handle 400 errors by showing validation messages to the user
+4. Handle 409 errors by informing the user about duplicate data
+5. Handle 404 errors by showing "not found" messages
+6. Handle 500 errors by showing a generic error message and asking user to retry
+7. Check "isSessionValid" to determine if user needs to re-authenticate
+
+================================================================================
+DATA TYPE REFERENCE
+================================================================================
+
+BrokerType: "purchase" | "sale" | "both"
+BusinessType: "individual" | "partnership" | "company" | "llp"
+
+ContactPerson:
+{
+  name: string (2-255 chars)
+  phones: string[] (min 1, each max 20 chars)
+  emails?: string[] (optional, each must be valid email)
+}
+
+Address:
+{
+  street: string (max 255 chars)
+  city: string (max 100 chars)
+  state: string (max 100 chars)
+  pincode: string (max 10 chars, can be empty)
+  country: string (max 100 chars)
+}
+
+BusinessDetails:
+{
+  pan_number?: string (exactly 10 chars, uppercase)
+  aadhaar_number?: string (12 digits, cannot start with 0 or 1)
+  gst_number?: string (exactly 15 chars, uppercase)
+  business_type: string (required, one of: individual, partnership, company, llp)
+}
+
+BankDetails:
+{
+  account_holder_name?: string (max 255 chars)
+  account_number?: string (max 50 chars)
+  ifsc_code?: string (exactly 11 chars)
+  bank_name?: string (max 255 chars)
+  branch?: string (max 255 chars)
+}
+
+BrokerDetails:
+{
+  commission_rate?: number (0-100)
+  specialization?: string (max 255 chars)
+  experience_years?: string (max 100 chars)
+}
+
+================================================================================
+VALIDATION RULES SUMMARY
+================================================================================
+
+1. BUSINESS TYPE VALIDATION:
+   - "individual": Must have either PAN OR Aadhaar (at least one)
+   - "company" | "partnership" | "llp": Must have GST
+
+2. UNIQUENESS VALIDATION:
+   - Email (if provided): Must be unique across all brokers and users
+   - PAN number (if provided): Must be unique
+   - Aadhaar number (if provided): Must be unique
+   - GST number (if provided): Must be unique
+
+3. FORMAT VALIDATION:
+   - PAN: Exactly 10 characters, automatically uppercased
+   - Aadhaar: Exactly 12 digits, cannot start with 0 or 1, spaces removed automatically
+   - GST: Exactly 15 characters, automatically uppercased
+   - IFSC: Exactly 11 characters (if provided)
+
+4. REQUIRED FIELDS FOR CREATE:
+   - contact_persons (min 1, each with name and phones)
+   - address (all fields except pincode)
+   - business_details (with business_type and appropriate ID numbers)
+   - type
+
+5. REQUIRED FIELDS FOR UPDATE:
+   - At least one field must be provided
+   - If a field is provided, its sub-fields follow the same validation rules
+
+================================================================================
+FRONTEND INTEGRATION TIPS
+================================================================================
+
+1. FORM VALIDATION:
+   - Validate PAN format before submission (10 chars, alphanumeric)
+   - Validate Aadhaar format before submission (12 digits, not starting with 0/1)
+   - Validate GST format before submission (15 chars)
+   - Validate email format if provided
+   - Show clear error messages for validation failures
+
+2. USER EXPERIENCE:
+   - Use lookup endpoints (lookupGST, lookupPAN) to pre-fill form data
+   - Show loading states during API calls
+   - Display success/error messages clearly
+   - Handle network errors gracefully
+
+3. ERROR HANDLING:
+   - Parse error responses and show user-friendly messages
+   - Handle 401 errors by redirecting to login
+   - Handle 409 errors by highlighting duplicate fields
+   - Show retry options for 500 errors
+
+4. DATA PREPARATION:
+   - Convert PAN/GST to uppercase before sending
+   - Remove spaces from Aadhaar before sending
+   - Ensure phone numbers are in correct format
+   - Validate all required fields before API call
+
+5. QUICK CREATE FLOW:
+   - For individual brokers: Use quickCreateFromPAN
+   - For company/partnership/llp: Use quickCreateFromGST
+   - Fetch details first using lookup endpoints to show preview
+   - Allow user to edit fetched data before creating
+
+================================================================================
+END OF DOCUMENTATION
+================================================================================
+

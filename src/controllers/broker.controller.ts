@@ -12,6 +12,7 @@ import {
   NotFoundError,
   ConflictError,
   ValidationError,
+  InternalServerError,
 } from '../utils/errors';
 import { CreateBrokerDTO, UpdateBrokerDTO, BrokerResponse, BrokerType } from '../models/broker.model';
 import { AuthRequest } from '../middleware/auth.middleware';
@@ -81,7 +82,10 @@ export class BrokerController {
 
       // Get first contact person for validation and user creation
       const firstContactPerson = brokerData.contact_persons[0];
-      const primaryEmail = firstContactPerson.emails?.[0];
+      if (!firstContactPerson || !firstContactPerson.phones || firstContactPerson.phones.length === 0) {
+        throw new ValidationError('At least one contact person with a phone number is required');
+      }
+      const primaryEmail = firstContactPerson.emails?.[0]?.trim() || null;
       const primaryPhone = firstContactPerson.phones[0];
 
       // Check if email already exists in brokers (only if email is provided)
@@ -152,9 +156,12 @@ export class BrokerController {
 
         try {
           user = await userDAO.create(userData);
-        } catch (userError) {
-          console.error('User creation failed:', userError);
-          throw new ConflictError('Failed to create user account for broker');
+        } catch (userError: any) {
+          // Check if it's a duplicate email/username error
+          if (userError?.code === '23505' || userError?.message?.includes('already exists')) {
+            throw new ConflictError('Email or username already exists. Please use a different email.');
+          }
+          throw new InternalServerError('Failed to create user account for broker. Please try again.');
         }
       }
 
@@ -165,7 +172,23 @@ export class BrokerController {
         created_by: req.user?.userId,
       };
 
-      const broker = await brokerDAO.create(brokerWithUser);
+      let broker;
+      try {
+        broker = await brokerDAO.create(brokerWithUser);
+      } catch (dbError: any) {
+        // If broker creation fails and we created a user, we should ideally rollback
+        // For now, log the error and provide a clear message
+        if (user) {
+          // User was created but broker creation failed - this is a data inconsistency
+          // In production, you might want to delete the user or use a transaction
+          throw new InternalServerError('Broker creation failed after user account was created. Please contact support.');
+        }
+        // Check for database constraint violations
+        if (dbError?.code === '23505') {
+          throw new ConflictError('A broker with this information already exists');
+        }
+        throw new InternalServerError('Failed to create broker. Please try again.');
+      }
 
       const brokerResponse: BrokerResponse = {
         id: broker.id,
@@ -235,9 +258,20 @@ export class BrokerController {
         brokerData.updated_by = req.user.userId;
       }
 
-      const broker = await brokerDAO.update(id, brokerData);
-      if (!broker) {
-        throw new NotFoundError('Broker not found after update');
+      let broker;
+      try {
+        broker = await brokerDAO.update(id, brokerData);
+        if (!broker) {
+          throw new NotFoundError('Broker not found after update');
+        }
+      } catch (dbError: any) {
+        if (dbError?.code === '23505') {
+          throw new ConflictError('A broker with this information already exists');
+        }
+        if (dbError instanceof NotFoundError) {
+          throw dbError;
+        }
+        throw new InternalServerError('Failed to update broker. Please try again.');
       }
 
       const brokerResponse: BrokerResponse = {
@@ -270,7 +304,15 @@ export class BrokerController {
         throw new NotFoundError('Broker not found');
       }
 
-      await brokerDAO.delete(id);
+      try {
+        await brokerDAO.delete(id);
+      } catch (dbError: any) {
+        // Check for foreign key constraint violations (broker might be referenced elsewhere)
+        if (dbError?.code === '23503') {
+          throw new ConflictError('Cannot delete broker. It is being used in other records.');
+        }
+        throw new InternalServerError('Failed to delete broker. Please try again.');
+      }
 
       return ResponseHandler.success(res, null, 'Broker deleted successfully');
     } catch (error) {
@@ -295,7 +337,15 @@ export class BrokerController {
       }
 
       // Fetch GST details from API
-      const gstData = await gstLookupService.lookupGST(gstNumber);
+      let gstData;
+      try {
+        gstData = await gstLookupService.lookupGST(gstNumber);
+      } catch (apiError: any) {
+        if (apiError?.message?.includes('not found') || apiError?.statusCode === 404) {
+          throw new NotFoundError('GST number not found. Please verify the GST number and try again.');
+        }
+        throw new InternalServerError('Failed to fetch GST details. Please try again later.');
+      }
 
       // Map to our application format
       const mappedData = gstLookupService.mapGSTToBusinessData(gstData);
@@ -326,7 +376,15 @@ export class BrokerController {
       }
 
       // Fetch PAN details from API
-      const panData = await gstLookupService.lookupPAN(panNumber);
+      let panData;
+      try {
+        panData = await gstLookupService.lookupPAN(panNumber);
+      } catch (apiError: any) {
+        if (apiError?.message?.includes('not found') || apiError?.statusCode === 404) {
+          throw new NotFoundError('PAN number not found. Please verify the PAN number and try again.');
+        }
+        throw new InternalServerError('Failed to fetch PAN details. Please try again later.');
+      }
 
       // Map to our application format
       const mappedData = gstLookupService.mapPANToBusinessData(panData);
@@ -387,31 +445,64 @@ export class BrokerController {
 
       // Validate required fields (PAN gives less info, so we need more input)
       const quickCreateSchema = Joi.object({
-        pan_number: Joi.string().required().length(10),
+        pan_number: Joi.string().required().length(10).uppercase().messages({
+          'string.length': 'PAN number must be exactly 10 characters',
+          'any.required': 'PAN number is required'
+        }),
         business_name: Joi.string().optional().min(2).max(255),
         contact_persons: Joi.array().items(
           Joi.object({
-            name: Joi.string().required().min(2).max(255),
-            phones: Joi.array().items(Joi.string().max(20)).required().min(1),
-            emails: Joi.array().items(Joi.string().email()).optional()
+            name: Joi.string().required().min(2).max(255).messages({
+              'any.required': 'Contact person name is required',
+              'string.min': 'Contact person name must be at least 2 characters'
+            }),
+            phones: Joi.array().items(Joi.string().max(20)).required().min(1).messages({
+              'any.required': 'At least one phone number is required',
+              'array.min': 'At least one phone number is required'
+            }),
+            emails: Joi.array().items(Joi.string().email().allow('', null)).optional()
           })
-        ).required().min(1),
+        ).required().min(1).messages({
+          'any.required': 'At least one contact person is required',
+          'array.min': 'At least one contact person is required'
+        }),
         address: Joi.object({
-          street: Joi.string().required().max(255),
-          city: Joi.string().required().max(100),
-          state: Joi.string().required().max(100),
+          street: Joi.string().required().max(255).messages({
+            'any.required': 'Street address is required'
+          }),
+          city: Joi.string().required().max(100).messages({
+            'any.required': 'City is required'
+          }),
+          state: Joi.string().required().max(100).messages({
+            'any.required': 'State is required'
+          }),
           pincode: Joi.string().required().allow('').max(10),
-          country: Joi.string().required().max(100),
-        }).required(),
-        type: Joi.string().required().valid('purchase', 'sale', 'both'),
+          country: Joi.string().required().max(100).messages({
+            'any.required': 'Country is required'
+          }),
+        }).required().messages({
+          'any.required': 'Address is required'
+        }),
+        type: Joi.string().required().valid('purchase', 'sale', 'both').messages({
+          'any.required': 'Broker type is required',
+          'any.only': 'Type must be one of: purchase, sale, both'
+        }),
         broker_details: Joi.object({
-          commission_rate: Joi.number().optional().min(0).max(100),
+          commission_rate: Joi.number().optional().min(0).max(100).messages({
+            'number.min': 'Commission rate must be between 0 and 100',
+            'number.max': 'Commission rate must be between 0 and 100'
+          }),
           specialization: Joi.string().optional().allow(null, '').max(255),
           experience_years: Joi.string().optional().allow(null, '').max(100),
         }).optional(),
       });
 
-      validate(quickCreateSchema, req.body);
+      try {
+        validate(quickCreateSchema, req.body);
+      } catch (validationError: any) {
+        const errorMessage = validationError?.details?.[0]?.message || 'Invalid request data';
+        throw new ValidationError(errorMessage);
+      }
 
       // Validate PAN format
       if (!gstLookupService.validatePANFormat(pan_number)) {
@@ -437,7 +528,15 @@ export class BrokerController {
       }
 
       // Fetch PAN details
-      const panData = await gstLookupService.lookupPAN(pan_number);
+      let panData;
+      try {
+        panData = await gstLookupService.lookupPAN(pan_number);
+      } catch (apiError: any) {
+        if (apiError?.message?.includes('not found') || apiError?.statusCode === 404) {
+          throw new NotFoundError('PAN number not found. Please verify the PAN number and try again.');
+        }
+        throw new InternalServerError('Failed to fetch PAN details. Please try again later.');
+      }
       const mappedData = gstLookupService.mapPANToBusinessData(panData);
 
       // Create broker with fetched + provided data
@@ -455,7 +554,15 @@ export class BrokerController {
         created_by: req.user?.userId,
       };
 
-      const broker = await brokerDAO.create(brokerData);
+      let broker;
+      try {
+        broker = await brokerDAO.create(brokerData);
+      } catch (dbError: any) {
+        if (dbError?.code === '23505') {
+          throw new ConflictError('A broker with this information already exists');
+        }
+        throw new InternalServerError('Failed to create broker. Please try again.');
+      }
 
       const brokerResponse: BrokerResponse = {
         id: broker.id,
@@ -487,30 +594,55 @@ export class BrokerController {
 
       // Validate required fields
       const quickCreateSchema = Joi.object({
-        gst_number: Joi.string().required().length(15),
+        gst_number: Joi.string().required().length(15).uppercase().messages({
+          'string.length': 'GST number must be exactly 15 characters',
+          'any.required': 'GST number is required'
+        }),
         contact_persons: Joi.array().items(
           Joi.object({
-            name: Joi.string().required().min(2).max(255),
-            phones: Joi.array().items(Joi.string().max(20)).required().min(1),
-            emails: Joi.array().items(Joi.string().email()).optional()
+            name: Joi.string().required().min(2).max(255).messages({
+              'any.required': 'Contact person name is required',
+              'string.min': 'Contact person name must be at least 2 characters'
+            }),
+            phones: Joi.array().items(Joi.string().max(20)).required().min(1).messages({
+              'any.required': 'At least one phone number is required',
+              'array.min': 'At least one phone number is required'
+            }),
+            emails: Joi.array().items(Joi.string().email().allow('', null)).optional()
           })
-        ).required().min(1),
-        type: Joi.string().required().valid('purchase', 'sale', 'both'),
+        ).required().min(1).messages({
+          'any.required': 'At least one contact person is required',
+          'array.min': 'At least one contact person is required'
+        }),
+        type: Joi.string().required().valid('purchase', 'sale', 'both').messages({
+          'any.required': 'Broker type is required',
+          'any.only': 'Type must be one of: purchase, sale, both'
+        }),
         broker_details: Joi.object({
-          commission_rate: Joi.number().optional().min(0).max(100),
+          commission_rate: Joi.number().optional().min(0).max(100).messages({
+            'number.min': 'Commission rate must be between 0 and 100',
+            'number.max': 'Commission rate must be between 0 and 100'
+          }),
           specialization: Joi.string().optional().allow(null, '').max(255),
           experience_years: Joi.string().optional().allow(null, '').max(100),
         }).optional(),
         bank_details: Joi.object({
           account_holder_name: Joi.string().optional().allow(null, ''),
           account_number: Joi.string().optional().allow(null, ''),
-          ifsc_code: Joi.string().optional().allow(null, '').length(11),
+          ifsc_code: Joi.string().optional().allow(null, '').length(11).messages({
+            'string.length': 'IFSC code must be exactly 11 characters'
+          }),
           bank_name: Joi.string().optional().allow(null, ''),
           branch: Joi.string().optional().allow(null, ''),
         }).optional(),
       });
 
-      validate(quickCreateSchema, req.body);
+      try {
+        validate(quickCreateSchema, req.body);
+      } catch (validationError: any) {
+        const errorMessage = validationError?.details?.[0]?.message || 'Invalid request data';
+        throw new ValidationError(errorMessage);
+      }
 
       // Validate GST format
       if (!gstLookupService.validateGSTFormat(gst_number)) {
@@ -536,7 +668,15 @@ export class BrokerController {
       }
 
       // Fetch GST details
-      const gstData = await gstLookupService.lookupGST(gst_number);
+      let gstData;
+      try {
+        gstData = await gstLookupService.lookupGST(gst_number);
+      } catch (apiError: any) {
+        if (apiError?.message?.includes('not found') || apiError?.statusCode === 404) {
+          throw new NotFoundError('GST number not found. Please verify the GST number and try again.');
+        }
+        throw new InternalServerError('Failed to fetch GST details. Please try again later.');
+      }
       const mappedData = gstLookupService.mapGSTToBusinessData(gstData);
 
       // Determine business type from GST data
@@ -564,7 +704,15 @@ export class BrokerController {
         created_by: req.user?.userId,
       };
 
-      const broker = await brokerDAO.create(brokerData);
+      let broker;
+      try {
+        broker = await brokerDAO.create(brokerData);
+      } catch (dbError: any) {
+        if (dbError?.code === '23505') {
+          throw new ConflictError('A broker with this information already exists');
+        }
+        throw new InternalServerError('Failed to create broker. Please try again.');
+      }
 
       const brokerResponse: BrokerResponse = {
         id: broker.id,
@@ -602,10 +750,18 @@ export class BrokerController {
       }
 
       // Verify bank account
-      const verificationResult = await gstLookupService.verifyBankAccount(
-        id_number.trim(),
-        ifsc.trim()
-      );
+      let verificationResult;
+      try {
+        verificationResult = await gstLookupService.verifyBankAccount(
+          id_number.trim(),
+          ifsc.trim()
+        );
+      } catch (apiError: any) {
+        if (apiError?.message?.includes('invalid') || apiError?.message?.includes('not found')) {
+          throw new ValidationError('Invalid bank account details. Please verify the account number and IFSC code.');
+        }
+        throw new InternalServerError('Failed to verify bank account. Please try again later.');
+      }
 
       return ResponseHandler.success(res, verificationResult, 'Bank account verified successfully');
     } catch (error) {

@@ -13,6 +13,8 @@ import {
 import {
   NotFoundError,
   ValidationError,
+  ConflictError,
+  InternalServerError,
 } from '../utils/errors';
 import { CreateSaudaDTO, UpdateSaudaDTO, SaudaResponse, SaudaStatus, SaudaType } from '../models/sauda.model';
 import { AuthRequest } from '../middleware/auth.middleware';
@@ -134,7 +136,19 @@ export class SaudaController {
         saudaData.created_by = req.user.userId;
       }
 
-      const sauda = await saudaDAO.create(saudaData);
+      let sauda;
+      try {
+        sauda = await saudaDAO.create(saudaData);
+      } catch (dbError: any) {
+        // Check for database constraint violations
+        if (dbError?.code === '23505') {
+          throw new ConflictError('A sauda with this information already exists');
+        }
+        if (dbError?.code === '23503') {
+          throw new ValidationError('Invalid reference: purchaser, broker, or rice code does not exist');
+        }
+        throw new InternalServerError('Failed to create sauda. Please try again.');
+      }
 
       const saudaResponse: SaudaResponse = {
         id: sauda.id,
@@ -207,9 +221,24 @@ export class SaudaController {
         saudaData.updated_by = req.user.userId;
       }
 
-      const sauda = await saudaDAO.update(id, saudaData);
-      if (!sauda) {
-        throw new NotFoundError('Sauda not found after update');
+      let sauda;
+      try {
+        sauda = await saudaDAO.update(id, saudaData);
+        if (!sauda) {
+          throw new NotFoundError('Sauda not found after update');
+        }
+      } catch (dbError: any) {
+        if (dbError instanceof NotFoundError) {
+          throw dbError;
+        }
+        // Check for database constraint violations
+        if (dbError?.code === '23505') {
+          throw new ConflictError('A sauda with this information already exists');
+        }
+        if (dbError?.code === '23503') {
+          throw new ValidationError('Invalid reference: purchaser, broker, or rice code does not exist');
+        }
+        throw new InternalServerError('Failed to update sauda. Please try again.');
       }
 
       const saudaResponse: SaudaResponse = {
@@ -301,9 +330,20 @@ export class SaudaController {
         throw new NotFoundError('Sauda not found');
       }
 
-      const deleted = await saudaDAO.delete(id);
-      if (!deleted) {
-        throw new NotFoundError('Sauda not found after deletion');
+      try {
+        const deleted = await saudaDAO.delete(id);
+        if (!deleted) {
+          throw new NotFoundError('Sauda not found after deletion');
+        }
+      } catch (dbError: any) {
+        if (dbError instanceof NotFoundError) {
+          throw dbError;
+        }
+        // Check for foreign key constraint violations (sauda might be referenced elsewhere)
+        if (dbError?.code === '23503') {
+          throw new ConflictError('Cannot delete sauda. It is being used in other records (lots, purchases, etc.).');
+        }
+        throw new InternalServerError('Failed to delete sauda. Please try again.');
       }
 
       return ResponseHandler.success(res, null, 'Sauda deleted successfully');
@@ -327,20 +367,33 @@ export class SaudaController {
       validateFileSize(req.file.size, 5);
 
       // Upload to S3
-      const uploadResult = await uploadToS3(
-        req.file.buffer,
-        req.file.originalname,
-        appConfig.aws.s3.riceImagesFolder
-      );
+      let uploadResult;
+      try {
+        uploadResult = await uploadToS3(
+          req.file.buffer,
+          req.file.originalname,
+          appConfig.aws.s3.riceImagesFolder
+        );
+      } catch (uploadError: any) {
+        throw new InternalServerError('Failed to upload image. Please try again.');
+      }
 
       // Update sauda with the image URL
-      const sauda = await saudaDAO.update(id, {
-        cooked_rice_image_url: uploadResult.url,
-        updated_by: req.user?.userId,
-      });
+      let sauda;
+      try {
+        sauda = await saudaDAO.update(id, {
+          cooked_rice_image_url: uploadResult.url,
+          updated_by: req.user?.userId,
+        });
 
-      if (!sauda) {
-        throw new NotFoundError('Sauda not found');
+        if (!sauda) {
+          throw new NotFoundError('Sauda not found');
+        }
+      } catch (dbError: any) {
+        if (dbError instanceof NotFoundError) {
+          throw dbError;
+        }
+        throw new InternalServerError('Failed to update sauda with image URL. Please try again.');
       }
 
       return ResponseHandler.success(res, { url: uploadResult.url }, 'Cooked rice image uploaded successfully');
@@ -364,20 +417,33 @@ export class SaudaController {
       validateFileSize(req.file.size, 5);
 
       // Upload to S3
-      const uploadResult = await uploadToS3(
-        req.file.buffer,
-        req.file.originalname,
-        appConfig.aws.s3.riceImagesFolder
-      );
+      let uploadResult;
+      try {
+        uploadResult = await uploadToS3(
+          req.file.buffer,
+          req.file.originalname,
+          appConfig.aws.s3.riceImagesFolder
+        );
+      } catch (uploadError: any) {
+        throw new InternalServerError('Failed to upload image. Please try again.');
+      }
 
       // Update sauda with the image URL
-      const sauda = await saudaDAO.update(id, {
-        uncooked_rice_image_url: uploadResult.url,
-        updated_by: req.user?.userId,
-      });
+      let sauda;
+      try {
+        sauda = await saudaDAO.update(id, {
+          uncooked_rice_image_url: uploadResult.url,
+          updated_by: req.user?.userId,
+        });
 
-      if (!sauda) {
-        throw new NotFoundError('Sauda not found');
+        if (!sauda) {
+          throw new NotFoundError('Sauda not found');
+        }
+      } catch (dbError: any) {
+        if (dbError instanceof NotFoundError) {
+          throw dbError;
+        }
+        throw new InternalServerError('Failed to update sauda with image URL. Please try again.');
       }
 
       return ResponseHandler.success(res, { url: uploadResult.url }, 'Uncooked rice image uploaded successfully');
@@ -492,20 +558,28 @@ export class SaudaController {
         : undefined;
 
       // Send email
-      const result = await emailService.sendSaudaNotification(
-        emails,
-        saudaDetails,
-        pdfBuffer,
-        customContent
-      );
-
-      if (!result.success) {
-        logger.error('Failed to send sauda email', {
-          saudaId: id,
+      let result;
+      try {
+        result = await emailService.sendSaudaNotification(
           emails,
-          error: result.error,
-        });
-        throw new ValidationError(`Failed to send email: ${result.error}`);
+          saudaDetails,
+          pdfBuffer,
+          customContent
+        );
+
+        if (!result.success) {
+          logger.error('Failed to send sauda email', {
+            saudaId: id,
+            emails,
+            error: result.error,
+          });
+          throw new InternalServerError(`Failed to send email: ${result.error || 'Unknown error'}`);
+        }
+      } catch (emailError: any) {
+        if (emailError instanceof InternalServerError || emailError instanceof ValidationError) {
+          throw emailError;
+        }
+        throw new InternalServerError('Failed to send email. Please try again later.');
       }
 
       logger.info('Sauda email sent successfully', {
@@ -551,43 +625,61 @@ export class SaudaController {
         validateFileType(req.file.mimetype, ['application/pdf']);
         validateFileSize(req.file.size, 10); // Max 10MB for PDFs
         
-        const uploadResult = await uploadToS3(
-          req.file.buffer,
-          `sauda_${id}.pdf`,
-          'sauda-documents'
-        );
-        uploadedPdfUrl = uploadResult.url;
+        try {
+          const uploadResult = await uploadToS3(
+            req.file.buffer,
+            `sauda_${id}.pdf`,
+            'sauda-documents'
+          );
+          uploadedPdfUrl = uploadResult.url;
+        } catch (uploadError: any) {
+          throw new InternalServerError('Failed to upload PDF file. Please try again.');
+        }
       }
 
       // Send to all WhatsApp numbers
       const results: Array<{ number: string; success: boolean; error?: string; messageId?: string }> = [];
       
       for (const number of whatsappNumbers) {
-        const result = await whatsAppService.sendSaudaNotification(
-          number,
-          saudaDetails,
-          uploadedPdfUrl,
-          customMessage
-        );
-
-        results.push({
-          number,
-          success: result.success,
-          error: result.error,
-          messageId: result.messageId,
-        });
-
-        if (result.success) {
-          logger.info('Sauda WhatsApp sent successfully', {
-            saudaId: id,
+        try {
+          const result = await whatsAppService.sendSaudaNotification(
             number,
+            saudaDetails,
+            uploadedPdfUrl,
+            customMessage
+          );
+
+          results.push({
+            number,
+            success: result.success,
+            error: result.error,
             messageId: result.messageId,
           });
-        } else {
-          logger.warn('Sauda WhatsApp failed', {
+
+          if (result.success) {
+            logger.info('Sauda WhatsApp sent successfully', {
+              saudaId: id,
+              number,
+              messageId: result.messageId,
+            });
+          } else {
+            logger.warn('Sauda WhatsApp failed', {
+              saudaId: id,
+              number,
+              error: result.error,
+            });
+          }
+        } catch (whatsappError: any) {
+          // Continue with other numbers even if one fails
+          results.push({
+            number,
+            success: false,
+            error: whatsappError?.message || 'Failed to send WhatsApp message',
+          });
+          logger.warn('Sauda WhatsApp error', {
             saudaId: id,
             number,
-            error: result.error,
+            error: whatsappError,
           });
         }
       }
@@ -661,20 +753,28 @@ export class SaudaController {
         : undefined;
 
       // Send email
-      const result = await emailService.sendPaymentAdviceNotification(
-        emails,
-        paymentDetails,
-        req.file.buffer,
-        customContent
-      );
-
-      if (!result.success) {
-        logger.error('Failed to send payment advice email', {
-          adviceNumber,
+      let result;
+      try {
+        result = await emailService.sendPaymentAdviceNotification(
           emails,
-          error: result.error,
-        });
-        throw new ValidationError(`Failed to send email: ${result.error}`);
+          paymentDetails,
+          req.file.buffer,
+          customContent
+        );
+
+        if (!result.success) {
+          logger.error('Failed to send payment advice email', {
+            adviceNumber,
+            emails,
+            error: result.error,
+          });
+          throw new InternalServerError(`Failed to send email: ${result.error || 'Unknown error'}`);
+        }
+      } catch (emailError: any) {
+        if (emailError instanceof InternalServerError || emailError instanceof ValidationError) {
+          throw emailError;
+        }
+        throw new InternalServerError('Failed to send email. Please try again later.');
       }
 
       logger.info('Payment advice email sent successfully', {
@@ -758,12 +858,16 @@ export class SaudaController {
         validateFileType(req.file.mimetype, ['application/pdf']);
         validateFileSize(req.file.size, 10); // Max 10MB for PDFs
         
-        const uploadResult = await uploadToS3(
-          req.file.buffer,
-          `payment_advice_${adviceNumber}.pdf`,
-          'payment-advice-documents'
-        );
-        uploadedPdfUrl = uploadResult.url;
+        try {
+          const uploadResult = await uploadToS3(
+            req.file.buffer,
+            `payment_advice_${adviceNumber}.pdf`,
+            'payment-advice-documents'
+          );
+          uploadedPdfUrl = uploadResult.url;
+        } catch (uploadError: any) {
+          throw new InternalServerError('Failed to upload PDF file. Please try again.');
+        }
       }
 
       if (!uploadedPdfUrl) {
@@ -781,31 +885,45 @@ export class SaudaController {
       const results: Array<{ number: string; success: boolean; error?: string; messageId?: string }> = [];
       
       for (const number of whatsappNumbers) {
-        const result = await whatsAppService.sendPaymentAdviceNotification(
-          number,
-          paymentDetails,
-          uploadedPdfUrl,
-          customMessage
-        );
-
-        results.push({
-          number,
-          success: result.success,
-          error: result.error,
-          messageId: result.messageId,
-        });
-
-        if (result.success) {
-          logger.info('Payment advice WhatsApp sent successfully', {
-            adviceNumber,
+        try {
+          const result = await whatsAppService.sendPaymentAdviceNotification(
             number,
+            paymentDetails,
+            uploadedPdfUrl,
+            customMessage
+          );
+
+          results.push({
+            number,
+            success: result.success,
+            error: result.error,
             messageId: result.messageId,
           });
-        } else {
-          logger.warn('Payment advice WhatsApp failed', {
+
+          if (result.success) {
+            logger.info('Payment advice WhatsApp sent successfully', {
+              adviceNumber,
+              number,
+              messageId: result.messageId,
+            });
+          } else {
+            logger.warn('Payment advice WhatsApp failed', {
+              adviceNumber,
+              number,
+              error: result.error,
+            });
+          }
+        } catch (whatsappError: any) {
+          // Continue with other numbers even if one fails
+          results.push({
+            number,
+            success: false,
+            error: whatsappError?.message || 'Failed to send WhatsApp message',
+          });
+          logger.warn('Payment advice WhatsApp error', {
             adviceNumber,
             number,
-            error: result.error,
+            error: whatsappError,
           });
         }
       }
