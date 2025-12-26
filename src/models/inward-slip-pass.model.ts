@@ -20,6 +20,8 @@ export interface InwardSlipPass {
   status: InwardSlipStatus;
   other_bills: OtherBill[];
   bill_pdf_url: string | null;
+  bill_number: string | null;
+  bill_date: Date | null;
   bilti_image_url: string | null;
   bilti_pdf_url: string | null; 
   eway_bill_number: string | null;
@@ -45,6 +47,8 @@ export interface CreateInwardSlipPassDTO {
   status?: InwardSlipStatus;
   other_bills?: OtherBill[];
   bill_pdf_url?: string;
+  bill_number?: string;
+  bill_date?: string;
   bilti_image_url?: string;
   bilti_pdf_url?: string;
   eway_bill_number?: string;
@@ -67,6 +71,8 @@ export interface UpdateInwardSlipPassDTO {
   status?: InwardSlipStatus;
   other_bills?: OtherBill[];
   bill_pdf_url?: string;
+  bill_number?: string;
+  bill_date?: string;
   bilti_image_url?: string;
   bilti_pdf_url?: string;
   eway_bill_number?: string;
@@ -90,6 +96,8 @@ export interface InwardSlipPassResponse {
   status: InwardSlipStatus;
   other_bills: OtherBill[];
   bill_pdf_url: string | null;
+  bill_number: string | null;
+  bill_date: string | null;
   bilti_image_url: string | null;
   bilti_pdf_url: string | null;
   eway_bill_number: string | null;

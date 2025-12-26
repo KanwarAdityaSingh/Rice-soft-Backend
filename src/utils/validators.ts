@@ -427,6 +427,7 @@ export const createSaudaSchema = Joi.object({
   uncooked_rice_image_url: Joi.string().optional().allow(null, '').uri(),
   status: Joi.string().optional().valid('draft', 'active', 'completed', 'cancelled'),
   notes: Joi.string().optional().allow(null, '').max(1000),
+  is_dana_required: Joi.boolean().optional().default(true),
   created_by: Joi.string().optional().uuid(),
 });
 
@@ -447,6 +448,7 @@ export const updateSaudaSchema = Joi.object({
   uncooked_rice_image_url: Joi.string().optional().allow(null, '').uri(),
   status: Joi.string().optional().valid('draft', 'active', 'completed', 'cancelled'),
   notes: Joi.string().optional().allow(null, '').max(1000),
+  is_dana_required: Joi.boolean().optional(),
   updated_by: Joi.string().optional().uuid(),
 }).min(1);
 
@@ -660,10 +662,10 @@ const paymentAdviceChargeSchema = Joi.object({
 });
 
 export const createPaymentAdviceSchema = Joi.object({
-  sauda_id: Joi.string().optional().uuid().allow(null),
-  inward_slip_pass_id: Joi.string().optional().uuid().allow(null),
-  payer_id: Joi.string().required().uuid(),
-  recipient_id: Joi.string().required().uuid(),
+  sauda_id: Joi.string().optional().uuid().allow(null, ''),
+  inward_slip_pass_id: Joi.string().optional().uuid().allow(null, ''),
+  payer_id: Joi.string().optional().uuid().allow(null, ''),
+  recipient_id: Joi.string().optional().uuid().allow(null, ''),
   sr_number: Joi.string().optional().allow(null, '').max(50),
   party_name: Joi.string().optional().allow(null, '').max(255),
   party_address: Joi.string().optional().allow(null, ''),
@@ -688,6 +690,12 @@ export const createPaymentAdviceSchema = Joi.object({
   charges: Joi.array().items(paymentAdviceChargeSchema).optional(),
   created_by: Joi.string().optional().uuid(),
 }).custom((value, helpers) => {
+  // Convert empty strings to null
+  if (value.payer_id === '') value.payer_id = null;
+  if (value.recipient_id === '') value.recipient_id = null;
+  if (value.sauda_id === '') value.sauda_id = null;
+  if (value.inward_slip_pass_id === '') value.inward_slip_pass_id = null;
+  
   // At least one of sauda_id or inward_slip_pass_id must be provided
   if (!value.sauda_id && !value.inward_slip_pass_id) {
     return helpers.error('any.custom', { message: 'Either sauda_id or inward_slip_pass_id must be provided' });
@@ -696,10 +704,10 @@ export const createPaymentAdviceSchema = Joi.object({
 });
 
 export const updatePaymentAdviceSchema = Joi.object({
-  sauda_id: Joi.string().optional().uuid().allow(null),
-  inward_slip_pass_id: Joi.string().optional().uuid().allow(null),
-  payer_id: Joi.string().optional().uuid(),
-  recipient_id: Joi.string().optional().uuid(),
+  sauda_id: Joi.string().optional().uuid().allow(null, ''),
+  inward_slip_pass_id: Joi.string().optional().uuid().allow(null, ''),
+  payer_id: Joi.string().optional().uuid().allow(null, ''),
+  recipient_id: Joi.string().optional().uuid().allow(null, ''),
   sr_number: Joi.string().optional().allow(null, '').max(50),
   party_name: Joi.string().optional().allow(null, '').max(255),
   party_address: Joi.string().optional().allow(null, ''),
@@ -722,6 +730,13 @@ export const updatePaymentAdviceSchema = Joi.object({
   payment_slip_image_url: Joi.string().optional().allow(null, '').uri(),
   notes: Joi.string().optional().allow(null, '').max(1000),
   updated_by: Joi.string().optional().uuid(),
+}).custom((value) => {
+  // Convert empty strings to null
+  if (value.payer_id === '') value.payer_id = null;
+  if (value.recipient_id === '') value.recipient_id = null;
+  if (value.sauda_id === '') value.sauda_id = null;
+  if (value.inward_slip_pass_id === '') value.inward_slip_pass_id = null;
+  return value;
 }).min(1);
 
 export const createPaymentAdviceChargeSchema = Joi.object({

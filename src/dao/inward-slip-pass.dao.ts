@@ -8,7 +8,7 @@ export class InwardSlipPassDAO {
       SELECT isp.id, isp.slip_number, isp.date, isp.vehicle_id, isp.party_name, isp.party_address,
              isp.party_gst_number, isp.party_pan_number, isp.transporter_id, isp.transportation_cost, isp.status, 
              isp.other_bills,
-             isp.bill_pdf_url, isp.bilti_image_url, isp.bilti_pdf_url, isp.eway_bill_number, isp.eway_bill_url,
+             isp.bill_pdf_url, isp.bill_number, isp.bill_date, isp.bilti_image_url, isp.bilti_pdf_url, isp.eway_bill_number, isp.eway_bill_url,
              isp.notes, isp.created_at, isp.updated_at, isp.created_by, isp.updated_by
       FROM inward_slip_passes isp
       WHERE 1=1
@@ -40,7 +40,7 @@ export class InwardSlipPassDAO {
       SELECT isp.id, isp.slip_number, isp.date, isp.vehicle_id, isp.party_name, isp.party_address,
              isp.party_gst_number, isp.party_pan_number, isp.transporter_id, isp.transportation_cost, isp.status, 
              isp.other_bills,
-             isp.bill_pdf_url, isp.bilti_image_url, isp.bilti_pdf_url, isp.eway_bill_number, isp.eway_bill_url,
+             isp.bill_pdf_url, isp.bill_number, isp.bill_date, isp.bilti_image_url, isp.bilti_pdf_url, isp.eway_bill_number, isp.eway_bill_url,
              isp.notes, isp.created_at, isp.updated_at, isp.created_by, isp.updated_by
       FROM inward_slip_passes isp
       WHERE isp.id = $1
@@ -61,9 +61,9 @@ export class InwardSlipPassDAO {
     const insertQuery = `
       INSERT INTO inward_slip_passes (slip_number, date, vehicle_id, party_name,
                                       party_address, party_gst_number, party_pan_number, transporter_id, transportation_cost, status, other_bills,
-                                      bill_pdf_url, bilti_image_url,
+                                      bill_pdf_url, bill_number, bill_date, bilti_image_url,
                                       bilti_pdf_url, eway_bill_number, eway_bill_url, notes, created_by)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
       RETURNING id
     `;
     
@@ -80,6 +80,8 @@ export class InwardSlipPassDAO {
       inwardSlipPassData.status || 'pending',
       JSON.stringify(inwardSlipPassData.other_bills || []),
       inwardSlipPassData.bill_pdf_url || null,
+      inwardSlipPassData.bill_number || null,
+      inwardSlipPassData.bill_date || null,
       inwardSlipPassData.bilti_image_url || null,
       inwardSlipPassData.bilti_pdf_url || null,
       inwardSlipPassData.eway_bill_number || null,
@@ -158,6 +160,14 @@ export class InwardSlipPassDAO {
     if (inwardSlipPassData.bill_pdf_url !== undefined) {
       fields.push(`bill_pdf_url = $${paramCount++}`);
       values.push(inwardSlipPassData.bill_pdf_url || null);
+    }
+    if (inwardSlipPassData.bill_number !== undefined) {
+      fields.push(`bill_number = $${paramCount++}`);
+      values.push(inwardSlipPassData.bill_number || null);
+    }
+    if (inwardSlipPassData.bill_date !== undefined) {
+      fields.push(`bill_date = $${paramCount++}`);
+      values.push(inwardSlipPassData.bill_date || null);
     }
     if (inwardSlipPassData.bilti_image_url !== undefined) {
       fields.push(`bilti_image_url = $${paramCount++}`);

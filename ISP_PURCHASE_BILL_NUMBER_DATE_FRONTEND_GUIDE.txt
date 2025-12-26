@@ -1,0 +1,503 @@
+===================================================================================
+ISP PURCHASE BILL NUMBER AND DATE - FRONTEND IMPLEMENTATION GUIDE
+===================================================================================
+
+OVERVIEW:
+---------
+The ISP (Inward Slip Pass) purchase bill upload endpoint has been enhanced to accept
+and store bill number and bill date along with the purchase bill file. This allows
+for better tracking and organization of purchase bills.
+
+===================================================================================
+BACKEND CHANGES:
+===================================================================================
+
+NEW FIELDS ADDED TO INWARD_SLIP_PASSES TABLE:
+--------------------------------------------
+- `bill_number` (VARCHAR(255), nullable) - Purchase bill number
+- `bill_date` (DATE, nullable) - Purchase bill date
+
+These fields are now included in all ISP API responses.
+
+===================================================================================
+API ENDPOINT CHANGES:
+===================================================================================
+
+ENDPOINT: POST /api/v1/inward-slip-passes/:id/upload-purchase-bill
+--------------------------------------------------------------------
+
+CHANGES:
+--------
+This endpoint now accepts two additional optional fields in the multipart/form-data
+request body:
+- `bill_number` (string, optional) - The purchase bill number
+- `bill_date` (string, optional) - The purchase bill date in ISO format (YYYY-MM-DD)
+
+REQUEST FORMAT:
+--------------
+Content-Type: multipart/form-data
+
+Form Fields:
+- `file` (required) - The purchase bill file (image or PDF, max 10MB)
+- `bill_number` (optional) - Purchase bill number
+- `bill_date` (optional) - Purchase bill date (YYYY-MM-DD format)
+
+EXAMPLE REQUEST:
+---------------
+```javascript
+const formData = new FormData();
+formData.append('file', fileInput.files[0]);
+formData.append('bill_number', 'BILL-2024-001');
+formData.append('bill_date', '2024-01-15');
+
+fetch(`/api/v1/inward-slip-passes/${ispId}/upload-purchase-bill`, {
+  method: 'POST',
+  headers: {
+    'Authorization': `Bearer ${token}`,
+  },
+  body: formData,
+});
+```
+
+RESPONSE:
+---------
+The response structure remains the same:
+```json
+{
+  "success": true,
+  "message": "Purchase bill uploaded successfully",
+  "data": {
+    "url": "https://s3.amazonaws.com/..."
+  }
+}
+```
+
+Note: The bill_number and bill_date are stored in the ISP record and will be
+returned in subsequent GET requests for the ISP.
+
+===================================================================================
+ISP RESPONSE CHANGES:
+===================================================================================
+
+All ISP GET endpoints now include the new fields in the response:
+
+GET /api/v1/inward-slip-passes
+GET /api/v1/inward-slip-passes/:id
+
+NEW FIELDS IN RESPONSE:
+-----------------------
+```json
+{
+  "id": "uuid",
+  "slip_number": "ISP-001",
+  "date": "2024-01-15",
+  ...
+  "bill_pdf_url": "https://...",
+  "bill_number": "BILL-2024-001",        // NEW
+  "bill_date": "2024-01-15",             // NEW
+  "bilti_image_url": "https://...",
+  ...
+}
+```
+
+FIELD DESCRIPTIONS:
+------------------
+- `bill_number` (string | null) - Purchase bill number, if provided
+- `bill_date` (string | null) - Purchase bill date in ISO format (YYYY-MM-DD), if provided
+
+===================================================================================
+FRONTEND IMPLEMENTATION:
+===================================================================================
+
+1. UPDATE PURCHASE BILL UPLOAD FORM:
+------------------------------------
+Add input fields for bill number and bill date to your purchase bill upload form.
+
+EXAMPLE REACT COMPONENT:
+------------------------
+```jsx
+import { useState } from 'react';
+
+function UploadPurchaseBillForm({ ispId, onUpload }) {
+  const [file, setFile] = useState(null);
+  const [billNumber, setBillNumber] = useState('');
+  const [billDate, setBillDate] = useState('');
+  const [uploading, setUploading] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!file) {
+      alert('Please select a file');
+      return;
+    }
+
+    setUploading(true);
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    // Add bill number if provided
+    if (billNumber.trim()) {
+      formData.append('bill_number', billNumber.trim());
+    }
+    
+    // Add bill date if provided
+    if (billDate) {
+      formData.append('bill_date', billDate);
+    }
+
+    try {
+      const response = await fetch(
+        `/api/v1/inward-slip-passes/${ispId}/upload-purchase-bill`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+          body: formData,
+        }
+      );
+
+      const data = await response.json();
+      if (data.success) {
+        onUpload(data.data);
+        // Reset form
+        setFile(null);
+        setBillNumber('');
+        setBillDate('');
+      } else {
+        alert(data.message || 'Upload failed');
+      }
+    } catch (error) {
+      alert('Error uploading bill: ' + error.message);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <div>
+        <label>Purchase Bill File *</label>
+        <input
+          type="file"
+          accept="image/*,.pdf"
+          onChange={(e) => setFile(e.target.files[0])}
+          required
+        />
+      </div>
+      
+      <div>
+        <label>Bill Number (Optional)</label>
+        <input
+          type="text"
+          placeholder="e.g., BILL-2024-001"
+          value={billNumber}
+          onChange={(e) => setBillNumber(e.target.value)}
+        />
+      </div>
+      
+      <div>
+        <label>Bill Date (Optional)</label>
+        <input
+          type="date"
+          value={billDate}
+          onChange={(e) => setBillDate(e.target.value)}
+        />
+      </div>
+      
+      <button type="submit" disabled={uploading}>
+        {uploading ? 'Uploading...' : 'Upload Purchase Bill'}
+      </button>
+    </form>
+  );
+}
+```
+
+2. DISPLAY BILL NUMBER AND DATE:
+---------------------------------
+Update your ISP detail view to display the bill number and date if they are available.
+
+EXAMPLE DISPLAY:
+---------------
+```jsx
+function ISPPurchaseBillInfo({ isp }) {
+  if (!isp.bill_pdf_url) {
+    return <p>No purchase bill uploaded</p>;
+  }
+
+  return (
+    <div>
+      <h3>Purchase Bill</h3>
+      <a href={isp.bill_pdf_url} target="_blank" rel="noopener noreferrer">
+        View Purchase Bill
+      </a>
+      
+      {isp.bill_number && (
+        <p><strong>Bill Number:</strong> {isp.bill_number}</p>
+      )}
+      
+      {isp.bill_date && (
+        <p><strong>Bill Date:</strong> {new Date(isp.bill_date).toLocaleDateString()}</p>
+      )}
+    </div>
+  );
+}
+```
+
+3. UPDATE ISP LIST/DETAIL VIEWS:
+-------------------------------
+Ensure your ISP list and detail views can handle and display the new fields:
+
+```jsx
+// In your ISP list item component
+function ISPListItem({ isp }) {
+  return (
+    <div>
+      <h4>{isp.slip_number}</h4>
+      <p>Date: {isp.date}</p>
+      
+      {isp.bill_number && (
+        <p>Bill #: {isp.bill_number}</p>
+      )}
+      
+      {isp.bill_date && (
+        <p>Bill Date: {new Date(isp.bill_date).toLocaleDateString()}</p>
+      )}
+      
+      {isp.bill_pdf_url && (
+        <a href={isp.bill_pdf_url} target="_blank">View Bill</a>
+      )}
+    </div>
+  );
+}
+```
+
+===================================================================================
+VALIDATION NOTES:
+===================================================================================
+
+1. Both `bill_number` and `bill_date` are OPTIONAL fields
+2. If `bill_date` is provided, it should be in ISO format (YYYY-MM-DD)
+3. The file upload is still REQUIRED
+4. File size limit: 10MB
+5. Allowed file types: image/jpeg, image/jpg, image/png, image/gif, application/pdf
+
+===================================================================================
+MIGRATION NOTES:
+===================================================================================
+
+- The database migration adds the new columns as nullable, so existing records will
+  have NULL values for bill_number and bill_date
+- Existing purchase bills will continue to work without these fields
+- You can update existing ISPs with bill numbers and dates by making a PUT request
+  to update the ISP record
+
+===================================================================================
+EXAMPLE: UPDATING EXISTING ISP WITH BILL NUMBER AND DATE:
+===================================================================================
+
+If you need to add bill number and date to an existing ISP that already has a
+purchase bill uploaded, you can use the update endpoint:
+
+```javascript
+PUT /api/v1/inward-slip-passes/:id
+Content-Type: application/json
+
+{
+  "bill_number": "BILL-2024-001",
+  "bill_date": "2024-01-15"
+}
+```
+
+===================================================================================
+TESTING:
+===================================================================================
+
+Test the following scenarios:
+1. Upload purchase bill with both bill number and date
+2. Upload purchase bill with only bill number
+3. Upload purchase bill with only bill date
+4. Upload purchase bill without bill number or date (should still work)
+5. Verify bill number and date appear in GET responses
+6. Verify existing ISPs without these fields still work correctly
+
+===================================================================================
+PAYMENT ADVICE INTEGRATION:
+===================================================================================
+
+NEW FIELD IN PAYMENT ADVICE:
+-----------------------------
+The `bill_number` field has also been added to Payment Advice entities. This allows
+you to store the purchase bill number from the ISP in the payment advice record.
+
+PAYMENT ADVICE API CHANGES:
+---------------------------
+
+ENDPOINT: POST /api/v1/payment-advices
+ENDPOINT: PUT /api/v1/payment-advices/:id
+
+NEW FIELD:
+----------
+- `bill_number` (string, optional) - Purchase bill number from ISP
+
+REQUEST EXAMPLE:
+---------------
+```javascript
+POST /api/v1/payment-advices
+Content-Type: application/json
+
+{
+  "inward_slip_pass_id": "uuid",
+  "recipient_id": "uuid",
+  "amount": 100000,
+  "date_of_payment": "2024-01-15",
+  "bill_number": "BILL-2024-001",  // NEW - Optional field
+  ...
+}
+```
+
+RESPONSE:
+--------
+All Payment Advice GET endpoints now include `bill_number` in the response:
+
+```json
+{
+  "id": "uuid",
+  "inward_slip_pass_id": "uuid",
+  "invoice_number": "...",
+  "invoice_date": "2024-01-15",
+  "bill_number": "BILL-2024-001",  // NEW
+  "truck_number": "...",
+  ...
+}
+```
+
+FRONTEND IMPLEMENTATION FOR PAYMENT ADVICE:
+-------------------------------------------
+
+1. ADD BILL NUMBER FIELD TO PAYMENT ADVICE FORM:
+-------------------------------------------------
+When creating or updating a payment advice, you can now include the bill number:
+
+```jsx
+function PaymentAdviceForm({ ispId, onSave }) {
+  const [formData, setFormData] = useState({
+    recipient_id: '',
+    amount: '',
+    date_of_payment: '',
+    bill_number: '',  // NEW
+    ...
+  });
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    
+    const payload = {
+      inward_slip_pass_id: ispId,
+      recipient_id: formData.recipient_id,
+      amount: parseFloat(formData.amount),
+      date_of_payment: formData.date_of_payment,
+      bill_number: formData.bill_number || undefined,  // Include if provided
+      ...
+    };
+
+    const response = await fetch('/api/v1/payment-advices', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
+    });
+    
+    // Handle response...
+  };
+
+  return (
+    <form onSubmit={handleSubmit}>
+      {/* Other fields */}
+      
+      <div>
+        <label>Bill Number (Optional)</label>
+        <input
+          type="text"
+          placeholder="e.g., BILL-2024-001"
+          value={formData.bill_number}
+          onChange={(e) => setFormData({ ...formData, bill_number: e.target.value })}
+        />
+        <small>Purchase bill number from ISP</small>
+      </div>
+      
+      {/* Other fields */}
+    </form>
+  );
+}
+```
+
+2. AUTO-POPULATE FROM ISP:
+--------------------------
+If you're creating a payment advice from an ISP, you can auto-populate the bill_number
+from the ISP data:
+
+```jsx
+function CreatePaymentAdviceFromISP({ ispId }) {
+  const [isp, setIsp] = useState(null);
+  const [billNumber, setBillNumber] = useState('');
+
+  useEffect(() => {
+    // Fetch ISP data
+    fetch(`/api/v1/inward-slip-passes/${ispId}`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) {
+          setIsp(data.data);
+          // Auto-populate bill number from ISP if available
+          if (data.data.bill_number) {
+            setBillNumber(data.data.bill_number);
+          }
+        }
+      });
+  }, [ispId]);
+
+  // Use billNumber in your form...
+}
+```
+
+3. DISPLAY BILL NUMBER IN PAYMENT ADVICE VIEWS:
+------------------------------------------------
+Update your payment advice list and detail views to display the bill number:
+
+```jsx
+function PaymentAdviceListItem({ advice }) {
+  return (
+    <div>
+      <h4>Payment Advice #{advice.id.slice(0, 8)}</h4>
+      <p>Amount: ₹{advice.amount}</p>
+      {advice.bill_number && (
+        <p><strong>Bill Number:</strong> {advice.bill_number}</p>
+      )}
+      {advice.invoice_number && (
+        <p><strong>Invoice Number:</strong> {advice.invoice_number}</p>
+      )}
+      {/* Other fields */}
+    </div>
+  );
+}
+```
+
+===================================================================================
+SUMMARY:
+===================================================================================
+
+- Purchase bill upload endpoint now accepts optional `bill_number` and `bill_date`
+- All ISP GET endpoints now return `bill_number` and `bill_date` fields
+- Payment Advice now supports `bill_number` field (optional)
+- All Payment Advice GET endpoints now return `bill_number` field
+- These fields are nullable and optional - existing functionality remains unchanged
+- Frontend should add input fields for bill number and date in the ISP upload form
+- Frontend should display bill number and date when available in ISP views
+- Frontend can send `bill_number` when creating/updating payment advice
+- Frontend should display `bill_number` in payment advice views
+
+===================================================================================
+

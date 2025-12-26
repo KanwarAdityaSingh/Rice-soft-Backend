@@ -52,6 +52,7 @@ export class SaudaController {
         uncooked_rice_image_url: sauda.uncooked_rice_image_url,
         status: sauda.status,
         notes: sauda.notes,
+        is_dana_required: sauda.is_dana_required,
         created_at: sauda.created_at.toISOString(),
         updated_at: sauda.updated_at.toISOString(),
       }));
@@ -91,6 +92,7 @@ export class SaudaController {
         uncooked_rice_image_url: sauda.uncooked_rice_image_url,
         status: sauda.status,
         notes: sauda.notes,
+        is_dana_required: sauda.is_dana_required,
         created_at: sauda.created_at.toISOString(),
         updated_at: sauda.updated_at.toISOString(),
       };
@@ -154,6 +156,7 @@ export class SaudaController {
         uncooked_rice_image_url: sauda.uncooked_rice_image_url,
         status: sauda.status,
         notes: sauda.notes,
+        is_dana_required: sauda.is_dana_required,
         created_at: sauda.created_at.toISOString(),
         updated_at: sauda.updated_at.toISOString(),
       };
@@ -229,6 +232,7 @@ export class SaudaController {
         uncooked_rice_image_url: sauda.uncooked_rice_image_url,
         status: sauda.status,
         notes: sauda.notes,
+        is_dana_required: sauda.is_dana_required,
         created_at: sauda.created_at.toISOString(),
         updated_at: sauda.updated_at.toISOString(),
       };
@@ -277,6 +281,7 @@ export class SaudaController {
         uncooked_rice_image_url: sauda.uncooked_rice_image_url,
         status: sauda.status,
         notes: sauda.notes,
+        is_dana_required: sauda.is_dana_required,
         created_at: sauda.created_at.toISOString(),
         updated_at: sauda.updated_at.toISOString(),
       };

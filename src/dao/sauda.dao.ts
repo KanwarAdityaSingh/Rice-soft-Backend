@@ -12,7 +12,7 @@ export class SaudaDAO {
     let query = `
       SELECT id, sauda_type, rice_type, rice_code_id, rate, broker_id, broker_commission, broker_commission_type,
              quantity, received_until_now, completion_percentage, cash_discount, cash_discount_type, estimated_delivery_time,
-             purchaser_id, cooked_rice_image_url, uncooked_rice_image_url, status, notes,
+             purchaser_id, cooked_rice_image_url, uncooked_rice_image_url, status, notes, is_dana_required,
              created_at, updated_at, created_by, updated_by
       FROM saudas
       WHERE 1=1
@@ -50,7 +50,7 @@ export class SaudaDAO {
     const query = `
       SELECT id, sauda_type, rice_type, rice_code_id, rate, broker_id, broker_commission, broker_commission_type,
              quantity, received_until_now, completion_percentage, cash_discount, cash_discount_type, estimated_delivery_time,
-             purchaser_id, cooked_rice_image_url, uncooked_rice_image_url, status, notes,
+             purchaser_id, cooked_rice_image_url, uncooked_rice_image_url, status, notes, is_dana_required,
              created_at, updated_at, created_by, updated_by
       FROM saudas
       WHERE id = $1
@@ -63,11 +63,11 @@ export class SaudaDAO {
     const query = `
       INSERT INTO saudas (sauda_type, rice_type, rice_code_id, rate, broker_id, broker_commission, broker_commission_type,
                          quantity, cash_discount, cash_discount_type, estimated_delivery_time,
-                         purchaser_id, cooked_rice_image_url, uncooked_rice_image_url, status, notes, created_by)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+                         purchaser_id, cooked_rice_image_url, uncooked_rice_image_url, status, notes, is_dana_required, created_by)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
       RETURNING id, sauda_type, rice_type, rice_code_id, rate, broker_id, broker_commission, broker_commission_type,
                 quantity, received_until_now, completion_percentage, cash_discount, cash_discount_type, estimated_delivery_time,
-                purchaser_id, cooked_rice_image_url, uncooked_rice_image_url, status, notes,
+                purchaser_id, cooked_rice_image_url, uncooked_rice_image_url, status, notes, is_dana_required,
                 created_at, updated_at, created_by, updated_by
     `;
     
@@ -88,6 +88,7 @@ export class SaudaDAO {
       saudaData.uncooked_rice_image_url || null,
       saudaData.status || 'draft',
       saudaData.notes || null,
+      saudaData.is_dana_required !== undefined ? saudaData.is_dana_required : true,
       saudaData.created_by || null,
     ];
 
@@ -170,6 +171,10 @@ export class SaudaDAO {
       fields.push(`notes = $${paramCount++}`);
       values.push(saudaData.notes || null);
     }
+    if (saudaData.is_dana_required !== undefined) {
+      fields.push(`is_dana_required = $${paramCount++}`);
+      values.push(saudaData.is_dana_required);
+    }
     if (saudaData.updated_by !== undefined) {
       fields.push(`updated_by = $${paramCount++}`);
       values.push(saudaData.updated_by);
@@ -188,7 +193,7 @@ export class SaudaDAO {
       WHERE id = $${paramCount}
       RETURNING id, sauda_type, rice_type, rice_code_id, rate, broker_id, broker_commission, broker_commission_type,
                 quantity, received_until_now, completion_percentage, cash_discount, cash_discount_type, estimated_delivery_time,
-                purchaser_id, cooked_rice_image_url, uncooked_rice_image_url, status, notes,
+                purchaser_id, cooked_rice_image_url, uncooked_rice_image_url, status, notes, is_dana_required,
                 created_at, updated_at, created_by, updated_by
     `;
 

@@ -6,7 +6,7 @@ export class PaymentAdviceDAO {
   async findAll(saudaId?: string, ispId?: string, status?: PaymentAdviceStatus): Promise<PaymentAdvice[]> {
     let query = `
       SELECT id, sauda_id, inward_slip_pass_id, payer_id, recipient_id, sr_number, party_name, party_address,
-             broker_name, invoice_number, invoice_date, truck_number, item, total_bags,
+             broker_name, invoice_number, invoice_date, bill_number, truck_number, item, total_bags,
              due_date, bill_weight, kanta_weight, dana_deduction, final_weight, rate, amount, transaction_id,
              date_of_payment, status, payment_slip_image_url, notes, created_at, updated_at,
              created_by, updated_by
@@ -41,7 +41,7 @@ export class PaymentAdviceDAO {
   async findById(id: string): Promise<PaymentAdvice | null> {
     const query = `
       SELECT id, sauda_id, inward_slip_pass_id, payer_id, recipient_id, sr_number, party_name, party_address,
-             broker_name, invoice_number, invoice_date, truck_number, item, total_bags,
+             broker_name, invoice_number, invoice_date, bill_number, truck_number, item, total_bags,
              due_date, bill_weight, kanta_weight, dana_deduction, final_weight, rate, amount, transaction_id,
              date_of_payment, status, payment_slip_image_url, notes, created_at, updated_at,
              created_by, updated_by
@@ -55,13 +55,13 @@ export class PaymentAdviceDAO {
   async create(paymentAdviceData: CreatePaymentAdviceDTO): Promise<PaymentAdvice> {
     const query = `
       INSERT INTO payment_advices (sauda_id, inward_slip_pass_id, payer_id, recipient_id, sr_number, party_name,
-                                  party_address, broker_name, invoice_number, invoice_date,
+                                  party_address, broker_name, invoice_number, invoice_date, bill_number,
                                   truck_number, item, total_bags, due_date, bill_weight,
                                   kanta_weight, dana_deduction, final_weight, rate, amount, transaction_id,
                                   date_of_payment, status, payment_slip_image_url, notes, created_by)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27)
       RETURNING id, sauda_id, inward_slip_pass_id, payer_id, recipient_id, sr_number, party_name, party_address,
-                broker_name, invoice_number, invoice_date, truck_number, item, total_bags,
+                broker_name, invoice_number, invoice_date, bill_number, truck_number, item, total_bags,
                 due_date, bill_weight, kanta_weight, dana_deduction, final_weight, rate, amount, transaction_id,
                 date_of_payment, status, payment_slip_image_url, notes, created_at, updated_at,
                 created_by, updated_by
@@ -70,14 +70,15 @@ export class PaymentAdviceDAO {
     const values = [
       paymentAdviceData.sauda_id || null,
       paymentAdviceData.inward_slip_pass_id || null,
-      paymentAdviceData.payer_id,
-      paymentAdviceData.recipient_id,
+      paymentAdviceData.payer_id || null,
+      paymentAdviceData.recipient_id || null,
       paymentAdviceData.sr_number || null,
       paymentAdviceData.party_name || null,
       paymentAdviceData.party_address || null,
       paymentAdviceData.broker_name || null,
       paymentAdviceData.invoice_number || null,
       paymentAdviceData.invoice_date || null,
+      paymentAdviceData.bill_number || null,
       paymentAdviceData.truck_number || null,
       paymentAdviceData.item || null,
       paymentAdviceData.total_bags || null,
@@ -121,7 +122,7 @@ export class PaymentAdviceDAO {
     }
     if (paymentAdviceData.payer_id !== undefined) {
       fields.push(`payer_id = $${paramCount++}`);
-      values.push(paymentAdviceData.payer_id);
+      values.push(paymentAdviceData.payer_id || null);
     }
     if (paymentAdviceData.recipient_id !== undefined) {
       fields.push(`recipient_id = $${paramCount++}`);
@@ -150,6 +151,10 @@ export class PaymentAdviceDAO {
     if (paymentAdviceData.invoice_date !== undefined) {
       fields.push(`invoice_date = $${paramCount++}`);
       values.push(paymentAdviceData.invoice_date || null);
+    }
+    if (paymentAdviceData.bill_number !== undefined) {
+      fields.push(`bill_number = $${paramCount++}`);
+      values.push(paymentAdviceData.bill_number || null);
     }
     if (paymentAdviceData.truck_number !== undefined) {
       fields.push(`truck_number = $${paramCount++}`);

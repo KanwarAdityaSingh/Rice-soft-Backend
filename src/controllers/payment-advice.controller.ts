@@ -5,7 +5,6 @@ import { purchaseSummaryDAO } from '../dao/purchase-summary.dao';
 import { saudaDAO } from '../dao/sauda.dao';
 import { inwardSlipPassDAO } from '../dao/inward-slip-pass.dao';
 import { vendorDAO } from '../dao/vendor.dao';
-import { userDAO } from '../dao/user.dao';
 import { kaantaDAO } from '../dao/kaanta.dao';
 import { ResponseHandler } from '../utils/response';
 import {
@@ -51,6 +50,7 @@ export class PaymentAdviceController {
             broker_name: advice.broker_name,
             invoice_number: advice.invoice_number,
             invoice_date: advice.invoice_date?.toISOString().split('T')[0] || null,
+            bill_number: advice.bill_number,
             truck_number: advice.truck_number,
             item: advice.item,
             total_bags: advice.total_bags,
@@ -112,6 +112,7 @@ export class PaymentAdviceController {
         broker_name: paymentAdvice.broker_name,
         invoice_number: paymentAdvice.invoice_number,
         invoice_date: paymentAdvice.invoice_date?.toISOString().split('T')[0] || null,
+        bill_number: paymentAdvice.bill_number,
         truck_number: paymentAdvice.truck_number,
         item: paymentAdvice.item,
         total_bags: paymentAdvice.total_bags,
@@ -151,16 +152,12 @@ export class PaymentAdviceController {
     try {
       const paymentAdviceData = validate<CreatePaymentAdviceDTO>(createPaymentAdviceSchema, req.body);
 
-      // Validate payer exists
-      const payer = await userDAO.findById(paymentAdviceData.payer_id);
-      if (!payer) {
-        throw new NotFoundError('Payer (user) not found');
-      }
-
-      // Validate recipient exists
-      const recipient = await vendorDAO.findById(paymentAdviceData.recipient_id);
-      if (!recipient) {
-        throw new NotFoundError('Recipient (vendor) not found');
+      // Validate recipient exists if provided
+      if (paymentAdviceData.recipient_id) {
+        const recipient = await vendorDAO.findById(paymentAdviceData.recipient_id);
+        if (!recipient) {
+          throw new NotFoundError('Recipient (vendor) not found');
+        }
       }
 
       // Validate and auto-calculate amount based on sauda_id or inward_slip_pass_id
@@ -202,14 +199,18 @@ export class PaymentAdviceController {
       let netWeight = 0;
 
       if (paymentAdviceData.sauda_id) {
+        // Get the sauda to check is_dana_required
+        const sauda = await saudaDAO.findById(paymentAdviceData.sauda_id);
+        const shouldCalculateDana = sauda?.is_dana_required || false;
+        
         // Get all kaantas for this sauda
         const kaantas = await kaantaDAO.findAll(paymentAdviceData.sauda_id);
         if (kaantas.length > 0) {
           totalKaantaWeight = kaantas.reduce((sum, k) => sum + (k.kaanta_weight || 0), 0);
           totalSaidSentWeight = kaantas.reduce((sum, k) => sum + (k.said_sent_weight || 0), 0);
           
-          // Calculate dana deduction: (said_sent_weight * 300/1000)/100
-          if (totalSaidSentWeight > 0) {
+          // Calculate dana deduction only if is_dana_required is true
+          if (shouldCalculateDana && totalSaidSentWeight > 0) {
             danaDeduction = (totalSaidSentWeight * 300 / 1000) / 100;
           }
           
@@ -229,14 +230,51 @@ export class PaymentAdviceController {
       } else if (paymentAdviceData.inward_slip_pass_id) {
         // Get all kaantas for this ISP
         const kaantas = await kaantaDAO.findAll(undefined, paymentAdviceData.inward_slip_pass_id);
+        
         if (kaantas.length > 0) {
-          totalKaantaWeight = kaantas.reduce((sum, k) => sum + (k.kaanta_weight || 0), 0);
-          totalSaidSentWeight = kaantas.reduce((sum, k) => sum + (k.said_sent_weight || 0), 0);
-          
-          // Calculate dana deduction: (said_sent_weight * 300/1000)/100
-          if (totalSaidSentWeight > 0) {
-            danaDeduction = (totalSaidSentWeight * 300 / 1000) / 100;
+          // Group kaantas by sauda_id
+          const kaantasBySauda = new Map<string, typeof kaantas>();
+          for (const kaanta of kaantas) {
+            if (!kaantasBySauda.has(kaanta.sauda_id)) {
+              kaantasBySauda.set(kaanta.sauda_id, []);
+            }
+            kaantasBySauda.get(kaanta.sauda_id)!.push(kaanta);
           }
+          
+          // Calculate dana separately for each sauda group
+          let totalDanaDeduction = 0;
+          
+          // Get all unique sauda IDs and fetch their is_dana_required flags
+          const saudaIds = Array.from(kaantasBySauda.keys());
+          const saudas = await Promise.all(
+            saudaIds.map(id => saudaDAO.findById(id))
+          );
+          
+          const saudaMap = new Map<string, boolean>();
+          saudas.forEach((sauda, index) => {
+            if (sauda) {
+              saudaMap.set(saudaIds[index], sauda.is_dana_required);
+            }
+          });
+          
+          // Process each sauda group separately
+          for (const [saudaId, saudaKaantas] of kaantasBySauda.entries()) {
+            const isDanaRequired = saudaMap.get(saudaId) || false;
+            
+            const saudaKaantaWeight = saudaKaantas.reduce((sum, k) => sum + (k.kaanta_weight || 0), 0);
+            const saudaSaidSentWeight = saudaKaantas.reduce((sum, k) => sum + (k.said_sent_weight || 0), 0);
+            
+            totalKaantaWeight += saudaKaantaWeight;
+            totalSaidSentWeight += saudaSaidSentWeight;
+            
+            // Calculate dana deduction only for this sauda if is_dana_required is true
+            if (isDanaRequired && saudaSaidSentWeight > 0) {
+              const saudaDanaDeduction = (saudaSaidSentWeight * 300 / 1000) / 100;
+              totalDanaDeduction += saudaDanaDeduction;
+            }
+          }
+          
+          danaDeduction = totalDanaDeduction;
           
           // Calculate final weight: kaanta_weight - dana_deduction
           netWeight = totalKaantaWeight - danaDeduction;
@@ -290,6 +328,7 @@ export class PaymentAdviceController {
         broker_name: paymentAdvice.broker_name,
         invoice_number: paymentAdvice.invoice_number,
         invoice_date: paymentAdvice.invoice_date?.toISOString().split('T')[0] || null,
+        bill_number: paymentAdvice.bill_number,
         truck_number: paymentAdvice.truck_number,
         item: paymentAdvice.item,
         total_bags: paymentAdvice.total_bags,
@@ -340,14 +379,6 @@ export class PaymentAdviceController {
         throw new NotFoundError('Payment advice not found');
       }
 
-      // Validate payer if being updated
-      if (paymentAdviceData.payer_id) {
-        const payer = await userDAO.findById(paymentAdviceData.payer_id);
-        if (!payer) {
-          throw new NotFoundError('Payer (user) not found');
-        }
-      }
-
       // Validate recipient if being updated
       if (paymentAdviceData.recipient_id) {
         const recipient = await vendorDAO.findById(paymentAdviceData.recipient_id);
@@ -367,12 +398,17 @@ export class PaymentAdviceController {
         const ispId = paymentAdviceData.inward_slip_pass_id || existingAdvice.inward_slip_pass_id;
 
         if (saudaId) {
+          // Get the sauda to check is_dana_required
+          const sauda = await saudaDAO.findById(saudaId);
+          const shouldCalculateDana = sauda?.is_dana_required || false;
+          
           const kaantas = await kaantaDAO.findAll(saudaId);
           if (kaantas.length > 0) {
             totalKaantaWeight = kaantas.reduce((sum, k) => sum + (k.kaanta_weight || 0), 0);
             totalSaidSentWeight = kaantas.reduce((sum, k) => sum + (k.said_sent_weight || 0), 0);
             
-            if (totalSaidSentWeight > 0) {
+            // Calculate dana deduction only if is_dana_required is true
+            if (shouldCalculateDana && totalSaidSentWeight > 0) {
               danaDeduction = (totalSaidSentWeight * 300 / 1000) / 100;
             }
             
@@ -386,14 +422,53 @@ export class PaymentAdviceController {
             }
           }
         } else if (ispId) {
+          // Get all kaantas for this ISP
           const kaantas = await kaantaDAO.findAll(undefined, ispId);
+          
           if (kaantas.length > 0) {
-            totalKaantaWeight = kaantas.reduce((sum, k) => sum + (k.kaanta_weight || 0), 0);
-            totalSaidSentWeight = kaantas.reduce((sum, k) => sum + (k.said_sent_weight || 0), 0);
-            
-            if (totalSaidSentWeight > 0) {
-              danaDeduction = (totalSaidSentWeight * 300 / 1000) / 100;
+            // Group kaantas by sauda_id
+            const kaantasBySauda = new Map<string, typeof kaantas>();
+            for (const kaanta of kaantas) {
+              if (!kaantasBySauda.has(kaanta.sauda_id)) {
+                kaantasBySauda.set(kaanta.sauda_id, []);
+              }
+              kaantasBySauda.get(kaanta.sauda_id)!.push(kaanta);
             }
+            
+            // Calculate dana separately for each sauda group
+            let totalDanaDeduction = 0;
+            
+            // Get all unique sauda IDs and fetch their is_dana_required flags
+            const saudaIds = Array.from(kaantasBySauda.keys());
+            const saudas = await Promise.all(
+              saudaIds.map(id => saudaDAO.findById(id))
+            );
+            
+            const saudaMap = new Map<string, boolean>();
+            saudas.forEach((sauda, index) => {
+              if (sauda) {
+                saudaMap.set(saudaIds[index], sauda.is_dana_required);
+              }
+            });
+            
+            // Process each sauda group separately
+            for (const [saudaId, saudaKaantas] of kaantasBySauda.entries()) {
+              const isDanaRequired = saudaMap.get(saudaId) || false;
+              
+              const saudaKaantaWeight = saudaKaantas.reduce((sum, k) => sum + (k.kaanta_weight || 0), 0);
+              const saudaSaidSentWeight = saudaKaantas.reduce((sum, k) => sum + (k.said_sent_weight || 0), 0);
+              
+              totalKaantaWeight += saudaKaantaWeight;
+              totalSaidSentWeight += saudaSaidSentWeight;
+              
+              // Calculate dana deduction only for this sauda if is_dana_required is true
+              if (isDanaRequired && saudaSaidSentWeight > 0) {
+                const saudaDanaDeduction = (saudaSaidSentWeight * 300 / 1000) / 100;
+                totalDanaDeduction += saudaDanaDeduction;
+              }
+            }
+            
+            danaDeduction = totalDanaDeduction;
             
             netWeight = totalKaantaWeight - danaDeduction;
             
@@ -435,6 +510,7 @@ export class PaymentAdviceController {
         broker_name: paymentAdvice.broker_name,
         invoice_number: paymentAdvice.invoice_number,
         invoice_date: paymentAdvice.invoice_date?.toISOString().split('T')[0] || null,
+        bill_number: paymentAdvice.bill_number,
         truck_number: paymentAdvice.truck_number,
         item: paymentAdvice.item,
         total_bags: paymentAdvice.total_bags,

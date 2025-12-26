@@ -25,6 +25,7 @@ export interface Sauda {
   uncooked_rice_image_url: string | null;
   status: SaudaStatus;
   notes: string | null;
+  is_dana_required: boolean;
   created_at: Date;
   updated_at: Date;
   created_by: string | null;
@@ -48,6 +49,7 @@ export interface CreateSaudaDTO {
   uncooked_rice_image_url?: string;
   status?: SaudaStatus;
   notes?: string;
+  is_dana_required?: boolean;
   created_by?: string;
 }
 
@@ -68,6 +70,7 @@ export interface UpdateSaudaDTO {
   uncooked_rice_image_url?: string;
   status?: SaudaStatus;
   notes?: string;
+  is_dana_required?: boolean;
   updated_by?: string;
 }
 
@@ -91,6 +94,7 @@ export interface SaudaResponse {
   uncooked_rice_image_url: string | null;
   status: SaudaStatus;
   notes: string | null;
+  is_dana_required: boolean;
   created_at: string;
   updated_at: string;
 }

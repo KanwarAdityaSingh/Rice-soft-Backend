@@ -46,6 +46,8 @@ export class InwardSlipPassController {
             status: pass.status,
             other_bills: pass.other_bills,
             bill_pdf_url: pass.bill_pdf_url,
+            bill_number: pass.bill_number,
+            bill_date: pass.bill_date ? pass.bill_date.toISOString().split('T')[0] : null,
             bilti_image_url: pass.bilti_image_url,
             bilti_pdf_url: pass.bilti_pdf_url,
             eway_bill_number: pass.eway_bill_number,
@@ -89,6 +91,8 @@ export class InwardSlipPassController {
         status: inwardSlipPass.status,
         other_bills: inwardSlipPass.other_bills,
         bill_pdf_url: inwardSlipPass.bill_pdf_url,
+        bill_number: inwardSlipPass.bill_number,
+        bill_date: inwardSlipPass.bill_date ? inwardSlipPass.bill_date.toISOString().split('T')[0] : null,
         bilti_image_url: inwardSlipPass.bilti_image_url,
         bilti_pdf_url: inwardSlipPass.bilti_pdf_url,
         eway_bill_number: inwardSlipPass.eway_bill_number,
@@ -166,6 +170,8 @@ export class InwardSlipPassController {
         status: inwardSlipPass.status,
         other_bills: inwardSlipPass.other_bills,
         bill_pdf_url: inwardSlipPass.bill_pdf_url,
+        bill_number: inwardSlipPass.bill_number,
+        bill_date: inwardSlipPass.bill_date ? inwardSlipPass.bill_date.toISOString().split('T')[0] : null,
         bilti_image_url: inwardSlipPass.bilti_image_url,
         bilti_pdf_url: inwardSlipPass.bilti_pdf_url,
         eway_bill_number: inwardSlipPass.eway_bill_number,
@@ -251,6 +257,8 @@ export class InwardSlipPassController {
         status: inwardSlipPass.status,
         other_bills: inwardSlipPass.other_bills,
         bill_pdf_url: inwardSlipPass.bill_pdf_url,
+        bill_number: inwardSlipPass.bill_number,
+        bill_date: inwardSlipPass.bill_date ? inwardSlipPass.bill_date.toISOString().split('T')[0] : null,
         bilti_image_url: inwardSlipPass.bilti_image_url,
         bilti_pdf_url: inwardSlipPass.bilti_pdf_url,
         eway_bill_number: inwardSlipPass.eway_bill_number,
@@ -301,6 +309,8 @@ export class InwardSlipPassController {
         status: inwardSlipPass.status,
         other_bills: inwardSlipPass.other_bills,
         bill_pdf_url: inwardSlipPass.bill_pdf_url,
+        bill_number: inwardSlipPass.bill_number,
+        bill_date: inwardSlipPass.bill_date ? inwardSlipPass.bill_date.toISOString().split('T')[0] : null,
         bilti_image_url: inwardSlipPass.bilti_image_url,
         bilti_pdf_url: inwardSlipPass.bilti_pdf_url,
         eway_bill_number: inwardSlipPass.eway_bill_number,
@@ -441,6 +451,14 @@ export class InwardSlipPassController {
       } else {
         // For images, storing in bill_pdf_url as well
         updateData.bill_pdf_url = uploadResult.url;
+      }
+
+      // Extract bill_number and bill_date from request body (multipart/form-data)
+      if (req.body.bill_number) {
+        updateData.bill_number = req.body.bill_number;
+      }
+      if (req.body.bill_date) {
+        updateData.bill_date = req.body.bill_date;
       }
 
       const inwardSlipPass = await inwardSlipPassDAO.update(id, updateData);

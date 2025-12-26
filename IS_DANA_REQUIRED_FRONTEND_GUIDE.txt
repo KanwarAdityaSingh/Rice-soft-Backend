@@ -1,0 +1,500 @@
+===================================================================================
+IS_DANA_REQUIRED FRONTEND IMPLEMENTATION GUIDE
+===================================================================================
+
+OVERVIEW:
+---------
+A new field `is_dana_required` has been added to the Sauda entity. This field controls
+whether dana deduction should be calculated in payment advice. When creating payment
+advice from a sauda or ISP, dana deduction is only calculated for saudas where
+`is_dana_required = true`.
+
+===================================================================================
+API CHANGES:
+===================================================================================
+
+1. SAUDA ENDPOINTS:
+-------------------
+
+GET /api/v1/saudas
+GET /api/v1/saudas/:id
+POST /api/v1/saudas
+PUT /api/v1/saudas/:id
+
+Response now includes:
+{
+  "id": "uuid",
+  "sauda_type": "exgodown" | "for",
+  "rice_type": "...",
+  "rate": 85.50,
+  // ... other fields ...
+  "is_dana_required": true,  // NEW FIELD (boolean, default: true)
+  "created_at": "2024-01-20T10:00:00Z",
+  "updated_at": "2024-01-20T10:00:00Z"
+}
+
+Request body for CREATE/UPDATE:
+{
+  // ... other fields ...
+  "is_dana_required": true  // Optional (defaults to true if not provided)
+}
+
+===================================================================================
+FRONTEND IMPLEMENTATION:
+===================================================================================
+
+1. SAUDA FORM (Create/Edit):
+-----------------------------
+
+When creating or editing a sauda, add a checkbox/toggle for `is_dana_required`:
+
+```typescript
+// In your sauda form component
+interface SaudaFormData {
+  sauda_type: 'exgodown' | 'for';
+  rice_type: string;
+  rate: number;
+  // ... other fields ...
+  is_dana_required: boolean;  // NEW FIELD
+}
+
+// Form field implementation
+<FormField>
+  <Label>Is Dana Required</Label>
+  <Checkbox
+    checked={formData.is_dana_required ?? true}
+    onChange={(e) => setFormData({
+      ...formData,
+      is_dana_required: e.target.checked
+    })}
+  />
+  <HelperText>
+    If checked, dana deduction (300gm per quintal) will be calculated 
+    in payment advice for this sauda. If unchecked, no dana deduction 
+    will be applied.
+  </HelperText>
+</FormField>
+```
+
+Default Value:
+- When creating a new sauda, default `is_dana_required` to `true`
+- When editing, use the value from the API response
+
+Display in Sauda List/Details:
+- Show the status: "Dana Required" or "Dana Not Required"
+- Use a badge/indicator to make it visually clear
+
+===================================================================================
+2. PAYMENT ADVICE CREATION:
+===================================================================================
+
+When creating payment advice, the dana calculation logic has changed:
+
+A. PAYMENT ADVICE FROM SINGLE SAUDA:
+------------------------------------
+
+```typescript
+// When user selects a sauda for payment advice
+async function createPaymentAdviceFromSauda(saudaId: string) {
+  // Fetch the sauda to check is_dana_required
+  const sauda = await fetchSauda(saudaId);
+  
+  // Fetch kaantas for this sauda
+  const kaantas = await fetchKaantas({ sauda_id: saudaId });
+  
+  // Calculate weights
+  const totalKaantaWeight = kaantas.reduce((sum, k) => 
+    sum + (k.kaanta_weight || 0), 0
+  );
+  const totalSaidSentWeight = kaantas.reduce((sum, k) => 
+    sum + (k.said_sent_weight || 0), 0
+  );
+  
+  // Calculate dana deduction ONLY if is_dana_required is true
+  let danaDeduction = 0;
+  if (sauda.is_dana_required && totalSaidSentWeight > 0) {
+    danaDeduction = (totalSaidSentWeight * 300 / 1000) / 100;
+  }
+  
+  const finalWeight = totalKaantaWeight - danaDeduction;
+  
+  // Display calculation breakdown
+  return {
+    bill_weight: totalSaidSentWeight,
+    kanta_weight: totalKaantaWeight,
+    dana_deduction: danaDeduction,
+    final_weight: finalWeight,
+    show_dana_deduction: sauda.is_dana_required  // For UI display
+  };
+}
+```
+
+B. PAYMENT ADVICE FROM ISP (Multiple Saudas):
+---------------------------------------------
+
+This is the key change - calculations are done separately per sauda:
+
+```typescript
+// When user selects an ISP for payment advice
+async function createPaymentAdviceFromISP(ispId: string) {
+  // Fetch all kaantas for this ISP
+  const kaantas = await fetchKaantas({ inward_slip_pass_id: ispId });
+  
+  // Group kaantas by sauda_id
+  const kaantasBySauda = new Map<string, typeof kaantas>();
+  kaantas.forEach(kaanta => {
+    if (!kaantasBySauda.has(kaanta.sauda_id)) {
+      kaantasBySauda.set(kaanta.sauda_id, []);
+    }
+    kaantasBySauda.get(kaanta.sauda_id)!.push(kaanta);
+  });
+  
+  // Fetch all unique saudas to get is_dana_required flags
+  const saudaIds = Array.from(kaantasBySauda.keys());
+  const saudas = await Promise.all(
+    saudaIds.map(id => fetchSauda(id))
+  );
+  
+  // Create a map for quick lookup
+  const saudaMap = new Map<string, typeof saudas[0]>();
+  saudas.forEach(sauda => {
+    if (sauda) {
+      saudaMap.set(sauda.id, sauda);
+    }
+  });
+  
+  // Calculate separately for each sauda group
+  let totalKaantaWeight = 0;
+  let totalSaidSentWeight = 0;
+  let totalDanaDeduction = 0;
+  
+  const saudaBreakdown: Array<{
+    sauda_id: string;
+    sauda_name?: string;
+    kaanta_weight: number;
+    said_sent_weight: number;
+    dana_deduction: number;
+    final_weight: number;
+    is_dana_required: boolean;
+  }> = [];
+  
+  for (const [saudaId, saudaKaantas] of kaantasBySauda.entries()) {
+    const sauda = saudaMap.get(saudaId);
+    const isDanaRequired = sauda?.is_dana_required ?? false;
+    
+    const saudaKaantaWeight = saudaKaantas.reduce((sum, k) => 
+      sum + (k.kaanta_weight || 0), 0
+    );
+    const saudaSaidSentWeight = saudaKaantas.reduce((sum, k) => 
+      sum + (k.said_sent_weight || 0), 0
+    );
+    
+    // Calculate dana deduction ONLY for this sauda if is_dana_required is true
+    let saudaDanaDeduction = 0;
+    if (isDanaRequired && saudaSaidSentWeight > 0) {
+      saudaDanaDeduction = (saudaSaidSentWeight * 300 / 1000) / 100;
+    }
+    
+    const saudaFinalWeight = saudaKaantaWeight - saudaDanaDeduction;
+    
+    // Add to totals
+    totalKaantaWeight += saudaKaantaWeight;
+    totalSaidSentWeight += saudaSaidSentWeight;
+    totalDanaDeduction += saudaDanaDeduction;
+    
+    // Store breakdown for display
+    saudaBreakdown.push({
+      sauda_id: saudaId,
+      sauda_name: sauda?.id, // Or any identifier you use
+      kaanta_weight: saudaKaantaWeight,
+      said_sent_weight: saudaSaidSentWeight,
+      dana_deduction: saudaDanaDeduction,
+      final_weight: saudaFinalWeight,
+      is_dana_required: isDanaRequired
+    });
+  }
+  
+  const finalWeight = totalKaantaWeight - totalDanaDeduction;
+  
+  return {
+    bill_weight: totalSaidSentWeight,
+    kanta_weight: totalKaantaWeight,
+    dana_deduction: totalDanaDeduction,
+    final_weight: finalWeight,
+    sauda_breakdown: saudaBreakdown  // For detailed display
+  };
+}
+```
+
+===================================================================================
+3. PAYMENT ADVICE PREVIEW/DISPLAY:
+===================================================================================
+
+Display the calculation breakdown clearly:
+
+A. For Single Sauda Payment Advice:
+-----------------------------------
+
+```typescript
+function PaymentAdvicePreview({ paymentAdvice, sauda }) {
+  return (
+    <CalculationBreakdown>
+      <Row>
+        <Label>Bill Weight (Said Sent Weight)</Label>
+        <Value>{paymentAdvice.bill_weight}</Value>
+      </Row>
+      
+      <Row>
+        <Label>Kaanta Weight</Label>
+        <Value>{paymentAdvice.kanta_weight}</Value>
+      </Row>
+      
+      {sauda.is_dana_required && paymentAdvice.dana_deduction > 0 && (
+        <Row>
+          <Label>Less: Dana (300gm per Qtl)</Label>
+          <Value>-{paymentAdvice.dana_deduction}</Value>
+        </Row>
+      )}
+      
+      {!sauda.is_dana_required && (
+        <Row>
+          <Label>Dana Deduction</Label>
+          <Value>Not Applicable (Dana not required for this sauda)</Value>
+        </Row>
+      )}
+      
+      <Row>
+        <Label>Final Weight</Label>
+        <Value>{paymentAdvice.final_weight}</Value>
+      </Row>
+    </CalculationBreakdown>
+  );
+}
+```
+
+B. For ISP Payment Advice (Multiple Saudas):
+---------------------------------------------
+
+```typescript
+function PaymentAdvicePreviewISP({ paymentAdvice }) {
+  return (
+    <CalculationBreakdown>
+      {/* Summary Totals */}
+      <Section>
+        <Title>Total Summary</Title>
+        <Row>
+          <Label>Total Bill Weight</Label>
+          <Value>{paymentAdvice.bill_weight}</Value>
+        </Row>
+        <Row>
+          <Label>Total Kaanta Weight</Label>
+          <Value>{paymentAdvice.kanta_weight}</Value>
+        </Row>
+        <Row>
+          <Label>Total Dana Deduction</Label>
+          <Value>{paymentAdvice.dana_deduction}</Value>
+        </Row>
+        <Row>
+          <Label>Final Weight</Label>
+          <Value>{paymentAdvice.final_weight}</Value>
+        </Row>
+      </Section>
+      
+      {/* Breakdown by Sauda */}
+      <Section>
+        <Title>Breakdown by Sauda</Title>
+        {paymentAdvice.sauda_breakdown?.map((sauda, index) => (
+          <SaudaGroup key={sauda.sauda_id}>
+            <SaudaHeader>
+              Sauda {index + 1} {sauda.sauda_name && `(${sauda.sauda_name})`}
+              {sauda.is_dana_required ? (
+                <Badge>Dana Required</Badge>
+              ) : (
+                <Badge>Dana Not Required</Badge>
+              )}
+            </SaudaHeader>
+            
+            <Row>
+              <Label>Bill Weight</Label>
+              <Value>{sauda.said_sent_weight}</Value>
+            </Row>
+            
+            <Row>
+              <Label>Kaanta Weight</Label>
+              <Value>{sauda.kaanta_weight}</Value>
+            </Row>
+            
+            {sauda.is_dana_required && sauda.dana_deduction > 0 && (
+              <Row>
+                <Label>Less: Dana (300gm per Qtl)</Label>
+                <Value>-{sauda.dana_deduction}</Value>
+              </Row>
+            )}
+            
+            {!sauda.is_dana_required && (
+              <Row>
+                <Label>Dana Deduction</Label>
+                <Value>Not Applicable</Value>
+              </Row>
+            )}
+            
+            <Row>
+              <Label>Final Weight</Label>
+              <Value>{sauda.final_weight}</Value>
+            </Row>
+          </SaudaGroup>
+        ))}
+      </Section>
+    </CalculationBreakdown>
+  );
+}
+```
+
+===================================================================================
+4. VALIDATION LOGIC:
+===================================================================================
+
+```typescript
+// When validating payment advice creation
+function validatePaymentAdvice(data: PaymentAdviceData) {
+  const errors: string[] = [];
+  
+  // If creating from ISP, show warning if mixed dana requirements
+  if (data.inward_slip_pass_id) {
+    // This is handled on backend, but you can show info to user
+    // "Note: Dana deduction will be calculated separately for each sauda 
+    //  based on their individual is_dana_required settings"
+  }
+  
+  return errors;
+}
+```
+
+===================================================================================
+5. STATE MANAGEMENT:
+===================================================================================
+
+```typescript
+// In your payment advice creation state
+interface PaymentAdviceCreationState {
+  selectedSaudaId?: string;
+  selectedISPId?: string;
+  sauda?: Sauda;  // Store selected sauda to check is_dana_required
+  saudas?: Sauda[];  // Store all saudas for ISP case
+  calculation: {
+    bill_weight: number;
+    kanta_weight: number;
+    dana_deduction: number;
+    final_weight: number;
+    sauda_breakdown?: Array<{
+      sauda_id: string;
+      kaanta_weight: number;
+      said_sent_weight: number;
+      dana_deduction: number;
+      final_weight: number;
+      is_dana_required: boolean;
+    }>;
+  };
+}
+
+// When sauda is selected
+async function onSaudaSelected(saudaId: string) {
+  const sauda = await fetchSauda(saudaId);
+  setState({
+    ...state,
+    selectedSaudaId: saudaId,
+    sauda: sauda,
+    calculation: await calculatePaymentAdviceFromSauda(saudaId)
+  });
+}
+
+// When ISP is selected
+async function onISPSelected(ispId: string) {
+  const kaantas = await fetchKaantas({ inward_slip_pass_id: ispId });
+  const saudaIds = [...new Set(kaantas.map(k => k.sauda_id))];
+  const saudas = await Promise.all(
+    saudaIds.map(id => fetchSauda(id))
+  );
+  
+  setState({
+    ...state,
+    selectedISPId: ispId,
+    saudas: saudas,
+    calculation: await calculatePaymentAdviceFromISP(ispId)
+  });
+}
+```
+
+===================================================================================
+6. USER EXPERIENCE CONSIDERATIONS:
+===================================================================================
+
+1. Sauda Form:
+   - Make `is_dana_required` checkbox clearly visible
+   - Add tooltip/help text explaining what it does
+   - Default to `true` for new saudas
+
+2. Payment Advice Creation:
+   - Show a clear breakdown of calculations
+   - For ISP with multiple saudas, show breakdown per sauda
+   - Highlight which saudas have dana deduction and which don't
+   - Use visual indicators (badges, icons) to show dana status
+
+3. Payment Advice Display:
+   - Always show whether dana was applied or not
+   - For ISP payment advice, show both summary and per-sauda breakdown
+   - Make it clear when dana deduction is "Not Applicable"
+
+4. Validation Messages:
+   - If user tries to create payment advice, show preview of calculations
+   - Warn if there are mixed dana requirements (some saudas require, some don't)
+
+===================================================================================
+7. EXAMPLE API RESPONSES:
+===================================================================================
+
+GET /api/v1/saudas/:id
+{
+  "id": "sauda-uuid",
+  "sauda_type": "exgodown",
+  "rice_type": "basmati",
+  "rate": 85.50,
+  "is_dana_required": true,  // NEW FIELD
+  // ... other fields
+}
+
+POST /api/v1/payment-advices (from ISP)
+{
+  "inward_slip_pass_id": "isp-uuid",
+  "payer_id": "user-uuid",
+  "recipient_id": "vendor-uuid",
+  // ... other fields
+}
+
+Response includes:
+{
+  "id": "payment-advice-uuid",
+  "bill_weight": 5000,      // Total from all kaantas
+  "kanta_weight": 5000,      // Total from all kaantas
+  "dana_deduction": 15,      // Only from saudas with is_dana_required=true
+  "final_weight": 4985,      // kanta_weight - dana_deduction
+  // ... other fields
+}
+
+Note: The backend calculates dana separately per sauda and sums them up.
+The frontend receives the final totals, but you can show breakdown if you
+calculate it on frontend or if backend provides it in response.
+
+===================================================================================
+8. MIGRATION NOTES:
+===================================================================================
+
+- All existing saudas will have `is_dana_required = true` by default
+- No breaking changes to existing payment advice records
+- New payment advices will respect the `is_dana_required` flag
+- When editing existing saudas, the field will default to `true` if not set
+
+===================================================================================
+END OF GUIDE
+===================================================================================
+
