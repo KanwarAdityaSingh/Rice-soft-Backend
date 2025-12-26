@@ -33,7 +33,7 @@ export const appConfig = {
   apis: {
     surepass: {
       panUrl: process.env.SUREPASS_PAN_API_URL || 'https://kyc-api.surepass.io/api/v1/pan/pan',
-      bankVerificationUrl: process.env.SUREPASS_BANK_API_URL || 'https://kyc-api.surepass.io/api/v1/bank-verification',
+      bankVerificationUrl: process.env.SUREPASS_BANK_API_URL || 'https://kyc-api.surepass.io/api/v1/bank-verification/',
       rcVerificationUrl: process.env.SUREPASS_RC_API_URL || 'https://kyc-api.surepass.io/api/v1/rc-verification',
       token: process.env.SUREPASS_API_TOKEN || '',
     },
