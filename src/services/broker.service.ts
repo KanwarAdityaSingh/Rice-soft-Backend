@@ -150,6 +150,14 @@ export class BrokerService {
     const gstData = await gstLookupService.lookupGST(gstNumber);
     const mappedData = gstLookupService.mapGSTToBusinessData(gstData);
 
+    // Map business_type to only 'individual' or 'company'
+    const mapBusinessType = (type?: string): 'individual' | 'company' | undefined => {
+      if (!type) return undefined;
+      if (type === 'individual') return 'individual';
+      // Map 'partnership' and 'llp' to 'company'
+      return 'company';
+    };
+
     // Create broker with fetched + provided data
     const brokerData: CreateBrokerDTO = {
       business_name: mappedData.business_name,
@@ -158,6 +166,7 @@ export class BrokerService {
       business_details: {
         ...mappedData.business_details,
         gst_number: gstNumber,
+        business_type: mapBusinessType(mappedData.business_details.business_type),
       },
       broker_details: brokerDetails || null,
       type: type as any,
@@ -201,6 +210,14 @@ export class BrokerService {
     const panData = await gstLookupService.lookupPAN(panNumber);
     const mappedData = gstLookupService.mapPANToBusinessData(panData);
 
+    // Map business_type to only 'individual' or 'company'
+    const mapBusinessType = (type?: string): 'individual' | 'company' | undefined => {
+      if (!type) return undefined;
+      if (type === 'individual') return 'individual';
+      // Map 'partnership' and 'llp' to 'company'
+      return 'company';
+    };
+
     // Create broker with fetched + provided data
     const brokerData: CreateBrokerDTO = {
       business_name: businessName || mappedData.business_name,
@@ -209,6 +226,7 @@ export class BrokerService {
       business_details: {
         ...mappedData.business_details,
         pan_number: panNumber,
+        business_type: mapBusinessType(mappedData.business_details.business_type),
       },
       broker_details: brokerDetails || null,
       type: type as any,
