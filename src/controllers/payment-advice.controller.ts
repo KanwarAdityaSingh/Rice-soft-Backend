@@ -253,7 +253,7 @@ export class PaymentAdviceController {
           const saudaMap = new Map<string, boolean>();
           saudas.forEach((sauda, index) => {
             if (sauda) {
-              saudaMap.set(saudaIds[index], sauda.is_dana_required);
+              saudaMap.set(saudaIds[index], sauda.is_dana_required ?? false);
             }
           });
           
@@ -447,7 +447,7 @@ export class PaymentAdviceController {
             const saudaMap = new Map<string, boolean>();
             saudas.forEach((sauda, index) => {
               if (sauda) {
-                saudaMap.set(saudaIds[index], sauda.is_dana_required);
+                saudaMap.set(saudaIds[index], sauda.is_dana_required ?? false);
               }
             });
             

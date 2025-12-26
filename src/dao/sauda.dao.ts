@@ -88,7 +88,7 @@ export class SaudaDAO {
       saudaData.uncooked_rice_image_url || null,
       saudaData.status || 'draft',
       saudaData.notes || null,
-      saudaData.is_dana_required !== undefined ? saudaData.is_dana_required : true,
+      saudaData.is_dana_required !== undefined ? saudaData.is_dana_required : null,
       saudaData.created_by || null,
     ];
 
