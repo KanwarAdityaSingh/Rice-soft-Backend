@@ -51,7 +51,7 @@ router.post(
 
 /**
  * @route   POST /api/v1/brokers/quickCreateFromGST
- * @desc    Quick create broker from GST number (for company/partnership/llp brokers)
+ * @desc    Quick create broker from GST number (for company brokers)
  * @access  Private
  */
 router.post(

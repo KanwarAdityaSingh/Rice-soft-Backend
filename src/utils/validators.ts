@@ -101,7 +101,7 @@ const businessDetailsSchema = Joi.object({
 
 // Business details validation schema for brokers
 // - Individual: requires PAN or Aadhaar
-// - Company/Partnership/LLP: requires GST number
+// - Company: requires GST number
 const brokerBusinessDetailsSchema = Joi.object({
   pan_number: Joi.string().optional().allow(null, '').length(10).uppercase(),
   aadhaar_number: Joi.string().optional().allow(null, '').pattern(/^[2-9]{1}[0-9]{11}$/).custom((value, helpers) => {
@@ -116,7 +116,7 @@ const brokerBusinessDetailsSchema = Joi.object({
     return value;
   }, 'Aadhaar number validation'),
   gst_number: Joi.string().optional().allow(null, '').length(15).uppercase(),
-  business_type: Joi.string().required().valid('individual', 'partnership', 'company', 'llp'),
+  business_type: Joi.string().required().valid('individual', 'company'),
 }).custom((value, helpers) => {
   const businessType = value.business_type;
   const hasPAN = value.pan_number && value.pan_number.trim() !== '';
@@ -130,8 +130,8 @@ const brokerBusinessDetailsSchema = Joi.object({
     }
   }
   
-  // For company/partnership/llp brokers: require GST
-  if (businessType === 'company' || businessType === 'partnership' || businessType === 'llp') {
+  // For company brokers: require GST
+  if (businessType === 'company') {
     if (!hasGST) {
       return helpers.error('custom.gstRequired');
     }
@@ -140,7 +140,7 @@ const brokerBusinessDetailsSchema = Joi.object({
   return value;
 }).messages({
   'custom.panOrAadhaarRequired': 'Either PAN number or Aadhaar number must be provided for individual brokers',
-  'custom.gstRequired': 'GST number is required for company/partnership/llp brokers'
+  'custom.gstRequired': 'GST number is required for company brokers'
 });
 
 // Bank details validation schema (reusable)

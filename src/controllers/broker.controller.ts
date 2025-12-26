@@ -539,6 +539,12 @@ export class BrokerController {
       }
       const mappedData = gstLookupService.mapPANToBusinessData(panData);
 
+      // Map business_type to only 'individual' or 'company' (partnership/llp -> company)
+      let businessType: 'individual' | 'company' = 'company';
+      if (mappedData.business_details.business_type === 'individual') {
+        businessType = 'individual';
+      }
+
       // Create broker with fetched + provided data
       const brokerData: CreateBrokerDTO = {
         business_name: business_name || mappedData.business_name,
@@ -547,6 +553,7 @@ export class BrokerController {
         business_details: {
           ...mappedData.business_details,
           pan_number,
+          business_type: businessType,
         },
         broker_details: broker_details || null,
         type,
@@ -585,7 +592,7 @@ export class BrokerController {
   }
 
   /**
-   * Quick create broker from GST number (for company/partnership/llp brokers)
+   * Quick create broker from GST number (for company brokers)
    * Fetches GST details and creates broker with additional required input
    */
   async createFromGST(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
@@ -680,11 +687,14 @@ export class BrokerController {
       const mappedData = gstLookupService.mapGSTToBusinessData(gstData);
 
       // Determine business type from GST data
-      let businessType: 'company' | 'partnership' | 'llp' = 'company';
-      if (mappedData.business_details.business_type === 'partnership') {
-        businessType = 'partnership';
-      } else if (mappedData.business_details.business_type === 'llp') {
-        businessType = 'llp';
+      // For brokers, only 'individual' and 'company' are allowed
+      // Map 'partnership' and 'llp' to 'company'
+      let businessType: 'individual' | 'company' = 'company';
+      if (mappedData.business_details.business_type === 'individual') {
+        businessType = 'individual';
+      } else {
+        // All other types (company, partnership, llp) map to 'company'
+        businessType = 'company';
       }
 
       // Create broker with fetched + provided data

@@ -16,7 +16,7 @@ export interface BusinessDetails {
   pan_number?: string;
   aadhaar_number?: string;
   gst_number?: string;
-  business_type?: 'individual' | 'partnership' | 'company' | 'llp';
+  business_type?: 'individual' | 'company';
 }
 
 export interface BankDetails {
