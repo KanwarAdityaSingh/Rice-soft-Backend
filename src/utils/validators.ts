@@ -428,6 +428,7 @@ export const createSaudaSchema = Joi.object({
   status: Joi.string().optional().valid('draft', 'active', 'completed', 'cancelled'),
   notes: Joi.string().optional().allow(null, '').max(1000),
   is_dana_required: Joi.boolean().optional().default(true),
+  sauda_date: Joi.string().optional().allow(null, '').isoDate(),
   created_by: Joi.string().optional().uuid(),
 });
 
@@ -449,6 +450,7 @@ export const updateSaudaSchema = Joi.object({
   status: Joi.string().optional().valid('draft', 'active', 'completed', 'cancelled'),
   notes: Joi.string().optional().allow(null, '').max(1000),
   is_dana_required: Joi.boolean().optional(),
+  sauda_date: Joi.string().optional().allow(null, '').isoDate(),
   updated_by: Joi.string().optional().uuid(),
 }).min(1);
 

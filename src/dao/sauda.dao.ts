@@ -2,6 +2,20 @@ import { db } from '../database/connection';
 import { Sauda, CreateSaudaDTO, UpdateSaudaDTO, SaudaStatus, SaudaType } from '../models/sauda.model';
 import { logger } from '../utils/logger';
 
+/**
+ * Format a Date object to YYYY-MM-DD string using UTC
+ * When PostgreSQL returns a DATE column, it's a Date object at midnight UTC,
+ * so we need to use UTC methods to get the correct date value
+ * For input dates, if they're Date objects, we also use UTC to avoid timezone issues
+ */
+function formatDateToLocalString(date: Date): string {
+  // Use UTC methods to avoid timezone conversion issues
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(date.getUTCDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 export class SaudaDAO {
   async findAll(
     includeInactive = false,
@@ -12,7 +26,8 @@ export class SaudaDAO {
     let query = `
       SELECT id, sauda_type, rice_type, rice_code_id, rate, broker_id, broker_commission, broker_commission_type,
              quantity, received_until_now, completion_percentage, cash_discount, cash_discount_type, estimated_delivery_time,
-             purchaser_id, cooked_rice_image_url, uncooked_rice_image_url, status, notes, is_dana_required,
+             purchaser_id, cooked_rice_image_url, uncooked_rice_image_url, status, notes, is_dana_required, 
+             TO_CHAR(sauda_date, 'YYYY-MM-DD') as sauda_date,
              created_at, updated_at, created_by, updated_by
       FROM saudas
       WHERE 1=1
@@ -50,7 +65,8 @@ export class SaudaDAO {
     const query = `
       SELECT id, sauda_type, rice_type, rice_code_id, rate, broker_id, broker_commission, broker_commission_type,
              quantity, received_until_now, completion_percentage, cash_discount, cash_discount_type, estimated_delivery_time,
-             purchaser_id, cooked_rice_image_url, uncooked_rice_image_url, status, notes, is_dana_required,
+             purchaser_id, cooked_rice_image_url, uncooked_rice_image_url, status, notes, is_dana_required, 
+             TO_CHAR(sauda_date, 'YYYY-MM-DD') as sauda_date,
              created_at, updated_at, created_by, updated_by
       FROM saudas
       WHERE id = $1
@@ -63,11 +79,12 @@ export class SaudaDAO {
     const query = `
       INSERT INTO saudas (sauda_type, rice_type, rice_code_id, rate, broker_id, broker_commission, broker_commission_type,
                          quantity, cash_discount, cash_discount_type, estimated_delivery_time,
-                         purchaser_id, cooked_rice_image_url, uncooked_rice_image_url, status, notes, is_dana_required, created_by)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+                         purchaser_id, cooked_rice_image_url, uncooked_rice_image_url, status, notes, is_dana_required, sauda_date, created_by)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
       RETURNING id, sauda_type, rice_type, rice_code_id, rate, broker_id, broker_commission, broker_commission_type,
                 quantity, received_until_now, completion_percentage, cash_discount, cash_discount_type, estimated_delivery_time,
-                purchaser_id, cooked_rice_image_url, uncooked_rice_image_url, status, notes, is_dana_required,
+                purchaser_id, cooked_rice_image_url, uncooked_rice_image_url, status, notes, is_dana_required, 
+                TO_CHAR(sauda_date, 'YYYY-MM-DD') as sauda_date,
                 created_at, updated_at, created_by, updated_by
     `;
     
@@ -89,6 +106,11 @@ export class SaudaDAO {
       saudaData.status || 'draft',
       saudaData.notes || null,
       saudaData.is_dana_required !== undefined ? saudaData.is_dana_required : null,
+      saudaData.sauda_date !== undefined && saudaData.sauda_date !== null
+        ? (typeof saudaData.sauda_date === 'string'
+            ? saudaData.sauda_date
+            : formatDateToLocalString(saudaData.sauda_date))
+        : null,
       saudaData.created_by || null,
     ];
 
@@ -175,6 +197,20 @@ export class SaudaDAO {
       fields.push(`is_dana_required = $${paramCount++}`);
       values.push(saudaData.is_dana_required);
     }
+    if (saudaData.sauda_date !== undefined) {
+      fields.push(`sauda_date = $${paramCount++}`);
+      let dateValue: string | null = null;
+      if (saudaData.sauda_date !== null) {
+        if (typeof saudaData.sauda_date === 'string') {
+          // If it's already a string, use it directly (assuming YYYY-MM-DD format)
+          dateValue = saudaData.sauda_date;
+        } else if (saudaData.sauda_date instanceof Date) {
+          // If it's a Date object, convert to YYYY-MM-DD format using local timezone
+          dateValue = formatDateToLocalString(saudaData.sauda_date);
+        }
+      }
+      values.push(dateValue);
+    }
     if (saudaData.updated_by !== undefined) {
       fields.push(`updated_by = $${paramCount++}`);
       values.push(saudaData.updated_by);
@@ -193,7 +229,8 @@ export class SaudaDAO {
       WHERE id = $${paramCount}
       RETURNING id, sauda_type, rice_type, rice_code_id, rate, broker_id, broker_commission, broker_commission_type,
                 quantity, received_until_now, completion_percentage, cash_discount, cash_discount_type, estimated_delivery_time,
-                purchaser_id, cooked_rice_image_url, uncooked_rice_image_url, status, notes, is_dana_required,
+                purchaser_id, cooked_rice_image_url, uncooked_rice_image_url, status, notes, is_dana_required, 
+                TO_CHAR(sauda_date, 'YYYY-MM-DD') as sauda_date,
                 created_at, updated_at, created_by, updated_by
     `;
 

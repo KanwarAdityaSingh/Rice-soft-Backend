@@ -24,6 +24,22 @@ import { whatsAppService } from '../services/whatsapp.service';
 import { emailService } from '../services/email.service';
 import { logger } from '../utils/logger';
 
+/**
+ * Format a Date object to YYYY-MM-DD string using UTC
+ * When PostgreSQL returns a DATE column, it's a Date object at midnight UTC,
+ * so we need to use UTC methods to get the correct date value
+ */
+function formatDateToLocalString(date: Date | string | null | undefined): string | null {
+  if (!date) return null;
+  // If it's already a string, return it directly (from TO_CHAR in SQL)
+  if (typeof date === 'string') return date;
+  // Format using UTC components (PostgreSQL DATE columns are at midnight UTC)
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(date.getUTCDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 export class SaudaController {
   async getAll(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
@@ -55,6 +71,7 @@ export class SaudaController {
         status: sauda.status,
         notes: sauda.notes,
         is_dana_required: sauda.is_dana_required,
+        sauda_date: formatDateToLocalString(sauda.sauda_date),
         created_at: sauda.created_at.toISOString(),
         updated_at: sauda.updated_at.toISOString(),
       }));
@@ -95,6 +112,7 @@ export class SaudaController {
         status: sauda.status,
         notes: sauda.notes,
         is_dana_required: sauda.is_dana_required,
+        sauda_date: formatDateToLocalString(sauda.sauda_date),
         created_at: sauda.created_at.toISOString(),
         updated_at: sauda.updated_at.toISOString(),
       };
@@ -171,6 +189,7 @@ export class SaudaController {
         status: sauda.status,
         notes: sauda.notes,
         is_dana_required: sauda.is_dana_required,
+        sauda_date: formatDateToLocalString(sauda.sauda_date),
         created_at: sauda.created_at.toISOString(),
         updated_at: sauda.updated_at.toISOString(),
       };
@@ -262,6 +281,7 @@ export class SaudaController {
         status: sauda.status,
         notes: sauda.notes,
         is_dana_required: sauda.is_dana_required,
+        sauda_date: formatDateToLocalString(sauda.sauda_date),
         created_at: sauda.created_at.toISOString(),
         updated_at: sauda.updated_at.toISOString(),
       };
@@ -311,6 +331,7 @@ export class SaudaController {
         status: sauda.status,
         notes: sauda.notes,
         is_dana_required: sauda.is_dana_required,
+        sauda_date: formatDateToLocalString(sauda.sauda_date),
         created_at: sauda.created_at.toISOString(),
         updated_at: sauda.updated_at.toISOString(),
       };

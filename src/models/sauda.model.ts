@@ -26,6 +26,7 @@ export interface Sauda {
   status: SaudaStatus;
   notes: string | null;
   is_dana_required: boolean | null;
+  sauda_date: Date | string | null; // Can be Date object or string (when using TO_CHAR in SQL)
   created_at: Date;
   updated_at: Date;
   created_by: string | null;
@@ -50,6 +51,7 @@ export interface CreateSaudaDTO {
   status?: SaudaStatus;
   notes?: string;
   is_dana_required?: boolean;
+  sauda_date?: string | Date;
   created_by?: string;
 }
 
@@ -71,6 +73,7 @@ export interface UpdateSaudaDTO {
   status?: SaudaStatus;
   notes?: string;
   is_dana_required?: boolean;
+  sauda_date?: string | Date;
   updated_by?: string;
 }
 
@@ -95,6 +98,7 @@ export interface SaudaResponse {
   status: SaudaStatus;
   notes: string | null;
   is_dana_required: boolean | null;
+  sauda_date: string | null;
   created_at: string;
   updated_at: string;
 }
