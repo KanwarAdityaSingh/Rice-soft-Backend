@@ -15,6 +15,7 @@ export interface CreateProductDTO {
   name: string;
   description?: string;
   brand?: Brand;
+  packet_type: string; // Required for auto-creating packaging entries
   created_by?: string;
 }
 

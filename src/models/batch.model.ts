@@ -1,3 +1,5 @@
+import { PackagingWeight } from './packaging.model';
+
 export type BatchStatus = 'planned' | 'in_progress' | 'completed' | 'cancelled';
 
 export interface Batch {
@@ -5,8 +7,8 @@ export interface Batch {
   batch_number: string;
   product_id: string;
   recipe_id: string;
-  packaging_id: string;
-  quantity: number;
+  packaging_id: string; // Kept for backward compatibility, but batches can have multiple finished goods entries
+  quantity: number; // Total quantity across all packaging sizes
   status: BatchStatus;
   created_at: Date;
   updated_at: Date;
@@ -14,11 +16,17 @@ export interface Batch {
   updated_by: string | null;
 }
 
+export interface PackagingQuantity {
+  weight: PackagingWeight;
+  quantity: number; // quantity in kg for this packaging size
+}
+
 export interface CreateBatchDTO {
   product_id: string;
   recipe_id: string;
-  packaging_id: string;
-  quantity: number;
+  packaging_quantities: PackagingQuantity[]; // Array of packaging quantities
+  packaging_id?: string; // Optional for backward compatibility during migration
+  quantity?: number; // Optional for backward compatibility, calculated from packaging_quantities
   batch_number?: string;
   status?: BatchStatus;
   created_by?: string;

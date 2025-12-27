@@ -1,5 +1,6 @@
 import { Response, NextFunction } from 'express';
 import { packagingDAO } from '../dao/packaging.dao';
+import { productDAO } from '../dao/product.dao';
 import { packetsInventoryDAO } from '../dao/packets-inventory.dao';
 import { packetsInventoryAuditDAO } from '../dao/inventory-audit.dao';
 import { INVENTORY_AUDIT_REASONS } from '../models/inventory-audit.model';
@@ -8,16 +9,18 @@ import { validate, uuidSchema } from '../utils/validators';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { CreatePackagingDTO, UpdatePackagingDTO, PackagingResponse } from '../models/packaging.model';
 import { createPackagingSchema, updatePackagingSchema, createPacketsInventorySchema } from '../utils/validators';
-import { NotFoundError } from '../utils/errors';
+import { NotFoundError, BadRequestError } from '../utils/errors';
 
 export class PackagingController {
-  async getAll(_req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+  async getAll(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const packaging = await packagingDAO.findAll();
+      const productId = req.query.product_id as string | undefined;
+      const packaging = await packagingDAO.findAll(productId);
 
       const packagingResponses: PackagingResponse[] = packaging.map((pkg) => ({
         id: pkg.id,
-        holding_capacity: parseFloat(pkg.holding_capacity.toString()),
+        product_id: pkg.product_id,
+        holding_capacity: pkg.holding_capacity,
         packet_type: pkg.packet_type,
         source: pkg.source,
         created_at: pkg.created_at.toISOString(),
@@ -41,7 +44,8 @@ export class PackagingController {
 
       const packagingResponse: PackagingResponse = {
         id: packaging.id,
-        holding_capacity: parseFloat(packaging.holding_capacity.toString()),
+        product_id: packaging.product_id,
+        holding_capacity: packaging.holding_capacity,
         packet_type: packaging.packet_type,
         source: packaging.source,
         created_at: packaging.created_at.toISOString(),
@@ -58,6 +62,23 @@ export class PackagingController {
     try {
       const packagingData = validate<CreatePackagingDTO>(createPackagingSchema, req.body);
 
+      // Validate product exists
+      const product = await productDAO.findById(packagingData.product_id);
+      if (!product) {
+        throw new NotFoundError('Product not found');
+      }
+
+      // Check if packaging with same product_id and holding_capacity already exists
+      const existingPackaging = await packagingDAO.findByProductAndWeight(
+        packagingData.product_id,
+        packagingData.holding_capacity
+      );
+      if (existingPackaging) {
+        throw new BadRequestError(
+          `Packaging with weight ${packagingData.holding_capacity} kg already exists for this product`
+        );
+      }
+
       // Set created_by from authenticated user
       if (req.user) {
         packagingData.created_by = req.user.userId;
@@ -67,7 +88,8 @@ export class PackagingController {
 
       const packagingResponse: PackagingResponse = {
         id: packaging.id,
-        holding_capacity: parseFloat(packaging.holding_capacity.toString()),
+        product_id: packaging.product_id,
+        holding_capacity: packaging.holding_capacity,
         packet_type: packaging.packet_type,
         source: packaging.source,
         created_at: packaging.created_at.toISOString(),
@@ -97,7 +119,8 @@ export class PackagingController {
 
       const packagingResponse: PackagingResponse = {
         id: packaging.id,
-        holding_capacity: parseFloat(packaging.holding_capacity.toString()),
+        product_id: packaging.product_id,
+        holding_capacity: packaging.holding_capacity,
         packet_type: packaging.packet_type,
         source: packaging.source,
         created_at: packaging.created_at.toISOString(),

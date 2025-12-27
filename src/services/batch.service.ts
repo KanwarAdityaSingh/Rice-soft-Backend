@@ -15,7 +15,7 @@ import {
   finishedGoodsInventoryAuditDAO 
 } from '../dao/inventory-audit.dao';
 import { INVENTORY_AUDIT_REASONS } from '../models/inventory-audit.model';
-import { CreateBatchDTO, Batch } from '../models/batch.model';
+import { CreateBatchDTO, Batch, PackagingQuantity } from '../models/batch.model';
 import { NotFoundError, BadRequestError } from '../utils/errors';
 import { logger } from '../utils/logger';
 
@@ -26,7 +26,7 @@ export class BatchService {
     try {
       await client.query('BEGIN');
 
-      // 1. Validate product, recipe, packaging exist
+      // 1. Validate product and recipe exist
       const product = await productDAO.findById(batchData.product_id);
       if (!product) {
         throw new NotFoundError('Product not found');
@@ -37,21 +37,59 @@ export class BatchService {
         throw new NotFoundError('Recipe not found');
       }
 
-      const packaging = await packagingDAO.findById(batchData.packaging_id);
-      if (!packaging) {
-        throw new NotFoundError('Packaging not found');
+      // 2. Handle backward compatibility: if packaging_id and quantity are provided, convert to packaging_quantities
+      let packagingQuantities: PackagingQuantity[] = [];
+      let totalQuantity: number;
+      let primaryPackagingId: string | undefined;
+
+      if (batchData.packaging_quantities && batchData.packaging_quantities.length > 0) {
+        // New flow: use packaging_quantities array
+        packagingQuantities = batchData.packaging_quantities;
+        totalQuantity = packagingQuantities.reduce((sum, pq) => sum + pq.quantity, 0);
+        
+        // Validate all packaging entries exist
+        for (const pq of packagingQuantities) {
+          const packaging = await packagingDAO.findByProductAndWeight(batchData.product_id, pq.weight);
+          if (!packaging) {
+            throw new NotFoundError(`Packaging not found for product ${batchData.product_id} with weight ${pq.weight} kg`);
+          }
+          if (pq.quantity <= 0) {
+            throw new BadRequestError(`Quantity must be greater than 0 for ${pq.weight} kg packaging`);
+          }
+        }
+        
+        // Use first packaging as primary for batch record (backward compatibility)
+        const firstPackaging = await packagingDAO.findByProductAndWeight(batchData.product_id, packagingQuantities[0].weight);
+        primaryPackagingId = firstPackaging?.id;
+      } else if (batchData.packaging_id && batchData.quantity) {
+        // Backward compatibility: old flow with single packaging
+        const packaging = await packagingDAO.findById(batchData.packaging_id);
+        if (!packaging) {
+          throw new NotFoundError('Packaging not found');
+        }
+        if (packaging.product_id !== batchData.product_id) {
+          throw new BadRequestError('Packaging does not belong to the specified product');
+        }
+        packagingQuantities = [{
+          weight: packaging.holding_capacity as 10 | 25 | 50,
+          quantity: batchData.quantity
+        }];
+        totalQuantity = batchData.quantity;
+        primaryPackagingId = batchData.packaging_id;
+      } else {
+        throw new BadRequestError('Either packaging_quantities array or (packaging_id + quantity) must be provided');
       }
 
-      // 2. Validate recipe formula sums to 100%
+      // 3. Validate recipe formula sums to 100%
       const formulaSum = recipe.formula.reduce((sum, item) => sum + item.percentage, 0);
       if (Math.abs(formulaSum - 100) > 0.01) {
         throw new BadRequestError(`Recipe formula percentages must sum to 100%, got ${formulaSum}%`);
       }
 
-      // 3. Calculate quantities per lot from batch.quantity and recipe formula
+      // 4. Calculate quantities per lot from totalQuantity and recipe formula
       const lotQuantities: Array<{ lotId: string; quantity: number; percentage: number }> = [];
       for (const formulaItem of recipe.formula) {
-        const quantity = (batchData.quantity * formulaItem.percentage) / 100;
+        const quantity = (totalQuantity * formulaItem.percentage) / 100;
         lotQuantities.push({
           lotId: formulaItem.lot_id,
           quantity,
@@ -59,7 +97,7 @@ export class BatchService {
         });
       }
 
-      // 4. Check lot inventory has sufficient quantity for each lot
+      // 5. Check lot inventory has sufficient quantity for each lot
       for (const lotQty of lotQuantities) {
         const lot = await inwardSlipLotDAO.findById(lotQty.lotId);
         if (!lot) {
@@ -74,17 +112,38 @@ export class BatchService {
         }
       }
 
-      // 5. Check packets inventory has sufficient empty packets
-      const packetsNeeded = Math.ceil(batchData.quantity / packaging.holding_capacity);
-      const packetsInventory = await packetsInventoryDAO.findByPackagingId(batchData.packaging_id);
-      if (!packetsInventory || packetsInventory.available_quantity < packetsNeeded) {
-        throw new BadRequestError(
-          `Insufficient empty packets. Available: ${packetsInventory?.available_quantity || 0}, Required: ${packetsNeeded}`
-        );
+      // 6. Check packets inventory has sufficient empty packets for each packaging size
+      const packagingChecks: Array<{
+        packaging: any;
+        packetsNeeded: number;
+        packetsInventory: any;
+      }> = [];
+
+      for (const pq of packagingQuantities) {
+        const packaging = await packagingDAO.findByProductAndWeight(batchData.product_id, pq.weight);
+        if (!packaging) {
+          throw new NotFoundError(`Packaging not found for product ${batchData.product_id} with weight ${pq.weight} kg`);
+        }
+
+        const packetsNeeded = Math.ceil(pq.quantity / pq.weight);
+        const packetsInventory = await packetsInventoryDAO.findByPackagingId(packaging.id);
+        
+        if (!packetsInventory || packetsInventory.available_quantity < packetsNeeded) {
+          throw new BadRequestError(
+            `Insufficient empty packets for ${pq.weight} kg packaging. Available: ${packetsInventory?.available_quantity || 0}, Required: ${packetsNeeded}`
+          );
+        }
+
+        packagingChecks.push({ packaging, packetsNeeded, packetsInventory });
       }
 
-      // 6. Create batch record
-      const batch = await batchDAO.create(batchData);
+      // 7. Create batch record (use primary packaging_id for backward compatibility)
+      const batchCreateData: CreateBatchDTO = {
+        ...batchData,
+        packaging_id: primaryPackagingId,
+        quantity: totalQuantity
+      };
+      const batch = await batchDAO.create(batchCreateData);
 
       // 7. Create batch_lot_usage records (lot-level tracking)
       const riceCodeUsageMap = new Map<string, { riceCodeId: string; riceType: string | null; totalQty: number }>();
@@ -128,7 +187,7 @@ export class BatchService {
         }
 
         // Log lot inventory reduction audit
-        const lotCalculation = `Batch Quantity: ${batchData.quantity} kg | Recipe Share: ${lotQty.percentage}% | Lot Consumption = ${batchData.quantity} x ${lotQty.percentage}/100 = ${lotQty.quantity.toFixed(2)} kg`;
+        const lotCalculation = `Batch Total Quantity: ${totalQuantity} kg | Recipe Share: ${lotQty.percentage}% | Lot Consumption = ${totalQuantity} x ${lotQty.percentage}/100 = ${lotQty.quantity.toFixed(2)} kg`;
         
         await lotInventoryAuditDAO.create({
           lot_inventory_id: lotInventory?.id,
@@ -235,69 +294,73 @@ export class BatchService {
         );
       }
 
-      // 10. Calculate packets needed: batch.quantity / packaging.holding_capacity
-      // Already calculated above as packetsNeeded
-      const packetsQuantityBefore = packetsInventory.available_quantity;
-      const packetsQuantityAfter = packetsQuantityBefore - packetsNeeded;
+      // 9. Process each packaging size: decrement packets inventory and create finished goods entries
+      for (let i = 0; i < packagingChecks.length; i++) {
+        const { packaging, packetsNeeded, packetsInventory } = packagingChecks[i];
+        const pq = packagingQuantities[i];
 
-      // 11. Decrement packets inventory
-      const packetsDecremented = await packetsInventoryDAO.decrementQuantity(batchData.packaging_id, packetsNeeded);
-      if (!packetsDecremented) {
-        throw new BadRequestError('Failed to decrement packets inventory');
+        // Decrement packets inventory
+        const packetsQuantityBefore = packetsInventory.available_quantity;
+        const packetsQuantityAfter = packetsQuantityBefore - packetsNeeded;
+
+        const packetsDecremented = await packetsInventoryDAO.decrementQuantity(packaging.id, packetsNeeded);
+        if (!packetsDecremented) {
+          throw new BadRequestError(`Failed to decrement packets inventory for ${pq.weight} kg packaging`);
+        }
+
+        // Log packets inventory reduction audit
+        const packetsCalculation = `Batch Quantity: ${pq.quantity} kg | Packet Capacity: ${packaging.holding_capacity} kg | Packets Required = ceil(${pq.quantity}/${packaging.holding_capacity}) = ${packetsNeeded} ${packaging.packet_type} packets`;
+        
+        await packetsInventoryAuditDAO.create({
+          packets_inventory_id: packetsInventory.id,
+          packaging_id: packaging.id,
+          operation_type: 'reduction',
+          quantity_change: packetsNeeded,
+          quantity_before: packetsQuantityBefore,
+          quantity_after: packetsQuantityAfter,
+          reason: INVENTORY_AUDIT_REASONS.PACKETS.BATCH_CONSUMPTION,
+          reference_type: 'batch',
+          reference_id: batch.id,
+          batch_id: batch.id,
+          batch_number: batch.batch_number,
+          notes: packetsCalculation,
+          created_by: batchData.created_by
+        });
+
+        // Create finished goods inventory entry for this packaging size
+        const totalWeight = packetsNeeded * packaging.holding_capacity;
+        const finishedGoods = await finishedGoodsInventoryDAO.create({
+          product_id: batchData.product_id,
+          batch_id: batch.id,
+          packaging_id: packaging.id,
+          no_of_packets: packetsNeeded,
+          total_weight: totalWeight,
+          created_by: batchData.created_by
+        });
+
+        // Log finished goods inventory addition audit
+        const finishedGoodsCalculation = `Packets Produced: ${packetsNeeded} | Packet Capacity: ${packaging.holding_capacity} kg | Total Weight = ${packetsNeeded} x ${packaging.holding_capacity} = ${totalWeight} kg | Product: ${product.name}`;
+        
+        await finishedGoodsInventoryAuditDAO.create({
+          finished_goods_inventory_id: finishedGoods.id,
+          product_id: batchData.product_id,
+          batch_id: batch.id,
+          batch_number: batch.batch_number,
+          packaging_id: packaging.id,
+          operation_type: 'addition',
+          packets_change: packetsNeeded,
+          packets_before: 0,
+          packets_after: packetsNeeded,
+          weight_change: totalWeight,
+          weight_before: 0,
+          weight_after: totalWeight,
+          reason: INVENTORY_AUDIT_REASONS.FINISHED_GOODS.BATCH_PRODUCTION,
+          reference_type: 'batch',
+          reference_id: batch.id,
+          notes: finishedGoodsCalculation,
+          created_by: batchData.created_by
+        });
       }
-
-      // Log packets inventory reduction audit
-      const packetsCalculation = `Batch Quantity: ${batchData.quantity} kg | Packet Capacity: ${packaging.holding_capacity} kg | Packets Required = ceil(${batchData.quantity}/${packaging.holding_capacity}) = ${packetsNeeded} ${packaging.packet_type} packets`;
-      
-      await packetsInventoryAuditDAO.create({
-        packets_inventory_id: packetsInventory.id,
-        packaging_id: batchData.packaging_id,
-        operation_type: 'reduction',
-        quantity_change: packetsNeeded,
-        quantity_before: packetsQuantityBefore,
-        quantity_after: packetsQuantityAfter,
-        reason: INVENTORY_AUDIT_REASONS.PACKETS.BATCH_CONSUMPTION,
-        reference_type: 'batch',
-        reference_id: batch.id,
-        batch_id: batch.id,
-        batch_number: batch.batch_number,
-        notes: packetsCalculation,
-        created_by: batchData.created_by
-      });
-
-      // 12. Create finished goods inventory entry
-      const totalWeight = packetsNeeded * packaging.holding_capacity;
-      const finishedGoods = await finishedGoodsInventoryDAO.create({
-        product_id: batchData.product_id,
-        batch_id: batch.id,
-        packaging_id: batchData.packaging_id,
-        no_of_packets: packetsNeeded,
-        total_weight: totalWeight,
-        created_by: batchData.created_by
-      });
-
-      // Log finished goods inventory addition audit
-      const finishedGoodsCalculation = `Packets Produced: ${packetsNeeded} | Packet Capacity: ${packaging.holding_capacity} kg | Total Weight = ${packetsNeeded} x ${packaging.holding_capacity} = ${totalWeight} kg | Product: ${product.name}`;
-      
-      await finishedGoodsInventoryAuditDAO.create({
-        finished_goods_inventory_id: finishedGoods.id,
-        product_id: batchData.product_id,
-        batch_id: batch.id,
-        batch_number: batch.batch_number,
-        packaging_id: batchData.packaging_id,
-        operation_type: 'addition',
-        packets_change: packetsNeeded,
-        packets_before: 0,
-        packets_after: packetsNeeded,
-        weight_change: totalWeight,
-        weight_before: 0,
-        weight_after: totalWeight,
-        reason: INVENTORY_AUDIT_REASONS.FINISHED_GOODS.BATCH_PRODUCTION,
-        reference_type: 'batch',
-        reference_id: batch.id,
-        notes: finishedGoodsCalculation,
-        created_by: batchData.created_by
-      });
 
       await client.query('COMMIT');
       logger.info('Batch created successfully with inventory audit logs', { batch_id: batch.id, batch_number: batch.batch_number });

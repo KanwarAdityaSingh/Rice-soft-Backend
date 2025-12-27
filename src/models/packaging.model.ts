@@ -1,6 +1,9 @@
+export type PackagingWeight = 10 | 25 | 50;
+
 export interface Packaging {
   id: string;
-  holding_capacity: number;
+  product_id: string;
+  holding_capacity: PackagingWeight;
   packet_type: string;
   source: string | null;
   created_at: Date;
@@ -10,14 +13,15 @@ export interface Packaging {
 }
 
 export interface CreatePackagingDTO {
-  holding_capacity: number;
+  product_id: string;
+  holding_capacity: PackagingWeight;
   packet_type: string;
   source?: string;
   created_by?: string;
 }
 
 export interface UpdatePackagingDTO {
-  holding_capacity?: number;
+  holding_capacity?: PackagingWeight;
   packet_type?: string;
   source?: string;
   updated_by?: string;
@@ -25,7 +29,8 @@ export interface UpdatePackagingDTO {
 
 export interface PackagingResponse {
   id: string;
-  holding_capacity: number;
+  product_id: string;
+  holding_capacity: PackagingWeight;
   packet_type: string;
   source: string | null;
   created_at: string;

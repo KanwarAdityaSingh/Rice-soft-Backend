@@ -770,6 +770,7 @@ export const createProductSchema = Joi.object({
   name: Joi.string().required().min(1).max(255),
   description: Joi.string().optional().allow(null, ''),
   brand: Joi.string().optional().valid('Tamara', 'Hariom').allow(null, ''),
+  packet_type: Joi.string().required().min(1).max(255),
   created_by: Joi.string().optional().uuid(),
 });
 
@@ -782,29 +783,36 @@ export const updateProductSchema = Joi.object({
 
 // Packaging validation schemas
 export const createPackagingSchema = Joi.object({
-  holding_capacity: Joi.number().required().min(0.01).precision(2),
+  product_id: Joi.string().required().uuid(),
+  holding_capacity: Joi.number().required().valid(10, 25, 50),
   packet_type: Joi.string().required().min(1).max(255),
   source: Joi.string().optional().allow(null, '').max(255),
   created_by: Joi.string().optional().uuid(),
 });
 
 export const updatePackagingSchema = Joi.object({
-  holding_capacity: Joi.number().optional().min(0.01).precision(2),
+  holding_capacity: Joi.number().optional().valid(10, 25, 50),
   packet_type: Joi.string().optional().min(1).max(255),
   source: Joi.string().optional().allow(null, '').max(255),
   updated_by: Joi.string().optional().uuid(),
 }).min(1);
 
 // Batch validation schemas
+const packagingQuantitySchema = Joi.object({
+  weight: Joi.number().required().valid(10, 25, 50),
+  quantity: Joi.number().required().min(0.01).precision(2),
+});
+
 export const createBatchSchema = Joi.object({
   product_id: Joi.string().required().uuid(),
   recipe_id: Joi.string().required().uuid(),
-  packaging_id: Joi.string().required().uuid(),
-  quantity: Joi.number().required().min(0.01).precision(2),
+  packaging_quantities: Joi.array().items(packagingQuantitySchema).optional().min(1),
+  packaging_id: Joi.string().optional().uuid(), // For backward compatibility
+  quantity: Joi.number().optional().min(0.01).precision(2), // For backward compatibility
   batch_number: Joi.string().optional().max(255),
   status: Joi.string().optional().valid('planned', 'in_progress', 'completed', 'cancelled'),
   created_by: Joi.string().optional().uuid(),
-});
+}).or('packaging_quantities', 'packaging_id'); // At least one must be provided
 
 export const updateBatchSchema = Joi.object({
   status: Joi.string().optional().valid('planned', 'in_progress', 'completed', 'cancelled'),

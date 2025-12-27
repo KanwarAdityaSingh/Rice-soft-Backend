@@ -1,5 +1,6 @@
 import { Response, NextFunction } from 'express';
 import { productDAO } from '../dao/product.dao';
+import { productService } from '../services/product.service';
 import { ResponseHandler } from '../utils/response';
 import { validate, uuidSchema } from '../utils/validators';
 import { AuthRequest } from '../middleware/auth.middleware';
@@ -69,7 +70,8 @@ export class ProductController {
         productData.created_by = req.user.userId;
       }
 
-      const product = await productDAO.create(productData);
+      // Use productService to auto-create packaging entries
+      const product = await productService.createProduct(productData);
 
       const productResponse: ProductResponse = {
         id: product.id,
@@ -80,7 +82,7 @@ export class ProductController {
         updated_at: product.updated_at.toISOString(),
       };
 
-      return ResponseHandler.created(res, productResponse, 'Product created successfully');
+      return ResponseHandler.created(res, productResponse, 'Product created successfully with packaging entries (10kg, 25kg, 50kg)');
     } catch (error) {
       next(error);
     }
