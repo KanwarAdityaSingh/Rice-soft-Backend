@@ -16,6 +16,7 @@ router.get('/packets', inventoryController.getPackets.bind(inventoryController))
 router.get('/lots', inventoryController.getLots.bind(inventoryController));
 router.get('/bags', inventoryController.getBags.bind(inventoryController));
 router.get('/summary', inventoryController.getSummary.bind(inventoryController));
+router.get('/hierarchical', inventoryController.getHierarchical.bind(inventoryController));
 
 // =====================================================
 // AUDIT ENDPOINTS - LOT INVENTORY

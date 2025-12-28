@@ -5,7 +5,8 @@ export interface Packaging {
   product_id: string;
   holding_capacity: PackagingWeight;
   packet_type: string;
-  source: string | null;
+  packaging_vendor_id: string | null;
+  ordered_weight: number | null;
   created_at: Date;
   updated_at: Date;
   created_by: string | null;
@@ -16,14 +17,16 @@ export interface CreatePackagingDTO {
   product_id: string;
   holding_capacity: PackagingWeight;
   packet_type: string;
-  source?: string;
+  packaging_vendor_id?: string;
+  ordered_weight?: number;
   created_by?: string;
 }
 
 export interface UpdatePackagingDTO {
   holding_capacity?: PackagingWeight;
   packet_type?: string;
-  source?: string;
+  packaging_vendor_id?: string;
+  ordered_weight?: number;
   updated_by?: string;
 }
 
@@ -32,7 +35,8 @@ export interface PackagingResponse {
   product_id: string;
   holding_capacity: PackagingWeight;
   packet_type: string;
-  source: string | null;
+  packaging_vendor_id: string | null;
+  ordered_weight: number | null;
   created_at: string;
   updated_at: string;
 }

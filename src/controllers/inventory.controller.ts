@@ -65,6 +65,16 @@ export class InventoryController {
     }
   }
 
+  async getHierarchical(_req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const hierarchicalInventory = await inventoryService.getHierarchicalInventory();
+
+      return ResponseHandler.success(res, hierarchicalInventory);
+    } catch (error) {
+      next(error);
+    }
+  }
+
   // =====================================================
   // LOT INVENTORY AUDIT ENDPOINTS
   // =====================================================

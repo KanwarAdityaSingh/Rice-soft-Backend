@@ -772,7 +772,7 @@ export const createProductSchema = Joi.object({
   name: Joi.string().required().min(1).max(255),
   description: Joi.string().optional().allow(null, ''),
   brand: Joi.string().optional().valid('Tamara', 'Hariom').allow(null, ''),
-  packet_type: Joi.string().required().min(1).max(255),
+  rice_type: Joi.string().optional().valid('basmati', 'non_basmati', 'parboiled', 'raw', 'raw_basmati', 'steam_basmati', 'white_sella', 'golden_sella').allow(null, ''),
   created_by: Joi.string().optional().uuid(),
 });
 
@@ -780,6 +780,7 @@ export const updateProductSchema = Joi.object({
   name: Joi.string().optional().min(1).max(255),
   description: Joi.string().optional().allow(null, ''),
   brand: Joi.string().optional().valid('Tamara', 'Hariom').allow(null, ''),
+  rice_type: Joi.string().optional().valid('basmati', 'non_basmati', 'parboiled', 'raw', 'raw_basmati', 'steam_basmati', 'white_sella', 'golden_sella').allow(null, ''),
   updated_by: Joi.string().optional().uuid(),
 }).min(1);
 
@@ -788,43 +789,66 @@ export const createPackagingSchema = Joi.object({
   product_id: Joi.string().required().uuid(),
   holding_capacity: Joi.number().required().valid(10, 25, 50),
   packet_type: Joi.string().required().min(1).max(255),
-  source: Joi.string().optional().allow(null, '').max(255),
+  packaging_vendor_id: Joi.string().optional().uuid().allow(null, ''),
+  ordered_weight: Joi.number().optional().min(0).precision(2).allow(null, ''),
   created_by: Joi.string().optional().uuid(),
 });
 
 export const updatePackagingSchema = Joi.object({
   holding_capacity: Joi.number().optional().valid(10, 25, 50),
   packet_type: Joi.string().optional().min(1).max(255),
-  source: Joi.string().optional().allow(null, '').max(255),
+  packaging_vendor_id: Joi.string().optional().uuid().allow(null, ''),
+  ordered_weight: Joi.number().optional().min(0).precision(2).allow(null, ''),
   updated_by: Joi.string().optional().uuid(),
 }).min(1);
 
-// Batch validation schemas
-const packagingQuantitySchema = Joi.object({
-  weight: Joi.number().required().valid(10, 25, 50),
-  quantity: Joi.number().required().min(0.01).precision(2),
+// Packaging Vendor validation schemas
+export const createPackagingVendorSchema = Joi.object({
+  name: Joi.string().required().min(1).max(255),
+  contact_person: Joi.string().optional().allow(null, '').max(255),
+  phone: Joi.string().optional().allow(null, '').max(50),
+  email: Joi.string().optional().allow(null, '').email().max(255),
+  address: Joi.string().optional().allow(null, ''),
+  gst_number: Joi.string().optional().allow(null, '').max(50),
+  created_by: Joi.string().optional().uuid(),
 });
 
+export const updatePackagingVendorSchema = Joi.object({
+  name: Joi.string().optional().min(1).max(255),
+  contact_person: Joi.string().optional().allow(null, '').max(255),
+  phone: Joi.string().optional().allow(null, '').max(50),
+  email: Joi.string().optional().allow(null, '').email().max(255),
+  address: Joi.string().optional().allow(null, ''),
+  gst_number: Joi.string().optional().allow(null, '').max(50),
+  updated_by: Joi.string().optional().uuid(),
+}).min(1);
+
+// Batch validation schemas (Stage 1: Recipe attachment)
 export const createBatchSchema = Joi.object({
-  product_id: Joi.string().required().uuid(),
   recipe_id: Joi.string().required().uuid(),
-  packaging_quantities: Joi.array().items(packagingQuantitySchema).optional().min(1),
-  packaging_id: Joi.string().optional().uuid(), // For backward compatibility
-  quantity: Joi.number().optional().min(0.01).precision(2), // For backward compatibility
+  quantity: Joi.number().required().min(0.01).precision(2),
   batch_number: Joi.string().optional().max(255),
-  status: Joi.string().optional().valid('planned', 'in_progress', 'completed', 'cancelled'),
+  status: Joi.string().optional().valid('planned', 'in_progress', 'recipe_attached', 'ready_to_pack', 'packaged', 'completed', 'cancelled'),
   created_by: Joi.string().optional().uuid(),
-}).or('packaging_quantities', 'packaging_id'); // At least one must be provided
+});
 
 export const updateBatchSchema = Joi.object({
-  status: Joi.string().optional().valid('planned', 'in_progress', 'completed', 'cancelled'),
+  status: Joi.string().optional().valid('planned', 'in_progress', 'recipe_attached', 'ready_to_pack', 'packaged', 'completed', 'cancelled'),
   quantity: Joi.number().optional().min(0.01).precision(2),
   updated_by: Joi.string().optional().uuid(),
 }).min(1);
 
-// Product Recipe junction validation schemas
-export const addRecipeToProductSchema = Joi.object({
-  recipe_id: Joi.string().required().uuid(),
+// Batch Product validation schemas (Stage 2)
+export const createBatchProductSchema = Joi.object({
+  product_id: Joi.string().required().uuid(),
+  created_by: Joi.string().optional().uuid(),
+});
+
+// Batch Packaging validation schemas (Stage 3)
+export const createBatchPackagingSchema = Joi.object({
+  product_id: Joi.string().required().uuid(),
+  packaging_id: Joi.string().required().uuid(),
+  quantity: Joi.number().required().min(0.01).precision(2),
   created_by: Joi.string().optional().uuid(),
 });
 

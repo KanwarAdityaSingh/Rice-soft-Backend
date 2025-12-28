@@ -4,6 +4,7 @@ import { lotInventoryDAO } from '../dao/lot-inventory.dao';
 import { bagsInventoryDAO } from '../dao/bags-inventory.dao';
 import { packagingDAO } from '../dao/packaging.dao';
 import { productDAO } from '../dao/product.dao';
+import { packagingVendorDAO } from '../dao/packaging-vendor.dao';
 import { inwardSlipLotDAO } from '../dao/inward-slip-lot.dao';
 import { db } from '../database/connection';
 
@@ -52,7 +53,8 @@ export class InventoryService {
           id: packaging.id,
           holding_capacity: packaging.holding_capacity,
           packet_type: packaging.packet_type,
-          source: packaging.source
+          packaging_vendor_id: packaging.packaging_vendor_id,
+          ordered_weight: packaging.ordered_weight
         } : undefined
       });
     }
@@ -118,6 +120,104 @@ export class InventoryService {
         types: bags.length
       }
     };
+  }
+
+  async getHierarchicalInventory() {
+    // Get all products grouped by brand
+    const products = await productDAO.findAll();
+    const finishedGoods = await finishedGoodsInventoryDAO.findAll();
+    const packaging = await packagingDAO.findAll();
+
+    // Group products by brand
+    const brandMap = new Map<string, Array<{
+      product_id: string;
+      product_name: string;
+      rice_type: string | null;
+      packaging: Array<{
+        packaging_id: string;
+        holding_capacity: number;
+        packet_type: string;
+        vendor: { id: string; name: string } | null;
+        finished_goods: Array<{
+          batch_id: string;
+          batch_number: string;
+          quantity: number;
+          packets: number;
+          weight: number;
+        }>;
+      }>;
+    }>>();
+
+    for (const product of products) {
+      const brand = product.brand || 'Unbranded';
+      
+      if (!brandMap.has(brand)) {
+        brandMap.set(brand, []);
+      }
+
+      // Get packaging for this product
+      const productPackaging = packaging.filter(p => p.product_id === product.id);
+      const packagingList = [];
+
+      for (const pkg of productPackaging) {
+        // Get vendor info
+        let vendor = null;
+        if (pkg.packaging_vendor_id) {
+          const vendorData = await packagingVendorDAO.findById(pkg.packaging_vendor_id);
+          if (vendorData) {
+            vendor = { id: vendorData.id, name: vendorData.name };
+          }
+        }
+
+        // Get finished goods for this packaging
+        const pkgFinishedGoods = finishedGoods.filter(fg => fg.packaging_id === pkg.id);
+        const finishedGoodsList = [];
+
+        for (const fg of pkgFinishedGoods) {
+          // Get batch info
+          const batchQuery = `
+            SELECT id, batch_number
+            FROM batches
+            WHERE id = $1
+          `;
+          const batchResult = await db.query(batchQuery, [fg.batch_id]);
+          const batch = batchResult.rows[0];
+
+          if (batch) {
+            finishedGoodsList.push({
+              batch_id: fg.batch_id,
+              batch_number: batch.batch_number,
+              quantity: parseFloat(fg.total_weight.toString()),
+              packets: fg.no_of_packets,
+              weight: parseFloat(fg.total_weight.toString())
+            });
+          }
+        }
+
+        packagingList.push({
+          packaging_id: pkg.id,
+          holding_capacity: pkg.holding_capacity,
+          packet_type: pkg.packet_type,
+          vendor: vendor,
+          finished_goods: finishedGoodsList
+        });
+      }
+
+      brandMap.get(brand)!.push({
+        product_id: product.id,
+        product_name: product.name,
+        rice_type: product.rice_type,
+        packaging: packagingList
+      });
+    }
+
+    // Convert to array format
+    const result = Array.from(brandMap.entries()).map(([brand, products]) => ({
+      brand,
+      products
+    }));
+
+    return result;
   }
 }
 

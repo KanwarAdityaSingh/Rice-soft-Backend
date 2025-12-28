@@ -1,14 +1,12 @@
-import { PackagingWeight } from './packaging.model';
-
-export type BatchStatus = 'planned' | 'in_progress' | 'completed' | 'cancelled';
+export type BatchStatus = 'planned' | 'in_progress' | 'recipe_attached' | 'ready_to_pack' | 'packaged' | 'completed' | 'cancelled';
 
 export interface Batch {
   id: string;
   batch_number: string;
-  product_id: string;
+  product_id: string | null; // Nullable for three-stage workflow (set in stage 2)
   recipe_id: string;
-  packaging_id: string; // Kept for backward compatibility, but batches can have multiple finished goods entries
-  quantity: number; // Total quantity across all packaging sizes
+  packaging_id: string | null; // Nullable for three-stage workflow (kept for backward compatibility)
+  quantity: number; // Total quantity from recipe (stage 1)
   status: BatchStatus;
   created_at: Date;
   updated_at: Date;
@@ -16,19 +14,45 @@ export interface Batch {
   updated_by: string | null;
 }
 
-export interface PackagingQuantity {
-  weight: PackagingWeight;
-  quantity: number; // quantity in kg for this packaging size
+export interface BatchProduct {
+  id: string;
+  batch_id: string;
+  product_id: string;
+  created_at: Date;
+  updated_at: Date;
+  created_by: string | null;
+  updated_by: string | null;
+}
+
+export interface BatchPackaging {
+  id: string;
+  batch_id: string;
+  product_id: string;
+  packaging_id: string;
+  quantity: number; // Quantity in kg of this packaging used in batch
+  created_at: Date;
+  updated_at: Date;
+  created_by: string | null;
+  updated_by: string | null;
 }
 
 export interface CreateBatchDTO {
-  product_id: string;
   recipe_id: string;
-  packaging_quantities: PackagingQuantity[]; // Array of packaging quantities
-  packaging_id?: string; // Optional for backward compatibility during migration
-  quantity?: number; // Optional for backward compatibility, calculated from packaging_quantities
+  quantity: number; // Total quantity in kg for stage 1
   batch_number?: string;
   status?: BatchStatus;
+  created_by?: string;
+}
+
+export interface CreateBatchProductDTO {
+  product_id: string;
+  created_by?: string;
+}
+
+export interface CreateBatchPackagingDTO {
+  product_id: string;
+  packaging_id: string;
+  quantity: number; // Quantity in kg
   created_by?: string;
 }
 
@@ -41,9 +65,9 @@ export interface UpdateBatchDTO {
 export interface BatchResponse {
   id: string;
   batch_number: string;
-  product_id: string;
+  product_id: string | null;
   recipe_id: string;
-  packaging_id: string;
+  packaging_id: string | null;
   quantity: number;
   status: BatchStatus;
   created_at: string;

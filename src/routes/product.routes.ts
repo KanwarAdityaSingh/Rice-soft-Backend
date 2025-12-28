@@ -18,9 +18,5 @@ router.post('/', productController.create.bind(productController));
 router.put('/:id', productController.update.bind(productController));
 router.delete('/:id', productController.delete.bind(productController));
 
-// Product-Recipe relationship routes
-router.post('/:id/recipes', productController.addRecipe.bind(productController));
-router.delete('/:id/recipes/:recipeId', productController.removeRecipe.bind(productController));
-
 export default router;
 

@@ -4,8 +4,8 @@ import { productService } from '../services/product.service';
 import { ResponseHandler } from '../utils/response';
 import { validate, uuidSchema } from '../utils/validators';
 import { AuthRequest } from '../middleware/auth.middleware';
-import { CreateProductDTO, UpdateProductDTO, ProductResponse, ProductWithRecipesResponse } from '../models/product.model';
-import { createProductSchema, updateProductSchema, addRecipeToProductSchema } from '../utils/validators';
+import { CreateProductDTO, UpdateProductDTO, ProductResponse } from '../models/product.model';
+import { createProductSchema, updateProductSchema } from '../utils/validators';
 import { NotFoundError } from '../utils/errors';
 
 export class ProductController {
@@ -13,20 +13,15 @@ export class ProductController {
     try {
       const products = await productDAO.findAll();
 
-      const productResponses: ProductWithRecipesResponse[] = await Promise.all(
-        products.map(async (product) => {
-          const recipes = await productDAO.getRecipes(product.id);
-          return {
-            id: product.id,
-            name: product.name,
-            description: product.description,
-            brand: product.brand,
-            created_at: product.created_at.toISOString(),
-            updated_at: product.updated_at.toISOString(),
-            recipes: recipes,
-          };
-        })
-      );
+      const productResponses: ProductResponse[] = products.map((product) => ({
+        id: product.id,
+        name: product.name,
+        description: product.description,
+        brand: product.brand,
+        rice_type: product.rice_type,
+        created_at: product.created_at.toISOString(),
+        updated_at: product.updated_at.toISOString(),
+      }));
 
       return ResponseHandler.success(res, productResponses);
     } catch (error) {
@@ -43,16 +38,14 @@ export class ProductController {
         throw new NotFoundError('Product not found');
       }
 
-      const recipes = await productDAO.getRecipes(id);
-
-      const productResponse: ProductWithRecipesResponse = {
+      const productResponse: ProductResponse = {
         id: product.id,
         name: product.name,
         description: product.description,
         brand: product.brand,
+        rice_type: product.rice_type,
         created_at: product.created_at.toISOString(),
         updated_at: product.updated_at.toISOString(),
-        recipes: recipes,
       };
 
       return ResponseHandler.success(res, productResponse);
@@ -70,7 +63,6 @@ export class ProductController {
         productData.created_by = req.user.userId;
       }
 
-      // Use productService to auto-create packaging entries
       const product = await productService.createProduct(productData);
 
       const productResponse: ProductResponse = {
@@ -78,11 +70,12 @@ export class ProductController {
         name: product.name,
         description: product.description,
         brand: product.brand,
+        rice_type: product.rice_type,
         created_at: product.created_at.toISOString(),
         updated_at: product.updated_at.toISOString(),
       };
 
-      return ResponseHandler.created(res, productResponse, 'Product created successfully with packaging entries (10kg, 25kg, 50kg)');
+      return ResponseHandler.created(res, productResponse, 'Product created successfully');
     } catch (error) {
       next(error);
     }
@@ -108,6 +101,7 @@ export class ProductController {
         name: product.name,
         description: product.description,
         brand: product.brand,
+        rice_type: product.rice_type,
         created_at: product.created_at.toISOString(),
         updated_at: product.updated_at.toISOString(),
       };
@@ -133,27 +127,6 @@ export class ProductController {
     }
   }
 
-  async addRecipe(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
-    try {
-      const productId = validate<string>(uuidSchema, req.params.id);
-      const recipeData = validate<{ recipe_id: string; created_by?: string }>(addRecipeToProductSchema, req.body);
-
-      const product = await productDAO.findById(productId);
-      if (!product) {
-        throw new NotFoundError('Product not found');
-      }
-
-      const added = await productDAO.addRecipe(productId, recipeData.recipe_id, req.user?.userId);
-      if (!added) {
-        return ResponseHandler.error(res, 'Recipe already added to product', 400);
-      }
-
-      return ResponseHandler.success(res, null, 'Recipe added to product successfully');
-    } catch (error) {
-      next(error);
-    }
-  }
-
   async getBrands(_req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const brands = [
@@ -162,22 +135,6 @@ export class ProductController {
       ];
 
       return ResponseHandler.success(res, brands);
-    } catch (error) {
-      next(error);
-    }
-  }
-
-  async removeRecipe(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
-    try {
-      const productId = validate<string>(uuidSchema, req.params.id);
-      const recipeId = validate<string>(uuidSchema, req.params.recipeId);
-
-      const removed = await productDAO.removeRecipe(productId, recipeId);
-      if (!removed) {
-        throw new NotFoundError('Recipe not found in product');
-      }
-
-      return ResponseHandler.success(res, null, 'Recipe removed from product successfully');
     } catch (error) {
       next(error);
     }

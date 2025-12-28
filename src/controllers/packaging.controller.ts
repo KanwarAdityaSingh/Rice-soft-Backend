@@ -22,7 +22,8 @@ export class PackagingController {
         product_id: pkg.product_id,
         holding_capacity: pkg.holding_capacity,
         packet_type: pkg.packet_type,
-        source: pkg.source,
+        packaging_vendor_id: pkg.packaging_vendor_id,
+        ordered_weight: pkg.ordered_weight,
         created_at: pkg.created_at.toISOString(),
         updated_at: pkg.updated_at.toISOString(),
       }));
@@ -47,7 +48,8 @@ export class PackagingController {
         product_id: packaging.product_id,
         holding_capacity: packaging.holding_capacity,
         packet_type: packaging.packet_type,
-        source: packaging.source,
+        packaging_vendor_id: packaging.packaging_vendor_id,
+        ordered_weight: packaging.ordered_weight,
         created_at: packaging.created_at.toISOString(),
         updated_at: packaging.updated_at.toISOString(),
       };
@@ -91,7 +93,8 @@ export class PackagingController {
         product_id: packaging.product_id,
         holding_capacity: packaging.holding_capacity,
         packet_type: packaging.packet_type,
-        source: packaging.source,
+        packaging_vendor_id: packaging.packaging_vendor_id,
+        ordered_weight: packaging.ordered_weight,
         created_at: packaging.created_at.toISOString(),
         updated_at: packaging.updated_at.toISOString(),
       };
@@ -122,7 +125,8 @@ export class PackagingController {
         product_id: packaging.product_id,
         holding_capacity: packaging.holding_capacity,
         packet_type: packaging.packet_type,
-        source: packaging.source,
+        packaging_vendor_id: packaging.packaging_vendor_id,
+        ordered_weight: packaging.ordered_weight,
         created_at: packaging.created_at.toISOString(),
         updated_at: packaging.updated_at.toISOString(),
       };

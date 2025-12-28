@@ -21,6 +21,7 @@ import paymentAdviceRoutes from './payment-advice.routes';
 import recipeRoutes from './recipe.routes';
 import productRoutes from './product.routes';
 import packagingRoutes from './packaging.routes';
+import packagingVendorRoutes from './packaging-vendor.routes';
 import batchRoutes from './batch.routes';
 import inventoryRoutes from './inventory.routes';
 
@@ -58,6 +59,7 @@ router.use('/payment-advices', paymentAdviceRoutes);
 router.use('/recipes', recipeRoutes);
 router.use('/products', productRoutes);
 router.use('/packaging', packagingRoutes);
+router.use('/packaging-vendors', packagingVendorRoutes);
 router.use('/batches', batchRoutes);
 router.use('/inventory', inventoryRoutes);
 

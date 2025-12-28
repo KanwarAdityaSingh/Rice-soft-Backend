@@ -1,5 +1,5 @@
 import { db } from '../database/connection';
-import { Batch, CreateBatchDTO, UpdateBatchDTO, BatchLotUsage, BatchRiceCodeUsage } from '../models/batch.model';
+import { Batch, CreateBatchDTO, UpdateBatchDTO, BatchLotUsage, BatchRiceCodeUsage, BatchProduct, BatchPackaging, CreateBatchProductDTO, CreateBatchPackagingDTO } from '../models/batch.model';
 import { logger } from '../utils/logger';
 
 export class BatchDAO {
@@ -50,11 +50,11 @@ export class BatchDAO {
     
     const values = [
       batchData.batch_number || null,
-      batchData.product_id,
+      null, // product_id - nullable for three-stage workflow
       batchData.recipe_id,
-      batchData.packaging_id,
+      null, // packaging_id - nullable for three-stage workflow
       batchData.quantity,
-      batchData.status || 'planned',
+      batchData.status || 'recipe_attached',
       batchData.created_by || null
     ];
 
@@ -165,6 +165,102 @@ export class BatchDAO {
       ORDER BY rice_code_id ASC
     `;
     const result = await db.query<BatchRiceCodeUsage>(query, [batchId]);
+    return result.rows;
+  }
+
+  // Batch Products methods (Stage 2)
+  async addProduct(batchId: string, productData: CreateBatchProductDTO): Promise<BatchProduct> {
+    const query = `
+      INSERT INTO batch_products (batch_id, product_id, created_by)
+      VALUES ($1, $2, $3)
+      ON CONFLICT (batch_id, product_id) DO NOTHING
+      RETURNING id, batch_id, product_id, created_at, updated_at, created_by, updated_by
+    `;
+    const result = await db.query<BatchProduct>(query, [batchId, productData.product_id, productData.created_by || null]);
+    
+    if (result.rows.length === 0) {
+      // Already exists, fetch it
+      const existing = await this.getProduct(batchId, productData.product_id);
+      if (!existing) {
+        throw new Error('Product should exist but was not found');
+      }
+      return existing;
+    }
+    
+    return result.rows[0];
+  }
+
+  async removeProduct(batchId: string, productId: string): Promise<boolean> {
+    const query = 'DELETE FROM batch_products WHERE batch_id = $1 AND product_id = $2';
+    const result = await db.query(query, [batchId, productId]);
+    return (result.rowCount || 0) > 0;
+  }
+
+  async getProducts(batchId: string): Promise<BatchProduct[]> {
+    const query = `
+      SELECT id, batch_id, product_id, created_at, updated_at, created_by, updated_by
+      FROM batch_products
+      WHERE batch_id = $1
+      ORDER BY created_at ASC
+    `;
+    const result = await db.query<BatchProduct>(query, [batchId]);
+    return result.rows;
+  }
+
+  async getProduct(batchId: string, productId: string): Promise<BatchProduct | null> {
+    const query = `
+      SELECT id, batch_id, product_id, created_at, updated_at, created_by, updated_by
+      FROM batch_products
+      WHERE batch_id = $1 AND product_id = $2
+    `;
+    const result = await db.query<BatchProduct>(query, [batchId, productId]);
+    return result.rows[0] || null;
+  }
+
+  // Batch Packaging methods (Stage 3)
+  async addPackaging(batchId: string, packagingData: CreateBatchPackagingDTO): Promise<BatchPackaging> {
+    const query = `
+      INSERT INTO batch_packaging (batch_id, product_id, packaging_id, quantity, created_by)
+      VALUES ($1, $2, $3, $4, $5)
+      ON CONFLICT (batch_id, packaging_id) 
+      DO UPDATE SET quantity = EXCLUDED.quantity, updated_at = CURRENT_TIMESTAMP
+      RETURNING id, batch_id, product_id, packaging_id, quantity, created_at, updated_at, created_by, updated_by
+    `;
+    const result = await db.query<BatchPackaging>(query, [
+      batchId,
+      packagingData.product_id,
+      packagingData.packaging_id,
+      packagingData.quantity,
+      packagingData.created_by || null
+    ]);
+    return result.rows[0];
+  }
+
+  async removePackaging(batchId: string, packagingId: string): Promise<boolean> {
+    const query = 'DELETE FROM batch_packaging WHERE batch_id = $1 AND packaging_id = $2';
+    const result = await db.query(query, [batchId, packagingId]);
+    return (result.rowCount || 0) > 0;
+  }
+
+  async getPackaging(batchId: string): Promise<BatchPackaging[]> {
+    const query = `
+      SELECT id, batch_id, product_id, packaging_id, quantity, created_at, updated_at, created_by, updated_by
+      FROM batch_packaging
+      WHERE batch_id = $1
+      ORDER BY created_at ASC
+    `;
+    const result = await db.query<BatchPackaging>(query, [batchId]);
+    return result.rows;
+  }
+
+  async getPackagingByProduct(batchId: string, productId: string): Promise<BatchPackaging[]> {
+    const query = `
+      SELECT id, batch_id, product_id, packaging_id, quantity, created_at, updated_at, created_by, updated_by
+      FROM batch_packaging
+      WHERE batch_id = $1 AND product_id = $2
+      ORDER BY created_at ASC
+    `;
+    const result = await db.query<BatchPackaging>(query, [batchId, productId]);
     return result.rows;
   }
 }

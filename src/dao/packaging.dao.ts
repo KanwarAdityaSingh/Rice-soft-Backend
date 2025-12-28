@@ -5,7 +5,8 @@ import { logger } from '../utils/logger';
 export class PackagingDAO {
   async findAll(productId?: string): Promise<Packaging[]> {
     let query = `
-      SELECT id, product_id, holding_capacity, packet_type, source, created_at, updated_at, created_by, updated_by
+      SELECT id, product_id, holding_capacity, packet_type, packaging_vendor_id, ordered_weight, 
+             created_at, updated_at, created_by, updated_by
       FROM packaging
     `;
     const params: any[] = [];
@@ -23,7 +24,8 @@ export class PackagingDAO {
 
   async findById(id: string): Promise<Packaging | null> {
     const query = `
-      SELECT id, product_id, holding_capacity, packet_type, source, created_at, updated_at, created_by, updated_by
+      SELECT id, product_id, holding_capacity, packet_type, packaging_vendor_id, ordered_weight,
+             created_at, updated_at, created_by, updated_by
       FROM packaging
       WHERE id = $1
     `;
@@ -33,7 +35,8 @@ export class PackagingDAO {
 
   async findByProductId(productId: string): Promise<Packaging[]> {
     const query = `
-      SELECT id, product_id, holding_capacity, packet_type, source, created_at, updated_at, created_by, updated_by
+      SELECT id, product_id, holding_capacity, packet_type, packaging_vendor_id, ordered_weight,
+             created_at, updated_at, created_by, updated_by
       FROM packaging
       WHERE product_id = $1
       ORDER BY holding_capacity ASC
@@ -44,7 +47,8 @@ export class PackagingDAO {
 
   async findByProductAndWeight(productId: string, weight: PackagingWeight): Promise<Packaging | null> {
     const query = `
-      SELECT id, product_id, holding_capacity, packet_type, source, created_at, updated_at, created_by, updated_by
+      SELECT id, product_id, holding_capacity, packet_type, packaging_vendor_id, ordered_weight,
+             created_at, updated_at, created_by, updated_by
       FROM packaging
       WHERE product_id = $1 AND holding_capacity = $2
     `;
@@ -54,7 +58,8 @@ export class PackagingDAO {
 
   async findByCapacityAndType(holdingCapacity: number, packetType: string): Promise<Packaging | null> {
     const query = `
-      SELECT id, product_id, holding_capacity, packet_type, source, created_at, updated_at, created_by, updated_by
+      SELECT id, product_id, holding_capacity, packet_type, packaging_vendor_id, ordered_weight,
+             created_at, updated_at, created_by, updated_by
       FROM packaging
       WHERE holding_capacity = $1 AND packet_type = $2
       LIMIT 1
@@ -65,16 +70,18 @@ export class PackagingDAO {
 
   async create(packagingData: CreatePackagingDTO): Promise<Packaging> {
     const query = `
-      INSERT INTO packaging (product_id, holding_capacity, packet_type, source, created_by)
-      VALUES ($1, $2, $3, $4, $5)
-      RETURNING id, product_id, holding_capacity, packet_type, source, created_at, updated_at, created_by, updated_by
+      INSERT INTO packaging (product_id, holding_capacity, packet_type, packaging_vendor_id, ordered_weight, created_by)
+      VALUES ($1, $2, $3, $4, $5, $6)
+      RETURNING id, product_id, holding_capacity, packet_type, packaging_vendor_id, ordered_weight,
+                created_at, updated_at, created_by, updated_by
     `;
     
     const values = [
       packagingData.product_id,
       packagingData.holding_capacity,
       packagingData.packet_type,
-      packagingData.source || null,
+      packagingData.packaging_vendor_id || null,
+      packagingData.ordered_weight || null,
       packagingData.created_by || null
     ];
 
@@ -101,9 +108,13 @@ export class PackagingDAO {
       fields.push(`packet_type = $${paramCount++}`);
       values.push(packagingData.packet_type);
     }
-    if (packagingData.source !== undefined) {
-      fields.push(`source = $${paramCount++}`);
-      values.push(packagingData.source || null);
+    if (packagingData.packaging_vendor_id !== undefined) {
+      fields.push(`packaging_vendor_id = $${paramCount++}`);
+      values.push(packagingData.packaging_vendor_id || null);
+    }
+    if (packagingData.ordered_weight !== undefined) {
+      fields.push(`ordered_weight = $${paramCount++}`);
+      values.push(packagingData.ordered_weight || null);
     }
     if (packagingData.updated_by !== undefined) {
       fields.push(`updated_by = $${paramCount++}`);
@@ -121,7 +132,8 @@ export class PackagingDAO {
       UPDATE packaging
       SET ${fields.join(', ')}
       WHERE id = $${paramCount}
-      RETURNING id, product_id, holding_capacity, packet_type, source, created_at, updated_at, created_by, updated_by
+      RETURNING id, product_id, holding_capacity, packet_type, packaging_vendor_id, ordered_weight,
+                created_at, updated_at, created_by, updated_by
     `;
 
     try {

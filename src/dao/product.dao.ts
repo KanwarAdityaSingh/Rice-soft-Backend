@@ -5,7 +5,7 @@ import { logger } from '../utils/logger';
 export class ProductDAO {
   async findAll(): Promise<Product[]> {
     const query = `
-      SELECT id, name, description, brand, created_at, updated_at, created_by, updated_by
+      SELECT id, name, description, brand, rice_type, created_at, updated_at, created_by, updated_by
       FROM products
       ORDER BY name ASC
     `;
@@ -15,7 +15,7 @@ export class ProductDAO {
 
   async findById(id: string): Promise<Product | null> {
     const query = `
-      SELECT id, name, description, brand, created_at, updated_at, created_by, updated_by
+      SELECT id, name, description, brand, rice_type, created_at, updated_at, created_by, updated_by
       FROM products
       WHERE id = $1
     `;
@@ -25,15 +25,16 @@ export class ProductDAO {
 
   async create(productData: CreateProductDTO): Promise<Product> {
     const query = `
-      INSERT INTO products (name, description, brand, created_by)
-      VALUES ($1, $2, $3, $4)
-      RETURNING id, name, description, brand, created_at, updated_at, created_by, updated_by
+      INSERT INTO products (name, description, brand, rice_type, created_by)
+      VALUES ($1, $2, $3, $4, $5)
+      RETURNING id, name, description, brand, rice_type, created_at, updated_at, created_by, updated_by
     `;
     
     const values = [
       productData.name,
       productData.description || null,
       productData.brand || null,
+      productData.rice_type || null,
       productData.created_by || null
     ];
 
@@ -64,6 +65,10 @@ export class ProductDAO {
       fields.push(`brand = $${paramCount++}`);
       values.push(productData.brand || null);
     }
+    if (productData.rice_type !== undefined) {
+      fields.push(`rice_type = $${paramCount++}`);
+      values.push(productData.rice_type || null);
+    }
     if (productData.updated_by !== undefined) {
       fields.push(`updated_by = $${paramCount++}`);
       values.push(productData.updated_by);
@@ -80,7 +85,7 @@ export class ProductDAO {
       UPDATE products
       SET ${fields.join(', ')}
       WHERE id = $${paramCount}
-      RETURNING id, name, description, brand, created_at, updated_at, created_by, updated_by
+      RETURNING id, name, description, brand, rice_type, created_at, updated_at, created_by, updated_by
     `;
 
     try {
@@ -104,34 +109,6 @@ export class ProductDAO {
       logger.info('Product deleted', { id });
     }
     return deleted;
-  }
-
-  async addRecipe(productId: string, recipeId: string, createdBy?: string): Promise<boolean> {
-    const query = `
-      INSERT INTO product_recipes (product_id, recipe_id, created_by)
-      VALUES ($1, $2, $3)
-      ON CONFLICT (product_id, recipe_id) DO NOTHING
-    `;
-    const result = await db.query(query, [productId, recipeId, createdBy || null]);
-    return (result.rowCount || 0) > 0;
-  }
-
-  async removeRecipe(productId: string, recipeId: string): Promise<boolean> {
-    const query = 'DELETE FROM product_recipes WHERE product_id = $1 AND recipe_id = $2';
-    const result = await db.query(query, [productId, recipeId]);
-    return (result.rowCount || 0) > 0;
-  }
-
-  async getRecipes(productId: string): Promise<Array<{ id: string; recipe_name: string }>> {
-    const query = `
-      SELECT r.id, r.recipe_name
-      FROM recipes r
-      INNER JOIN product_recipes pr ON r.id = pr.recipe_id
-      WHERE pr.product_id = $1
-      ORDER BY r.recipe_name ASC
-    `;
-    const result = await db.query<{ id: string; recipe_name: string }>(query, [productId]);
-    return result.rows;
   }
 }
 

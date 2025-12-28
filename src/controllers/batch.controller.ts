@@ -5,8 +5,8 @@ import { inventoryAuditService } from '../services/inventory-audit.service';
 import { ResponseHandler } from '../utils/response';
 import { validate, uuidSchema } from '../utils/validators';
 import { AuthRequest } from '../middleware/auth.middleware';
-import { CreateBatchDTO, UpdateBatchDTO, BatchResponse, BatchWithDetailsResponse } from '../models/batch.model';
-import { createBatchSchema, updateBatchSchema } from '../utils/validators';
+import { CreateBatchDTO, UpdateBatchDTO, BatchResponse, BatchWithDetailsResponse, CreateBatchProductDTO, CreateBatchPackagingDTO } from '../models/batch.model';
+import { createBatchSchema, updateBatchSchema, createBatchProductSchema, createBatchPackagingSchema } from '../utils/validators';
 
 export class BatchController {
   async getAll(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
@@ -188,6 +188,92 @@ export class BatchController {
       const audits = await inventoryAuditService.getAllAuditsByBatchId(batchId);
 
       return ResponseHandler.success(res, audits);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // Stage 2: Product attachment endpoints
+  async addProduct(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const batchId = validate<string>(uuidSchema, req.params.id);
+      const productData = validate<CreateBatchProductDTO>(createBatchProductSchema, req.body);
+
+      if (req.user) {
+        productData.created_by = req.user.userId;
+      }
+
+      await batchService.addProductToBatch(batchId, productData);
+
+      return ResponseHandler.success(res, null, 'Product added to batch successfully');
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async removeProduct(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const batchId = validate<string>(uuidSchema, req.params.id);
+      const productId = validate<string>(uuidSchema, req.params.productId);
+
+      await batchService.removeProductFromBatch(batchId, productId);
+
+      return ResponseHandler.success(res, null, 'Product removed from batch successfully');
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getProducts(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const batchId = validate<string>(uuidSchema, req.params.id);
+
+      const products = await batchDAO.getProducts(batchId);
+
+      return ResponseHandler.success(res, products);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // Stage 3: Packaging attachment endpoints
+  async addPackaging(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const batchId = validate<string>(uuidSchema, req.params.id);
+      const packagingData = validate<CreateBatchPackagingDTO>(createBatchPackagingSchema, req.body);
+
+      if (req.user) {
+        packagingData.created_by = req.user.userId;
+      }
+
+      await batchService.addPackagingToBatch(batchId, packagingData);
+
+      return ResponseHandler.success(res, null, 'Packaging added to batch successfully');
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async removePackaging(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const batchId = validate<string>(uuidSchema, req.params.id);
+      const packagingId = validate<string>(uuidSchema, req.params.packagingId);
+
+      await batchService.removePackagingFromBatch(batchId, packagingId);
+
+      return ResponseHandler.success(res, null, 'Packaging removed from batch successfully');
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getPackaging(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const batchId = validate<string>(uuidSchema, req.params.id);
+
+      const packaging = await batchDAO.getPackaging(batchId);
+
+      return ResponseHandler.success(res, packaging);
     } catch (error) {
       next(error);
     }
