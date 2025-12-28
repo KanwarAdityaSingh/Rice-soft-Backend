@@ -1,7 +1,8 @@
 import { packagingVendorDAO } from '../dao/packaging-vendor.dao';
 import { PackagingVendor, CreatePackagingVendorDTO, UpdatePackagingVendorDTO } from '../models/packaging-vendor.model';
-import { NotFoundError } from '../utils/errors';
+import { NotFoundError, ValidationError } from '../utils/errors';
 import { logger } from '../utils/logger';
+import { gstLookupService } from './gst-lookup.service';
 
 export class PackagingVendorService {
   async getAllVendors(): Promise<PackagingVendor[]> {
@@ -37,6 +38,13 @@ export class PackagingVendorService {
       throw new NotFoundError('Packaging vendor not found');
     }
     logger.info('Packaging vendor deleted', { id });
+  }
+
+  async lookupGST(gstNumber: string): Promise<any> {
+    if (!gstLookupService.validateGSTFormat(gstNumber)) {
+      throw new ValidationError('Invalid GST number format');
+    }
+    return await gstLookupService.lookupGST(gstNumber);
   }
 }
 

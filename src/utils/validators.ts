@@ -805,20 +805,28 @@ export const updatePackagingSchema = Joi.object({
 // Packaging Vendor validation schemas
 export const createPackagingVendorSchema = Joi.object({
   name: Joi.string().required().min(1).max(255),
-  contact_person: Joi.string().optional().allow(null, '').max(255),
-  phone: Joi.string().optional().allow(null, '').max(50),
-  email: Joi.string().optional().allow(null, '').email().max(255),
-  address: Joi.string().optional().allow(null, ''),
+  contact_persons: Joi.array().items(
+    Joi.object({
+      name: Joi.string().required().min(2).max(255),
+      phones: Joi.array().items(Joi.string().max(20)).required().min(1),
+      emails: Joi.array().items(Joi.string().email().allow('', null)).optional()
+    })
+  ).required().min(1),
+  address: addressSchema.required(),
   gst_number: Joi.string().optional().allow(null, '').max(50),
   created_by: Joi.string().optional().uuid(),
 });
 
 export const updatePackagingVendorSchema = Joi.object({
   name: Joi.string().optional().min(1).max(255),
-  contact_person: Joi.string().optional().allow(null, '').max(255),
-  phone: Joi.string().optional().allow(null, '').max(50),
-  email: Joi.string().optional().allow(null, '').email().max(255),
-  address: Joi.string().optional().allow(null, ''),
+  contact_persons: Joi.array().items(
+    Joi.object({
+      name: Joi.string().required().min(2).max(255),
+      phones: Joi.array().items(Joi.string().max(20)).required().min(1),
+      emails: Joi.array().items(Joi.string().email().allow('', null)).optional()
+    })
+  ).optional().min(1),
+  address: addressSchema.optional(),
   gst_number: Joi.string().optional().allow(null, '').max(50),
   updated_by: Joi.string().optional().uuid(),
 }).min(1);

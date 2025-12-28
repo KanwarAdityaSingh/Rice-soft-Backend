@@ -5,6 +5,8 @@ import { validate, uuidSchema } from '../utils/validators';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { CreatePackagingVendorDTO, UpdatePackagingVendorDTO, PackagingVendorResponse } from '../models/packaging-vendor.model';
 import { createPackagingVendorSchema, updatePackagingVendorSchema } from '../utils/validators';
+import { gstLookupService } from '../services/gst-lookup.service';
+import { ValidationError, NotFoundError, InternalServerError } from '../utils/errors';
 
 export class PackagingVendorController {
   async getAll(_req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
@@ -14,9 +16,7 @@ export class PackagingVendorController {
       const vendorResponses: PackagingVendorResponse[] = vendors.map((vendor) => ({
         id: vendor.id,
         name: vendor.name,
-        contact_person: vendor.contact_person,
-        phone: vendor.phone,
-        email: vendor.email,
+        contact_persons: vendor.contact_persons,
         address: vendor.address,
         gst_number: vendor.gst_number,
         created_at: vendor.created_at.toISOString(),
@@ -37,9 +37,7 @@ export class PackagingVendorController {
       const vendorResponse: PackagingVendorResponse = {
         id: vendor.id,
         name: vendor.name,
-        contact_person: vendor.contact_person,
-        phone: vendor.phone,
-        email: vendor.email,
+        contact_persons: vendor.contact_persons,
         address: vendor.address,
         gst_number: vendor.gst_number,
         created_at: vendor.created_at.toISOString(),
@@ -65,9 +63,7 @@ export class PackagingVendorController {
       const vendorResponse: PackagingVendorResponse = {
         id: vendor.id,
         name: vendor.name,
-        contact_person: vendor.contact_person,
-        phone: vendor.phone,
-        email: vendor.email,
+        contact_persons: vendor.contact_persons,
         address: vendor.address,
         gst_number: vendor.gst_number,
         created_at: vendor.created_at.toISOString(),
@@ -94,9 +90,7 @@ export class PackagingVendorController {
       const vendorResponse: PackagingVendorResponse = {
         id: vendor.id,
         name: vendor.name,
-        contact_person: vendor.contact_person,
-        phone: vendor.phone,
-        email: vendor.email,
+        contact_persons: vendor.contact_persons,
         address: vendor.address,
         gst_number: vendor.gst_number,
         created_at: vendor.created_at.toISOString(),
@@ -115,6 +109,45 @@ export class PackagingVendorController {
       await packagingVendorService.deleteVendor(id);
 
       return ResponseHandler.success(res, null, 'Packaging vendor deleted successfully');
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Lookup GST Number and return business details
+   */
+  async lookupGST(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const gstNumber = req.query.gst_number as string;
+
+      if (!gstNumber) {
+        throw new ValidationError('GST number is required');
+      }
+
+      // Validate GST format
+      if (!gstLookupService.validateGSTFormat(gstNumber)) {
+        throw new ValidationError('Invalid GST number format. Expected format: 27ABCDE1234F1Z5');
+      }
+
+      // Fetch GST details from API
+      let gstData;
+      try {
+        gstData = await gstLookupService.lookupGST(gstNumber);
+      } catch (apiError: any) {
+        if (apiError?.message?.includes('not found') || apiError?.statusCode === 404) {
+          throw new NotFoundError('GST number not found. Please verify the GST number and try again.');
+        }
+        throw new InternalServerError('Failed to fetch GST details. Please try again later.');
+      }
+
+      // Map to our application format
+      const mappedData = gstLookupService.mapGSTToBusinessData(gstData);
+
+      return ResponseHandler.success(res, {
+        gst_data: gstData,
+        mapped_data: mappedData,
+      }, 'GST details fetched successfully');
     } catch (error) {
       next(error);
     }
