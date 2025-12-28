@@ -203,9 +203,19 @@ export class BatchController {
         productData.created_by = req.user.userId;
       }
 
-      await batchService.addProductToBatch(batchId, productData);
-
-      return ResponseHandler.success(res, null, 'Product added to batch successfully');
+      const updatedBatch = await batchService.addProductToBatch(batchId, productData);
+      const batchResponse: BatchResponse = {
+        id: updatedBatch.id,
+        batch_number: updatedBatch.batch_number,
+        product_id: updatedBatch.product_id,
+        recipe_id: updatedBatch.recipe_id,
+        packaging_id: updatedBatch.packaging_id,
+        quantity: parseFloat(updatedBatch.quantity.toString()),
+        status: updatedBatch.status,
+        created_at: updatedBatch.created_at.toISOString(),
+        updated_at: updatedBatch.updated_at.toISOString(),
+      };
+      return ResponseHandler.success(res, batchResponse, 'Product added to batch successfully');
     } catch (error) {
       next(error);
     }

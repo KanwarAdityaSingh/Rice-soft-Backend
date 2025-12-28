@@ -9,7 +9,7 @@ import { validate, uuidSchema } from '../utils/validators';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { CreatePackagingDTO, UpdatePackagingDTO, PackagingResponse } from '../models/packaging.model';
 import { createPackagingSchema, updatePackagingSchema, createPacketsInventorySchema } from '../utils/validators';
-import { NotFoundError, BadRequestError } from '../utils/errors';
+import { NotFoundError } from '../utils/errors';
 
 export class PackagingController {
   async getAll(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
@@ -19,6 +19,7 @@ export class PackagingController {
 
       const packagingResponses: PackagingResponse[] = packaging.map((pkg) => ({
         id: pkg.id,
+        packaging_number: pkg.packaging_number,
         product_id: pkg.product_id,
         holding_capacity: pkg.holding_capacity,
         packet_type: pkg.packet_type,
@@ -45,6 +46,7 @@ export class PackagingController {
 
       const packagingResponse: PackagingResponse = {
         id: packaging.id,
+        packaging_number: packaging.packaging_number,
         product_id: packaging.product_id,
         holding_capacity: packaging.holding_capacity,
         packet_type: packaging.packet_type,
@@ -70,16 +72,8 @@ export class PackagingController {
         throw new NotFoundError('Product not found');
       }
 
-      // Check if packaging with same product_id and holding_capacity already exists
-      const existingPackaging = await packagingDAO.findByProductAndWeight(
-        packagingData.product_id,
-        packagingData.holding_capacity
-      );
-      if (existingPackaging) {
-        throw new BadRequestError(
-          `Packaging with weight ${packagingData.holding_capacity} kg already exists for this product`
-        );
-      }
+      // Note: Multiple packaging entries with same product_id and holding_capacity are allowed
+      // Each entry represents a separate lot with its own inventory
 
       // Set created_by from authenticated user
       if (req.user) {
@@ -88,8 +82,39 @@ export class PackagingController {
 
       const packaging = await packagingDAO.create(packagingData);
 
+      // If initial_packets is provided, set initial stock (SET, not ADD)
+      if (packagingData.initial_packets !== undefined && packagingData.initial_packets !== null && packagingData.initial_packets > 0) {
+        // Check if inventory already exists
+        const existingInventory = await packetsInventoryDAO.findByPackagingId(packaging.id);
+        const quantityBefore = existingInventory?.available_quantity || 0;
+        
+        // Set initial stock (will SET the quantity, not add to existing)
+        const inventory = await packetsInventoryDAO.setInitialStock(
+          packaging.id,
+          packagingData.initial_packets,
+          packagingData.created_by
+        );
+
+        // Log the audit for initial stock setting
+        const stockNote = `Initial Stock Set on Packaging Creation | Quantity Set: ${packagingData.initial_packets} packets | Type: ${packaging.packet_type} (${packaging.holding_capacity} kg capacity)`;
+        
+        await packetsInventoryAuditDAO.create({
+          packets_inventory_id: inventory.id,
+          packaging_id: packaging.id,
+          operation_type: 'addition',
+          quantity_change: packagingData.initial_packets - quantityBefore,
+          quantity_before: quantityBefore,
+          quantity_after: inventory.available_quantity,
+          reason: INVENTORY_AUDIT_REASONS.PACKETS.STOCK_ADDITION,
+          reference_type: 'packaging_creation',
+          notes: stockNote,
+          created_by: packagingData.created_by
+        });
+      }
+
       const packagingResponse: PackagingResponse = {
         id: packaging.id,
+        packaging_number: packaging.packaging_number,
         product_id: packaging.product_id,
         holding_capacity: packaging.holding_capacity,
         packet_type: packaging.packet_type,
@@ -122,6 +147,7 @@ export class PackagingController {
 
       const packagingResponse: PackagingResponse = {
         id: packaging.id,
+        packaging_number: packaging.packaging_number,
         product_id: packaging.product_id,
         holding_capacity: packaging.holding_capacity,
         packet_type: packaging.packet_type,

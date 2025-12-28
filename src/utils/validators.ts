@@ -791,6 +791,7 @@ export const createPackagingSchema = Joi.object({
   packet_type: Joi.string().required().min(1).max(255),
   packaging_vendor_id: Joi.string().optional().uuid().allow(null, ''),
   ordered_weight: Joi.number().optional().min(0).precision(2).allow(null, ''),
+  initial_packets: Joi.number().optional().integer().min(0).allow(null), // Optional: initial number of empty packets
   created_by: Joi.string().optional().uuid(),
 });
 

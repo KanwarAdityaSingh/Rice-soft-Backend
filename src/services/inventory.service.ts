@@ -32,6 +32,7 @@ export class InventoryService {
         batch: batch ? { id: batch.id, batch_number: batch.batch_number } : undefined,
         packaging: packaging ? {
           id: packaging.id,
+          packaging_number: packaging.packaging_number,
           holding_capacity: packaging.holding_capacity,
           packet_type: packaging.packet_type
         } : undefined
@@ -51,6 +52,7 @@ export class InventoryService {
         ...item,
         packaging: packaging ? {
           id: packaging.id,
+          packaging_number: packaging.packaging_number,
           holding_capacity: packaging.holding_capacity,
           packet_type: packaging.packet_type,
           packaging_vendor_id: packaging.packaging_vendor_id,
@@ -135,6 +137,7 @@ export class InventoryService {
       rice_type: string | null;
       packaging: Array<{
         packaging_id: string;
+        packaging_number: string | null;
         holding_capacity: number;
         packet_type: string;
         vendor: { id: string; name: string } | null;
@@ -196,6 +199,7 @@ export class InventoryService {
 
         packagingList.push({
           packaging_id: pkg.id,
+          packaging_number: pkg.packaging_number,
           holding_capacity: pkg.holding_capacity,
           packet_type: pkg.packet_type,
           vendor: vendor,

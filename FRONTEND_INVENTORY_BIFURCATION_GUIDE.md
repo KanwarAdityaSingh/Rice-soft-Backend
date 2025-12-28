@@ -560,6 +560,7 @@ GET /inventory/hierarchical
           "packaging": [
             {
               "packaging_id": "uuid",
+              "packaging_number": "PACK-001",  // Sequential number for display
               "holding_capacity": "25.00",
               "packet_type": "PP Bag",
               "vendor": {
@@ -1049,6 +1050,7 @@ interface HierarchicalInventoryResponse {
       rice_type: string | null;
       packaging: Array<{
         packaging_id: string;
+        packaging_number: string | null; // Sequential number: PACK-001, PACK-002, etc.
         holding_capacity: number;
         packet_type: string;
         vendor: {
@@ -1086,6 +1088,7 @@ interface PacketsInventoryResponse {
     available_quantity: number;
     packaging?: {
       id: string;
+      packaging_number: string | null; // Sequential number: PACK-001, PACK-002, etc.
       product_id: string;
       holding_capacity: number;
       packet_type: string;
@@ -1133,6 +1136,7 @@ interface FinishedGoodsInventoryResponse {
     };
     packaging?: {
       id: string;
+      packaging_number: string | null; // Sequential number: PACK-001, PACK-002, etc.
       holding_capacity: number;
       packet_type: string;
     };
@@ -1415,7 +1419,7 @@ function transformToTree(
           data: { groupKey, packaging: packagingList },
           children: packagingList.map(pkg => ({
             id: `packaging-${pkg.packaging_id}`,
-            label: `${pkg.holding_capacity}kg ${pkg.packet_type}`,
+            label: `${pkg.packaging_number || pkg.packaging_id} - ${pkg.holding_capacity}kg ${pkg.packet_type}`,
             type: 'packaging',
             data: pkg,
             metadata: {
@@ -1600,8 +1604,9 @@ function searchInventory(
       }
       
       product.packaging.forEach(pkg => {
-        const pkgLabel = `${pkg.holding_capacity}kg ${pkg.packet_type}`;
+        const pkgLabel = `${pkg.packaging_number || pkg.packaging_id} - ${pkg.holding_capacity}kg ${pkg.packet_type}`;
         if (pkgLabel.toLowerCase().includes(query) || 
+            pkg.packaging_number?.toLowerCase().includes(query) ||
             pkg.vendor?.name.toLowerCase().includes(query)) {
           results.packaging.push({
             packaging_id: pkg.packaging_id,

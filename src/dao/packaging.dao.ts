@@ -5,7 +5,7 @@ import { logger } from '../utils/logger';
 export class PackagingDAO {
   async findAll(productId?: string): Promise<Packaging[]> {
     let query = `
-      SELECT id, product_id, holding_capacity, packet_type, packaging_vendor_id, ordered_weight, 
+      SELECT id, packaging_number, product_id, holding_capacity, packet_type, packaging_vendor_id, ordered_weight, 
              created_at, updated_at, created_by, updated_by
       FROM packaging
     `;
@@ -24,7 +24,7 @@ export class PackagingDAO {
 
   async findById(id: string): Promise<Packaging | null> {
     const query = `
-      SELECT id, product_id, holding_capacity, packet_type, packaging_vendor_id, ordered_weight,
+      SELECT id, packaging_number, product_id, holding_capacity, packet_type, packaging_vendor_id, ordered_weight,
              created_at, updated_at, created_by, updated_by
       FROM packaging
       WHERE id = $1
@@ -35,11 +35,11 @@ export class PackagingDAO {
 
   async findByProductId(productId: string): Promise<Packaging[]> {
     const query = `
-      SELECT id, product_id, holding_capacity, packet_type, packaging_vendor_id, ordered_weight,
+      SELECT id, packaging_number, product_id, holding_capacity, packet_type, packaging_vendor_id, ordered_weight,
              created_at, updated_at, created_by, updated_by
       FROM packaging
       WHERE product_id = $1
-      ORDER BY holding_capacity ASC
+      ORDER BY packaging_number ASC, holding_capacity ASC
     `;
     const result = await db.query<Packaging>(query, [productId]);
     return result.rows;
@@ -47,10 +47,12 @@ export class PackagingDAO {
 
   async findByProductAndWeight(productId: string, weight: PackagingWeight): Promise<Packaging | null> {
     const query = `
-      SELECT id, product_id, holding_capacity, packet_type, packaging_vendor_id, ordered_weight,
+      SELECT id, packaging_number, product_id, holding_capacity, packet_type, packaging_vendor_id, ordered_weight,
              created_at, updated_at, created_by, updated_by
       FROM packaging
       WHERE product_id = $1 AND holding_capacity = $2
+      ORDER BY packaging_number ASC
+      LIMIT 1
     `;
     const result = await db.query<Packaging>(query, [productId, weight]);
     return result.rows[0] || null;
@@ -58,10 +60,11 @@ export class PackagingDAO {
 
   async findByCapacityAndType(holdingCapacity: number, packetType: string): Promise<Packaging | null> {
     const query = `
-      SELECT id, product_id, holding_capacity, packet_type, packaging_vendor_id, ordered_weight,
+      SELECT id, packaging_number, product_id, holding_capacity, packet_type, packaging_vendor_id, ordered_weight,
              created_at, updated_at, created_by, updated_by
       FROM packaging
       WHERE holding_capacity = $1 AND packet_type = $2
+      ORDER BY packaging_number ASC
       LIMIT 1
     `;
     const result = await db.query<Packaging>(query, [holdingCapacity, packetType]);
@@ -70,13 +73,14 @@ export class PackagingDAO {
 
   async create(packagingData: CreatePackagingDTO): Promise<Packaging> {
     const query = `
-      INSERT INTO packaging (product_id, holding_capacity, packet_type, packaging_vendor_id, ordered_weight, created_by)
-      VALUES ($1, $2, $3, $4, $5, $6)
-      RETURNING id, product_id, holding_capacity, packet_type, packaging_vendor_id, ordered_weight,
+      INSERT INTO packaging (packaging_number, product_id, holding_capacity, packet_type, packaging_vendor_id, ordered_weight, created_by)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      RETURNING id, packaging_number, product_id, holding_capacity, packet_type, packaging_vendor_id, ordered_weight,
                 created_at, updated_at, created_by, updated_by
     `;
     
     const values = [
+      (packagingData as any).packaging_number || null, // Optional - auto-generated if null
       packagingData.product_id,
       packagingData.holding_capacity,
       packagingData.packet_type,
@@ -84,10 +88,10 @@ export class PackagingDAO {
       packagingData.ordered_weight || null,
       packagingData.created_by || null
     ];
-
+    
     try {
       const result = await db.query<Packaging>(query, values);
-      logger.info('Packaging created', { id: result.rows[0].id, product_id: result.rows[0].product_id });
+      logger.info('Packaging created', { id: result.rows[0].id, packaging_number: result.rows[0].packaging_number, product_id: result.rows[0].product_id });
       return result.rows[0];
     } catch (error) {
       logger.error('Error creating packaging', { error, packagingData });
@@ -132,7 +136,7 @@ export class PackagingDAO {
       UPDATE packaging
       SET ${fields.join(', ')}
       WHERE id = $${paramCount}
-      RETURNING id, product_id, holding_capacity, packet_type, packaging_vendor_id, ordered_weight,
+      RETURNING id, packaging_number, product_id, holding_capacity, packet_type, packaging_vendor_id, ordered_weight,
                 created_at, updated_at, created_by, updated_by
     `;
 

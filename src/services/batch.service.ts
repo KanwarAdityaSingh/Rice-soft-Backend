@@ -230,7 +230,7 @@ export class BatchService {
   }
 
   // Stage 2: Product Attachment - Add products to batch
-  async addProductToBatch(batchId: string, productData: CreateBatchProductDTO): Promise<void> {
+  async addProductToBatch(batchId: string, productData: CreateBatchProductDTO): Promise<Batch> {
     const batch = await batchDAO.findById(batchId);
     if (!batch) {
       throw new NotFoundError('Batch not found');
@@ -256,7 +256,14 @@ export class BatchService {
       await batchDAO.update(batchId, { status: 'ready_to_pack', updated_by: productData.created_by });
     }
 
-    logger.info('Product added to batch', { batch_id: batchId, product_id: productData.product_id });
+    // Fetch and return updated batch
+    const updatedBatch = await batchDAO.findById(batchId);
+    if (!updatedBatch) {
+      throw new NotFoundError('Batch not found after update');
+    }
+
+    logger.info('Product added to batch', { batch_id: batchId, product_id: productData.product_id, status: updatedBatch.status });
+    return updatedBatch;
   }
 
   async removeProductFromBatch(batchId: string, productId: string): Promise<void> {

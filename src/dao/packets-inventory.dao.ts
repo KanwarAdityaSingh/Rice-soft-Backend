@@ -119,6 +119,22 @@ export class PacketsInventoryDAO {
     const result = await db.query(query, [quantity, packagingId]);
     return (result.rowCount || 0) > 0;
   }
+
+  // Set initial stock (used when creating new packaging with initial_packets)
+  async setInitialStock(packagingId: string, quantity: number, createdBy?: string): Promise<PacketsInventory> {
+    const query = `
+      INSERT INTO packets_inventory (packaging_id, available_quantity, created_by)
+      VALUES ($1, $2, $3)
+      ON CONFLICT (packaging_id) 
+      DO UPDATE SET available_quantity = EXCLUDED.available_quantity,
+                    updated_at = CURRENT_TIMESTAMP
+      RETURNING id, packaging_id, available_quantity, created_at, updated_at, created_by, updated_by
+    `;
+    
+    const result = await db.query<PacketsInventory>(query, [packagingId, quantity, createdBy || null]);
+    logger.info('Packets inventory initial stock set', { packaging_id: packagingId, quantity });
+    return result.rows[0];
+  }
 }
 
 export const packetsInventoryDAO = new PacketsInventoryDAO();

@@ -1,7 +1,8 @@
 export type PackagingWeight = 10 | 25 | 50;
 
 export interface Packaging {
-  id: string;
+  id: string; // UUID primary key
+  packaging_number: string | null; // Sequential number: PACK-001, PACK-002, etc.
   product_id: string;
   holding_capacity: PackagingWeight;
   packet_type: string;
@@ -19,6 +20,7 @@ export interface CreatePackagingDTO {
   packet_type: string;
   packaging_vendor_id?: string;
   ordered_weight?: number;
+  initial_packets?: number; // Optional: initial number of empty packets to add to inventory
   created_by?: string;
 }
 
@@ -31,7 +33,8 @@ export interface UpdatePackagingDTO {
 }
 
 export interface PackagingResponse {
-  id: string;
+  id: string; // UUID primary key
+  packaging_number: string | null; // Sequential number: PACK-001, PACK-002, etc.
   product_id: string;
   holding_capacity: PackagingWeight;
   packet_type: string;
