@@ -454,6 +454,66 @@ export const updateSaudaSchema = Joi.object({
   updated_by: Joi.string().optional().uuid(),
 }).min(1);
 
+// Sales Sauda validation schemas
+const salesSaudaLineItemSchema = Joi.object({
+  product_id: Joi.string().required().uuid(),
+  packaging_id: Joi.string().optional().uuid().allow(null),
+  quantity: Joi.number().required().min(0.001).precision(3),
+  quantity_unit: Joi.string().optional().valid('kg', 'packets').default('kg'),
+  rate: Joi.number().required().min(0).precision(2),
+  amount: Joi.number().optional().min(0).precision(2),
+  sort_order: Joi.number().optional().integer().min(0),
+});
+
+export const createSalesSaudaSchema = Joi.object({
+  customer_id: Joi.string().required().uuid(),
+  status: Joi.string().optional().valid('draft', 'order', 'cancelled').default('draft'),
+  sauda_date: Joi.string().optional().allow(null, '').isoDate(),
+  notes: Joi.string().optional().allow(null, '').max(2000),
+  amount: Joi.number().optional().min(0).precision(2),
+  total_amount: Joi.number().optional().min(0).precision(2),
+  lines: Joi.array().items(salesSaudaLineItemSchema).optional().min(0),
+  created_by: Joi.string().optional().uuid(),
+});
+
+export const updateSalesSaudaSchema = Joi.object({
+  customer_id: Joi.string().optional().uuid(),
+  status: Joi.string().optional().valid('draft', 'order', 'cancelled'),
+  sauda_date: Joi.string().optional().allow(null, '').isoDate(),
+  notes: Joi.string().optional().allow(null, '').max(2000),
+  amount: Joi.number().optional().min(0).precision(2),
+  total_amount: Joi.number().optional().min(0).precision(2),
+  lines: Joi.array().items(salesSaudaLineItemSchema).optional(),
+  updated_by: Joi.string().optional().uuid(),
+}).min(1);
+
+// Invoice Dispatch validation schemas
+export const createInvoiceDispatchSchema = Joi.object({
+  sales_sauda_id: Joi.string().required().uuid(),
+  internal_invoice_number: Joi.string().required().max(100),
+  dispatch_date: Joi.string().optional().allow(null, '').isoDate(),
+  transporter_id: Joi.string().optional().uuid().allow(null),
+  vehicle_id: Joi.string().optional().uuid().allow(null),
+  distance_km: Joi.number().optional().min(0).allow(null),
+  route_description: Joi.string().optional().allow(null, '').max(1000),
+});
+
+// Credit Note validation schemas
+const creditNoteLineSchema = Joi.object({
+  invoice_dispatch_line_id: Joi.string().required().uuid(),
+  product_id: Joi.string().required().uuid(),
+  quantity_returned: Joi.number().required().min(0.001).precision(3),
+});
+
+export const createCreditNoteSchema = Joi.object({
+  invoice_dispatch_id: Joi.string().required().uuid(),
+  sales_sauda_id: Joi.string().required().uuid(),
+  credit_note_number: Joi.string().required().max(100),
+  credit_note_date: Joi.string().optional().allow(null, '').isoDate(),
+  reason: Joi.string().optional().allow(null, '').max(2000),
+  lines: Joi.array().items(creditNoteLineSchema).required().min(1),
+});
+
 // Inward Slip Pass validation schemas
 export const createLotSchema = Joi.object({
   sauda_id: Joi.string().required().uuid(),
