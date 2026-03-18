@@ -12,6 +12,8 @@
     "migrate": "ts-node src/database/migrations/run-migrations.ts",
     "create-admin": "ts-node src/scripts/create-admin.ts",
     "reset-admin-password": "ts-node src/scripts/reset-admin-password.ts",
+    "clear-purchase-module-data": "ts-node src/scripts/clear-purchase-module-data.ts",
+    "seed-purchase-module-data": "ts-node src/scripts/seed-purchase-module-data.ts",
     "lint": "eslint . --ext .ts",
     "format": "prettier --write \"src/**/*.ts\""
   },

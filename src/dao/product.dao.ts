@@ -29,7 +29,7 @@ export class ProductDAO {
       VALUES ($1, $2, $3, $4, $5)
       RETURNING id, name, description, brand, rice_type, created_at, updated_at, created_by, updated_by
     `;
-    
+
     const values = [
       productData.name,
       productData.description || null,
@@ -113,4 +113,3 @@ export class ProductDAO {
 }
 
 export const productDAO = new ProductDAO();
-

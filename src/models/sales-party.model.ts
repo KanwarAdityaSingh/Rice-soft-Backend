@@ -1,0 +1,78 @@
+/**
+ * Sales Party model — same structure as Vendor except no type (sales-side customers; always buyer).
+ * Shared types (Address, ContactPerson, etc.) are imported from vendor.model.
+ */
+import type {
+  Address,
+  ContactPerson,
+  BusinessDetails,
+  BankDetails,
+} from './vendor.model';
+
+export type { Address, ContactPerson, BusinessDetails, BankDetails };
+
+export interface SalesParty {
+  id: string;
+  business_name: string;
+  contact_persons: ContactPerson[];
+  contact_person: string;
+  email: string | null;
+  phone: string;
+  address: Address;
+  business_details: BusinessDetails;
+  bank_details: BankDetails | null;
+  is_active: boolean;
+  user_id: string | null;
+  lead_id: string | null;
+  created_at: Date;
+  updated_at: Date;
+  created_by: string | null;
+  updated_by: string | null;
+  last_enquiry_date: Date | null;
+  google_location_link: string | null;
+  business_card_url: string | null;
+}
+
+export interface CreateSalesPartyDTO {
+  business_name: string;
+  contact_persons: ContactPerson[];
+  address: Address;
+  business_details: BusinessDetails;
+  bank_details?: BankDetails;
+  is_active?: boolean;
+  created_by?: string;
+  user_id?: string;
+  lead_id?: string;
+  google_location_link?: string;
+  business_card_url?: string;
+}
+
+export interface UpdateSalesPartyDTO {
+  business_name?: string;
+  contact_persons?: ContactPerson[];
+  address?: Address;
+  business_details?: BusinessDetails;
+  bank_details?: BankDetails;
+  is_active?: boolean;
+  lead_id?: string;
+  updated_by?: string;
+  google_location_link?: string;
+  business_card_url?: string;
+}
+
+export interface SalesPartyResponse {
+  id: string;
+  business_name: string;
+  contact_persons: ContactPerson[];
+  address: Address;
+  business_details: BusinessDetails;
+  bank_details: BankDetails | null;
+  is_active: boolean;
+  user_id: string | null;
+  lead_id: string | null;
+  created_at: string;
+  updated_at: string;
+  last_enquiry_date: string | null;
+  google_location_link: string | null;
+  business_card_url: string | null;
+}

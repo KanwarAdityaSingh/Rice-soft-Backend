@@ -24,10 +24,12 @@ import packagingRoutes from './packaging.routes';
 import packagingVendorRoutes from './packaging-vendor.routes';
 import batchRoutes from './batch.routes';
 import inventoryRoutes from './inventory.routes';
+import salesPartyRoutes from './sales-party.routes';
 import salesSaudaRoutes from './sales-sauda.routes';
 import invoiceDispatchRoutes from './invoice-dispatch.routes';
 import inventoryLedgerRoutes from './inventory-ledger.routes';
 import creditNoteRoutes from './credit-note.routes';
+import suggestedRateRoutes from './suggested-rate.routes';
 
 const router = Router();
 
@@ -66,10 +68,12 @@ router.use('/packaging', packagingRoutes);
 router.use('/packaging-vendors', packagingVendorRoutes);
 router.use('/batches', batchRoutes);
 router.use('/inventory', inventoryRoutes);
+router.use('/sales-parties', salesPartyRoutes);
 router.use('/sales-saudas', salesSaudaRoutes);
 router.use('/invoice-dispatches', invoiceDispatchRoutes);
 router.use('/inventory-ledger', inventoryLedgerRoutes);
 router.use('/credit-notes', creditNoteRoutes);
+router.use('/suggested-rate', suggestedRateRoutes);
 
 export default router;
 

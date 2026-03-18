@@ -61,51 +61,47 @@ async function main() {
   logStep('Logged in as admin, token received');
 
   // 2. Fetch existing data
-  const [productsRes, vendorsRes, fgRes, transportersRes, vehiclesRes] = await Promise.all([
+  const [productsRes, salesPartiesRes, fgRes, transportersRes, vehiclesRes] = await Promise.all([
     request('GET', '/products', token),
-    request('GET', '/vendors/getAllVendors', token),
+    request('GET', '/sales-parties', token),
     request('GET', '/inventory/finished-goods', token),
     request('GET', '/transporters', token),
     request('GET', '/vehicles', token),
   ]);
 
   const products = productsRes.data?.data || [];
-  const vendors = vendorsRes.data?.data || [];
+  const salesParties = salesPartiesRes.data?.data || [];
   const fgInventory = fgRes.data?.data || [];
   const transporters = transportersRes.data?.data || [];
   const vehicles = vehiclesRes.data?.data || [];
 
   logStep('Existing data:', {
     products: products.length,
-    vendors: vendors.length,
+    salesParties: salesParties.length,
     finishedGoodsInventoryRows: fgInventory.length,
     transporters: transporters.length,
     vehicles: vehicles.length,
   });
 
-  const customerVendors = vendors.filter((v: any) => v.type === 'seller' || v.type === 'both');
-  let customerId = customerVendors[0]?.id || vendors[0]?.id;
-  if (!customerId && vendors.length === 0) {
-    logStep('No vendors. Creating a test customer (vendor type seller)...');
-    const createVendorRes = await request('POST', '/vendors/createVendor', token, {
-      business_name: 'Test Sales Customer Pvt Ltd',
+  let salesPartyId = salesParties[0]?.id;
+  if (!salesPartyId && salesParties.length === 0) {
+    logStep('No sales parties. Creating a test sales party...');
+    const createPartyRes = await request('POST', '/sales-parties', token, {
+      business_name: 'Test Sales Party Pvt Ltd',
       contact_persons: [{ name: 'Test Contact', phones: ['9876543210'], emails: ['test@example.com'] }],
       address: { street: '123 Test St', city: 'Mumbai', state: 'Maharashtra', pincode: '400001', country: 'India' },
       business_details: { pan_number: 'ABCDE1234F', gst_number: '27AABCU9603R1ZM', business_type: 'company' },
-      type: 'seller',
       is_active: true,
     });
-    if (createVendorRes.status !== 200 && createVendorRes.status !== 201) {
-      logStep('Create vendor FAILED', createVendorRes);
-      throw new Error('Could not create test vendor');
+    if (createPartyRes.status !== 200 && createPartyRes.status !== 201) {
+      logStep('Create sales party FAILED', createPartyRes);
+      throw new Error('Could not create test sales party');
     }
-    customerId = createVendorRes.data?.data?.id;
-    logStep('Test customer vendor created', customerId);
-  } else if (!customerId) {
-    customerId = vendors[0]?.id;
+    salesPartyId = createPartyRes.data?.data?.id;
+    logStep('Test sales party created', salesPartyId);
   }
-  if (!customerId) {
-    logStep('No customer ID. Test cannot create sales sauda.');
+  if (!salesPartyId) {
+    logStep('No sales party ID. Test cannot create sales sauda.');
     process.exit(1);
   }
 
@@ -139,7 +135,7 @@ async function main() {
   };
   if (packagingId) saudaLine.packaging_id = packagingId;
   const createSaudaRes = await request('POST', '/sales-saudas', token, {
-    customer_id: customerId,
+    sales_party_id: salesPartyId,
     sauda_date: new Date().toISOString().split('T')[0],
     notes: 'Test sale from automated script',
     lines: [saudaLine],
@@ -169,7 +165,7 @@ async function main() {
     transporter_id: transporterId,
     vehicle_id: vehicleId,
     distance_km: 100,
-    route_description: 'Test route: Warehouse to Customer',
+    route_description: 'Test route: Warehouse to sales party',
   });
   if (createDispatchRes.status !== 201) {
     logStep('Create Invoice Dispatch FAILED', createDispatchRes);
@@ -261,7 +257,7 @@ async function main() {
   }
 
   logStep('=== Sales flow test completed ===');
-  return { log, salesSaudaId, dispatchId, customerId, productId, saleQty };
+  return { log, salesSaudaId, dispatchId, salesPartyId, productId, saleQty };
 }
 
 main()

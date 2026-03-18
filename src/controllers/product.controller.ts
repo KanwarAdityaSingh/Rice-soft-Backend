@@ -1,27 +1,47 @@
 import { Response, NextFunction } from 'express';
 import { productDAO } from '../dao/product.dao';
+import { productRateDAO } from '../dao/product-rate.dao';
 import { productService } from '../services/product.service';
 import { ResponseHandler } from '../utils/response';
-import { validate, uuidSchema } from '../utils/validators';
+import { validate, uuidSchema, setProductRatesSchema } from '../utils/validators';
 import { AuthRequest } from '../middleware/auth.middleware';
-import { CreateProductDTO, UpdateProductDTO, ProductResponse } from '../models/product.model';
+import { CreateProductDTO, UpdateProductDTO, ProductResponse, Product, ProductRateItem } from '../models/product.model';
 import { createProductSchema, updateProductSchema } from '../utils/validators';
 import { NotFoundError } from '../utils/errors';
+import { ProductRateResponse, ProductRate } from '../models/product-rate.model';
+
+function ratesToItems(rates: ProductRate[]): ProductRateItem[] {
+  return rates.map((r) => ({ holding_capacity: Number(r.holding_capacity), rate: Number(r.rate) }));
+}
+
+function toProductResponse(product: Product, rates: ProductRateItem[] = []): ProductResponse {
+  return {
+    id: product.id,
+    name: product.name,
+    description: product.description,
+    brand: product.brand,
+    rice_type: product.rice_type,
+    rates,
+    created_at: product.created_at.toISOString(),
+    updated_at: product.updated_at.toISOString(),
+  };
+}
 
 export class ProductController {
   async getAll(_req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const products = await productDAO.findAll();
-
-      const productResponses: ProductResponse[] = products.map((product) => ({
-        id: product.id,
-        name: product.name,
-        description: product.description,
-        brand: product.brand,
-        rice_type: product.rice_type,
-        created_at: product.created_at.toISOString(),
-        updated_at: product.updated_at.toISOString(),
-      }));
+      const productIds = products.map((p) => p.id);
+      const allRates = await productRateDAO.findByProductIds(productIds);
+      const ratesByProductId = new Map<string, ProductRateItem[]>();
+      for (const r of allRates) {
+        const items = ratesByProductId.get(r.product_id) ?? [];
+        items.push({ holding_capacity: Number(r.holding_capacity), rate: Number(r.rate) });
+        ratesByProductId.set(r.product_id, items);
+      }
+      const productResponses: ProductResponse[] = products.map((p) =>
+        toProductResponse(p, ratesByProductId.get(p.id) ?? [])
+      );
 
       return ResponseHandler.success(res, productResponses);
     } catch (error) {
@@ -37,18 +57,8 @@ export class ProductController {
       if (!product) {
         throw new NotFoundError('Product not found');
       }
-
-      const productResponse: ProductResponse = {
-        id: product.id,
-        name: product.name,
-        description: product.description,
-        brand: product.brand,
-        rice_type: product.rice_type,
-        created_at: product.created_at.toISOString(),
-        updated_at: product.updated_at.toISOString(),
-      };
-
-      return ResponseHandler.success(res, productResponse);
+      const rates = await productRateDAO.findByProductId(id);
+      return ResponseHandler.success(res, toProductResponse(product, ratesToItems(rates)));
     } catch (error) {
       next(error);
     }
@@ -64,18 +74,8 @@ export class ProductController {
       }
 
       const product = await productService.createProduct(productData);
-
-      const productResponse: ProductResponse = {
-        id: product.id,
-        name: product.name,
-        description: product.description,
-        brand: product.brand,
-        rice_type: product.rice_type,
-        created_at: product.created_at.toISOString(),
-        updated_at: product.updated_at.toISOString(),
-      };
-
-      return ResponseHandler.created(res, productResponse, 'Product created successfully');
+      const rates = await productRateDAO.findByProductId(product.id);
+      return ResponseHandler.created(res, toProductResponse(product, ratesToItems(rates)), 'Product created successfully');
     } catch (error) {
       next(error);
     }
@@ -95,18 +95,8 @@ export class ProductController {
       if (!product) {
         throw new NotFoundError('Product not found');
       }
-
-      const productResponse: ProductResponse = {
-        id: product.id,
-        name: product.name,
-        description: product.description,
-        brand: product.brand,
-        rice_type: product.rice_type,
-        created_at: product.created_at.toISOString(),
-        updated_at: product.updated_at.toISOString(),
-      };
-
-      return ResponseHandler.success(res, productResponse, 'Product updated successfully');
+      const rates = await productRateDAO.findByProductId(id);
+      return ResponseHandler.success(res, toProductResponse(product, ratesToItems(rates)), 'Product updated successfully');
     } catch (error) {
       next(error);
     }
@@ -135,6 +125,56 @@ export class ProductController {
       ];
 
       return ResponseHandler.success(res, brands);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /** GET /products/:id/rates — list suggested sell rates per holding capacity for a product */
+  async getRates(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const id = validate<string>(uuidSchema, req.params.id);
+      const product = await productDAO.findById(id);
+      if (!product) {
+        throw new NotFoundError('Product not found');
+      }
+      const rates = await productRateDAO.findByProductId(id);
+      const data: ProductRateResponse[] = rates.map((r) => ({
+        id: r.id,
+        product_id: r.product_id,
+        holding_capacity: r.holding_capacity,
+        rate: r.rate,
+        created_at: r.created_at.toISOString(),
+        updated_at: r.updated_at.toISOString(),
+      }));
+      return ResponseHandler.success(res, data);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /** PUT /products/:id/rates — set suggested sell rates per holding capacity (upsert) */
+  async setRates(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const id = validate<string>(uuidSchema, req.params.id);
+      const product = await productDAO.findById(id);
+      if (!product) {
+        throw new NotFoundError('Product not found');
+      }
+      const body = validate<{ rates: Array<{ holding_capacity: number; rate: number }> }>(
+        setProductRatesSchema,
+        req.body
+      );
+      const updated = await productRateDAO.upsertRates(id, body.rates);
+      const data: ProductRateResponse[] = updated.map((r) => ({
+        id: r.id,
+        product_id: r.product_id,
+        holding_capacity: r.holding_capacity,
+        rate: r.rate,
+        created_at: r.created_at.toISOString(),
+        updated_at: r.updated_at.toISOString(),
+      }));
+      return ResponseHandler.success(res, data, 'Rates updated successfully');
     } catch (error) {
       next(error);
     }

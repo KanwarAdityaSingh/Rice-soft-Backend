@@ -2,7 +2,7 @@ export type SalesSaudaStatus = 'draft' | 'order' | 'cancelled';
 
 export interface SalesSauda {
   id: string;
-  customer_id: string;
+  sales_party_id: string;
   status: SalesSaudaStatus;
   order_number: string | null;
   sauda_date: Date | string | null;
@@ -15,7 +15,7 @@ export interface SalesSauda {
 }
 
 export interface CreateSalesSaudaDTO {
-  customer_id: string;
+  sales_party_id: string;
   status?: SalesSaudaStatus;
   sauda_date?: string | Date;
   notes?: string;
@@ -24,7 +24,7 @@ export interface CreateSalesSaudaDTO {
 }
 
 export interface UpdateSalesSaudaDTO {
-  customer_id?: string;
+  sales_party_id?: string;
   status?: SalesSaudaStatus;
   order_number?: string | null;
   sauda_date?: string | Date;
@@ -35,7 +35,7 @@ export interface UpdateSalesSaudaDTO {
 
 export interface SalesSaudaResponse {
   id: string;
-  customer_id: string;
+  sales_party_id: string;
   status: SalesSaudaStatus;
   order_number: string | null;
   sauda_date: string | null;

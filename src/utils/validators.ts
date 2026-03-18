@@ -187,6 +187,39 @@ export const updateVendorSchema = Joi.object({
   google_location_link: Joi.string().optional().allow(null, '').max(500),
 }).min(1);
 
+// Sales Party validation schemas (no type — sales parties are always buyers)
+export const createSalesPartySchema = Joi.object({
+  business_name: Joi.string().required().min(2).max(255),
+  contact_persons: Joi.array().items(
+    Joi.object({
+      name: Joi.string().required().min(2).max(255),
+      phones: Joi.array().items(Joi.string().max(20)).required().min(1),
+      emails: Joi.array().items(Joi.string().email().allow('', null)).optional()
+    })
+  ).required().min(1),
+  address: addressSchema.required(),
+  business_details: businessDetailsSchema.required(),
+  bank_details: bankDetailsSchema.optional(),
+  is_active: Joi.boolean().optional(),
+  google_location_link: Joi.string().optional().allow(null, '').max(500),
+});
+
+export const updateSalesPartySchema = Joi.object({
+  business_name: Joi.string().optional().min(2).max(255),
+  contact_persons: Joi.array().items(
+    Joi.object({
+      name: Joi.string().required().min(2).max(255),
+      phones: Joi.array().items(Joi.string().max(20)).required().min(1),
+      emails: Joi.array().items(Joi.string().email().allow('', null)).optional()
+    })
+  ).optional().min(1),
+  address: addressSchema.optional(),
+  business_details: businessDetailsSchema.optional(),
+  bank_details: bankDetailsSchema.optional(),
+  is_active: Joi.boolean().optional(),
+  google_location_link: Joi.string().optional().allow(null, '').max(500),
+}).min(1);
+
 // Broker details validation schema
 const brokerDetailsSchema = Joi.object({
   commission_rate: Joi.number().optional().min(0).max(100),
@@ -466,7 +499,7 @@ const salesSaudaLineItemSchema = Joi.object({
 });
 
 export const createSalesSaudaSchema = Joi.object({
-  customer_id: Joi.string().required().uuid(),
+  sales_party_id: Joi.string().required().uuid(),
   status: Joi.string().optional().valid('draft', 'order', 'cancelled').default('draft'),
   sauda_date: Joi.string().optional().allow(null, '').isoDate(),
   notes: Joi.string().optional().allow(null, '').max(2000),
@@ -477,7 +510,7 @@ export const createSalesSaudaSchema = Joi.object({
 });
 
 export const updateSalesSaudaSchema = Joi.object({
-  customer_id: Joi.string().optional().uuid(),
+  sales_party_id: Joi.string().optional().uuid(),
   status: Joi.string().optional().valid('draft', 'order', 'cancelled'),
   sauda_date: Joi.string().optional().allow(null, '').isoDate(),
   notes: Joi.string().optional().allow(null, '').max(2000),
@@ -844,10 +877,29 @@ export const updateProductSchema = Joi.object({
   updated_by: Joi.string().optional().uuid(),
 }).min(1);
 
+/** Body for PUT /products/:id/rates — set suggested rates per holding capacity */
+export const setProductRatesSchema = Joi.object({
+  rates: Joi.array()
+    .items(
+      Joi.object({
+        holding_capacity: Joi.number().required().valid(5, 10, 25, 26, 30, 50),
+        rate: Joi.number().required().min(0).precision(2),
+      })
+    )
+    .required()
+    .min(1),
+});
+
+/** Query params for GET /suggested-rate (product_id, packaging_id) */
+export const suggestedRateQuerySchema = Joi.object({
+  product_id: Joi.string().required().uuid(),
+  packaging_id: Joi.string().required().uuid(),
+});
+
 // Packaging validation schemas
 export const createPackagingSchema = Joi.object({
   product_id: Joi.string().required().uuid(),
-  holding_capacity: Joi.number().required().valid(10, 25, 50),
+  holding_capacity: Joi.number().required().valid(5, 10, 25, 26, 30, 50),
   packet_type: Joi.string().required().min(1).max(255),
   packaging_vendor_id: Joi.string().optional().uuid().allow(null, ''),
   ordered_weight: Joi.number().optional().min(0).precision(2).allow(null, ''),
@@ -856,7 +908,7 @@ export const createPackagingSchema = Joi.object({
 });
 
 export const updatePackagingSchema = Joi.object({
-  holding_capacity: Joi.number().optional().valid(10, 25, 50),
+  holding_capacity: Joi.number().optional().valid(5, 10, 25, 26, 30, 50),
   packet_type: Joi.string().optional().min(1).max(255),
   packaging_vendor_id: Joi.string().optional().uuid().allow(null, ''),
   ordered_weight: Joi.number().optional().min(0).precision(2).allow(null, ''),

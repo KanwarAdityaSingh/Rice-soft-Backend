@@ -1,6 +1,6 @@
 import { salesSaudaDAO } from '../dao/sales-sauda.dao';
 import { salesSaudaLineDAO } from '../dao/sales-sauda-line.dao';
-import { vendorDAO } from '../dao/vendor.dao';
+import { salesPartyDAO } from '../dao/sales-party.dao';
 import { productDAO } from '../dao/product.dao';
 import { packagingDAO } from '../dao/packaging.dao';
 import {
@@ -13,8 +13,8 @@ import { CreateSalesSaudaLineDTO } from '../models/sales-sauda-line.model';
 import { NotFoundError, ValidationError, ConflictError } from '../utils/errors';
 
 export class SalesSaudaService {
-  async list(customerId?: string, status?: SalesSaudaStatus): Promise<SalesSauda[]> {
-    return salesSaudaDAO.findAll(customerId, status);
+  async list(salesPartyId?: string, status?: SalesSaudaStatus): Promise<SalesSauda[]> {
+    return salesSaudaDAO.findAll(salesPartyId, status);
   }
 
   async getById(id: string): Promise<SalesSauda & { lines?: any[] }> {
@@ -28,10 +28,10 @@ export class SalesSaudaService {
     data: CreateSalesSaudaDTO & { lines?: CreateSalesSaudaLineDTO[] },
     userId?: string
   ): Promise<SalesSauda & { lines?: any[] }> {
-    const vendor = await vendorDAO.findById(data.customer_id);
-    if (!vendor) throw new NotFoundError('Customer (vendor) not found');
+    const salesParty = await salesPartyDAO.findById(data.sales_party_id);
+    if (!salesParty) throw new NotFoundError('Sales party not found');
     const createDto: CreateSalesSaudaDTO = {
-      customer_id: data.customer_id,
+      sales_party_id: data.sales_party_id,
       status: data.status ?? 'draft',
       sauda_date: data.sauda_date,
       notes: data.notes,
@@ -64,9 +64,9 @@ export class SalesSaudaService {
     const existing = await salesSaudaDAO.findById(id);
     if (!existing) throw new NotFoundError('Sales sauda not found');
     if (existing.status !== 'draft') throw new ConflictError('Only draft sales sauda can be updated');
-    if (data.customer_id !== undefined) {
-      const vendor = await vendorDAO.findById(data.customer_id);
-      if (!vendor) throw new NotFoundError('Customer (vendor) not found');
+    if (data.sales_party_id !== undefined) {
+      const salesParty = await salesPartyDAO.findById(data.sales_party_id);
+      if (!salesParty) throw new NotFoundError('Sales party not found');
     }
     await salesSaudaDAO.update(id, { ...data, updated_by: userId });
     if (data.lines !== undefined) {

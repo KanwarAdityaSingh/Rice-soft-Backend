@@ -5,7 +5,7 @@ import { invoiceDispatchLineDAO } from '../dao/invoice-dispatch-line.dao';
 import { invoiceDispatchAllocationDAO } from '../dao/invoice-dispatch-allocation.dao';
 import { salesSaudaDAO } from '../dao/sales-sauda.dao';
 import { salesSaudaLineDAO } from '../dao/sales-sauda-line.dao';
-import { vendorDAO } from '../dao/vendor.dao';
+import { salesPartyDAO } from '../dao/sales-party.dao';
 import { packagingDAO } from '../dao/packaging.dao';
 import { inventoryLedgerDAO } from '../dao/inventory-ledger.dao';
 import { NotFoundError, ValidationError, ConflictError } from '../utils/errors';
@@ -44,13 +44,13 @@ export class InvoiceDispatchService {
     const sauda = await salesSaudaDAO.findById(data.sales_sauda_id);
     if (!sauda) throw new NotFoundError('Sales sauda not found');
     if (sauda.status !== 'order') throw new ValidationError('Sales sauda must be finalized (order) before creating dispatch');
-    const vendor = await vendorDAO.findById(sauda.customer_id);
-    if (!vendor) throw new NotFoundError('Customer (vendor) not found');
+    const salesParty = await salesPartyDAO.findById(sauda.sales_party_id);
+    if (!salesParty) throw new NotFoundError('Sales party not found');
 
-    const party_name = vendor.business_name;
-    const party_address = formatPartyAddress(vendor.address);
-    const party_gst_number = vendor.business_details?.gst_number ?? null;
-    const party_pan_number = vendor.business_details?.pan_number ?? null;
+    const party_name = salesParty.business_name;
+    const party_address = formatPartyAddress(salesParty.address);
+    const party_gst_number = salesParty.business_details?.gst_number ?? null;
+    const party_pan_number = salesParty.business_details?.pan_number ?? null;
 
     const dispatch = await invoiceDispatchDAO.create({
       sales_sauda_id: data.sales_sauda_id,

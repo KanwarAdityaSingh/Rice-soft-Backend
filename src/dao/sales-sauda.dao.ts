@@ -17,18 +17,18 @@ function formatDateToLocalString(date: Date | string | null | undefined): string
 }
 
 export class SalesSaudaDAO {
-  async findAll(customerId?: string, status?: SalesSaudaStatus): Promise<SalesSauda[]> {
+  async findAll(salesPartyId?: string, status?: SalesSaudaStatus): Promise<SalesSauda[]> {
     let query = `
-      SELECT id, customer_id, status, order_number, TO_CHAR(sauda_date, 'YYYY-MM-DD') as sauda_date,
+      SELECT id, sales_party_id, status, order_number, TO_CHAR(sauda_date, 'YYYY-MM-DD') as sauda_date,
              notes, amount, created_at, updated_at, created_by, updated_by
       FROM sales_saudas
       WHERE 1=1
     `;
     const params: any[] = [];
     let paramCount = 1;
-    if (customerId) {
-      query += ` AND customer_id = $${paramCount++}`;
-      params.push(customerId);
+    if (salesPartyId) {
+      query += ` AND sales_party_id = $${paramCount++}`;
+      params.push(salesPartyId);
     }
     if (status) {
       query += ` AND status = $${paramCount++}`;
@@ -41,7 +41,7 @@ export class SalesSaudaDAO {
 
   async findById(id: string): Promise<SalesSauda | null> {
     const query = `
-      SELECT id, customer_id, status, order_number, TO_CHAR(sauda_date, 'YYYY-MM-DD') as sauda_date,
+      SELECT id, sales_party_id, status, order_number, TO_CHAR(sauda_date, 'YYYY-MM-DD') as sauda_date,
              notes, amount, created_at, updated_at, created_by, updated_by
       FROM sales_saudas
       WHERE id = $1
@@ -52,13 +52,13 @@ export class SalesSaudaDAO {
 
   async create(data: CreateSalesSaudaDTO): Promise<SalesSauda> {
     const query = `
-      INSERT INTO sales_saudas (customer_id, status, sauda_date, notes, amount, created_by)
+      INSERT INTO sales_saudas (sales_party_id, status, sauda_date, notes, amount, created_by)
       VALUES ($1, $2, $3, $4, $5, $6)
-      RETURNING id, customer_id, status, order_number, TO_CHAR(sauda_date, 'YYYY-MM-DD') as sauda_date,
+      RETURNING id, sales_party_id, status, order_number, TO_CHAR(sauda_date, 'YYYY-MM-DD') as sauda_date,
                 notes, amount, created_at, updated_at, created_by, updated_by
     `;
     const values = [
-      data.customer_id,
+      data.sales_party_id,
       data.status || 'draft',
       data.sauda_date != null ? (typeof data.sauda_date === 'string' ? data.sauda_date : formatDateToLocalString(data.sauda_date as Date)) : null,
       data.notes || null,
@@ -74,9 +74,9 @@ export class SalesSaudaDAO {
     const fields: string[] = [];
     const values: any[] = [];
     let paramCount = 1;
-    if (data.customer_id !== undefined) {
-      fields.push(`customer_id = $${paramCount++}`);
-      values.push(data.customer_id);
+    if (data.sales_party_id !== undefined) {
+      fields.push(`sales_party_id = $${paramCount++}`);
+      values.push(data.sales_party_id);
     }
     if (data.status !== undefined) {
       fields.push(`status = $${paramCount++}`);
@@ -111,7 +111,7 @@ export class SalesSaudaDAO {
     values.push(id);
     const query = `
       UPDATE sales_saudas SET ${fields.join(', ')} WHERE id = $${paramCount}
-      RETURNING id, customer_id, status, order_number, TO_CHAR(sauda_date, 'YYYY-MM-DD') as sauda_date,
+      RETURNING id, sales_party_id, status, order_number, TO_CHAR(sauda_date, 'YYYY-MM-DD') as sauda_date,
                 notes, amount, created_at, updated_at, created_by, updated_by
     `;
     const result = await db.query<SalesSauda>(query, values);

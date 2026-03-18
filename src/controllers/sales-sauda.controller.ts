@@ -25,7 +25,7 @@ function formatLine(line: SalesSaudaLine) {
 function formatSauda(sauda: any) {
   return {
     id: sauda.id,
-    customer_id: sauda.customer_id,
+    sales_party_id: sauda.sales_party_id,
     status: sauda.status,
     order_number: sauda.order_number,
     sauda_date: typeof sauda.sauda_date === 'string' ? sauda.sauda_date : (sauda.sauda_date?.toISOString?.()?.split('T')[0] ?? null),
@@ -40,9 +40,9 @@ function formatSauda(sauda: any) {
 export class SalesSaudaController {
   async getAll(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const customerId = req.query.customer_id as string | undefined;
+      const salesPartyId = req.query.sales_party_id as string | undefined;
       const status = (req.query.status as string | undefined) as SalesSaudaStatus | undefined;
-      const list = await salesSaudaService.list(customerId, status);
+      const list = await salesSaudaService.list(salesPartyId, status);
       const data = list.map((s) => formatSauda({ ...s, lines: [] }));
       return ResponseHandler.success(res, data);
     } catch (error) {
@@ -62,11 +62,11 @@ export class SalesSaudaController {
 
   async create(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const body = validate<{ customer_id: string; status?: string; sauda_date?: string; notes?: string; amount?: number; total_amount?: number; lines?: Array<{ product_id: string; packaging_id?: string; quantity: number; quantity_unit?: string; rate: number; amount?: number; sort_order?: number }> }>(createSalesSaudaSchema, req.body);
+      const body = validate<{ sales_party_id: string; status?: string; sauda_date?: string; notes?: string; amount?: number; total_amount?: number; lines?: Array<{ product_id: string; packaging_id?: string; quantity: number; quantity_unit?: string; rate: number; amount?: number; sort_order?: number }> }>(createSalesSaudaSchema, req.body);
       const userId = req.user?.userId;
       const sauda = await salesSaudaService.create(
         {
-          customer_id: body.customer_id,
+          sales_party_id: body.sales_party_id,
           status: body.status as SalesSaudaStatus | undefined,
           sauda_date: body.sauda_date,
           notes: body.notes,
@@ -84,12 +84,12 @@ export class SalesSaudaController {
   async update(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const id = validate<string>(uuidSchema, req.params.id);
-      const body = validate<{ customer_id?: string; status?: string; sauda_date?: string; notes?: string; amount?: number; total_amount?: number; lines?: Array<{ product_id: string; packaging_id?: string; quantity: number; quantity_unit?: string; rate: number; amount?: number; sort_order?: number }> }>(updateSalesSaudaSchema, req.body);
+      const body = validate<{ sales_party_id?: string; status?: string; sauda_date?: string; notes?: string; amount?: number; total_amount?: number; lines?: Array<{ product_id: string; packaging_id?: string; quantity: number; quantity_unit?: string; rate: number; amount?: number; sort_order?: number }> }>(updateSalesSaudaSchema, req.body);
       const userId = req.user?.userId;
       const sauda = await salesSaudaService.update(
         id,
         {
-          customer_id: body.customer_id,
+          sales_party_id: body.sales_party_id,
           status: body.status as SalesSaudaStatus | undefined,
           sauda_date: body.sauda_date,
           notes: body.notes,

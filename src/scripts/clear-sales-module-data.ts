@@ -34,6 +34,8 @@ async function clearSalesModuleData() {
     await client.query('DELETE FROM sales_sauda_lines');
     logger.info('Deleting sales_saudas...');
     await client.query('DELETE FROM sales_saudas');
+    logger.info('Deleting sales_parties...');
+    await client.query('DELETE FROM sales_parties');
 
     await client.query('COMMIT');
     logger.info('Sales Module data cleared successfully');

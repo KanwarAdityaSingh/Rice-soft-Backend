@@ -1,4 +1,4 @@
-export type PackagingWeight = 10 | 25 | 50;
+export type PackagingWeight = 5 | 10 | 25 | 26 | 30 | 50;
 
 export interface Packaging {
   id: string; // UUID primary key

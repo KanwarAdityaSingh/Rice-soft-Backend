@@ -341,9 +341,9 @@ export const INVENTORY_AUDIT_REASONS = {
   // Finished Goods Inventory Reasons
   FINISHED_GOODS: {
     BATCH_PRODUCTION: 'Finished goods created from batch production',
-    SALE: 'Goods sold to customer',
+    SALE: 'Goods sold to sales party',
     DISPATCH: 'Goods dispatched',
-    RETURN: 'Goods returned from customer',
+    RETURN: 'Goods returned from sales party',
     DAMAGE: 'Damaged goods removed from inventory',
     MANUAL_ADJUSTMENT: 'Manual inventory adjustment',
     STOCK_CORRECTION: 'Stock count correction',

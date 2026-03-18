@@ -30,13 +30,19 @@ export interface UpdateProductDTO {
   updated_by?: string;
 }
 
+/** Rate per holding capacity (kg), embedded in product list/detail responses */
+export interface ProductRateItem {
+  holding_capacity: number;
+  rate: number;
+}
+
 export interface ProductResponse {
   id: string;
   name: string;
   description: string | null;
   brand: Brand | null;
   rice_type: RiceType | null;
+  rates: ProductRateItem[];
   created_at: string;
   updated_at: string;
 }
-
