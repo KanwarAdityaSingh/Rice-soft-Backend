@@ -8,6 +8,7 @@ export class InventoryLedgerController {
   async get(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const productId = req.query.product_id as string | undefined;
+      const godownId = req.query.godown_id as string | undefined;
       const sourceType = req.query.source_type as InventoryLedgerSourceType | undefined;
       const fromDate = req.query.from_date as string | undefined;
       const toDate = req.query.to_date as string | undefined;
@@ -15,6 +16,7 @@ export class InventoryLedgerController {
       const offset = req.query.offset != null ? parseInt(String(req.query.offset), 10) : 0;
 
       const entries = await inventoryLedgerDAO.find({
+        godown_id: godownId,
         product_id: productId,
         source_type: sourceType,
         from_date: fromDate,
@@ -25,6 +27,7 @@ export class InventoryLedgerController {
 
       const data = entries.map((e) => ({
         id: e.id,
+        godown_id: e.godown_id,
         product_id: e.product_id,
         quantity_change: parseFloat(e.quantity_change.toString()),
         source_type: e.source_type,

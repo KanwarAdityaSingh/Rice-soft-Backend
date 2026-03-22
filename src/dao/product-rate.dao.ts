@@ -1,15 +1,17 @@
 import { db } from '../database/connection';
-import {
-  ProductRate,
-  CreateProductRateDTO,
-} from '../models/product-rate.model';
+import { ProductRate } from '../models/product-rate.model';
 import { PackagingWeight } from '../models/packaging.model';
 import { logger } from '../utils/logger';
+import { productRateHistoryDAO } from './product-rate-history.dao';
 
 const VALID_CAPACITIES: PackagingWeight[] = [5, 10, 25, 26, 30, 50];
 
 function isPackagingWeight(n: number): n is PackagingWeight {
   return VALID_CAPACITIES.includes(n as PackagingWeight);
+}
+
+function ratesEqual(a: number, b: number): boolean {
+  return Math.round(a * 100) === Math.round(b * 100);
 }
 
 export class ProductRateDAO {
@@ -61,45 +63,60 @@ export class ProductRateDAO {
     return result.rows;
   }
 
-  async create(data: CreateProductRateDTO): Promise<ProductRate> {
-    const query = `
-      INSERT INTO product_rates (product_id, holding_capacity, rate)
-      VALUES ($1, $2, $3)
-      ON CONFLICT (product_id, holding_capacity) DO UPDATE SET rate = EXCLUDED.rate, updated_at = CURRENT_TIMESTAMP
-      RETURNING id, product_id, holding_capacity, rate, created_at, updated_at
-    `;
-    const result = await db.query<ProductRate>(query, [
-      data.product_id,
-      data.holding_capacity,
-      Number(data.rate),
-    ]);
-    logger.info('Product rate upserted', {
-      product_id: data.product_id,
-      holding_capacity: data.holding_capacity,
-    });
-    return result.rows[0];
-  }
-
   /**
    * Set all rates for a product. Replaces any existing rates for the given capacities.
    * Each item in rates must have holding_capacity in (5, 10, 25, 26, 30, 50).
+   * Appends to product_rate_history when the rate value changes (or is set for the first time).
    */
   async upsertRates(
     productId: string,
-    rates: Array<{ holding_capacity: number; rate: number }>
+    rates: Array<{ holding_capacity: number; rate: number }>,
+    createdBy?: string | null
   ): Promise<ProductRate[]> {
-    const results: ProductRate[] = [];
-    for (const r of rates) {
-      if (!isPackagingWeight(r.holding_capacity)) continue;
-      if (Number(r.rate) < 0) continue;
-      const row = await this.create({
-        product_id: productId,
-        holding_capacity: r.holding_capacity,
-        rate: Number(r.rate),
-      });
-      results.push(row);
-    }
-    return results;
+    return db.transaction(async (client) => {
+      const results: ProductRate[] = [];
+      const createdById = createdBy ?? null;
+
+      for (const r of rates) {
+        if (!isPackagingWeight(r.holding_capacity)) continue;
+        if (Number(r.rate) < 0) continue;
+
+        const capacityInt = r.holding_capacity;
+        const newRate = Number(r.rate);
+
+        const prevRes = await client.query<{ rate: string }>(
+          `SELECT rate FROM product_rates WHERE product_id = $1 AND holding_capacity = $2`,
+          [productId, capacityInt]
+        );
+        const prevRow = prevRes.rows[0];
+        const prevRate = prevRow !== undefined ? Number(prevRow.rate) : null;
+
+        const upsertRes = await client.query<ProductRate>(
+          `
+          INSERT INTO product_rates (product_id, holding_capacity, rate)
+          VALUES ($1, $2, $3)
+          ON CONFLICT (product_id, holding_capacity) DO UPDATE SET rate = EXCLUDED.rate, updated_at = CURRENT_TIMESTAMP
+          RETURNING id, product_id, holding_capacity, rate, created_at, updated_at
+        `,
+          [productId, capacityInt, newRate]
+        );
+        const row = upsertRes.rows[0];
+        if (row) results.push(row);
+
+        const shouldLog = prevRate === null || !ratesEqual(prevRate, newRate);
+        if (shouldLog) {
+          await productRateHistoryDAO.insert(client, {
+            product_id: productId,
+            holding_capacity: capacityInt,
+            rate: newRate,
+            created_by: createdById,
+          });
+        }
+      }
+
+      logger.info('Product rates upserted', { product_id: productId, count: results.length });
+      return results;
+    });
   }
 }
 

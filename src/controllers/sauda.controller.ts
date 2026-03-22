@@ -16,14 +16,14 @@ import {
   ConflictError,
   InternalServerError,
 } from '../utils/errors';
-import { CreateSaudaDTO, UpdateSaudaDTO, SaudaResponse, SaudaStatus, SaudaType } from '../models/sauda.model';
+import { CreateSaudaDTO, UpdateSaudaDTO, Sauda, SaudaResponse, SaudaStatus, SaudaType } from '../models/sauda.model';
+import { formatSaudaDisplayId } from '../utils/sauda-display';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { uploadToS3, validateFileSize, validateFileType } from '../utils/s3-upload';
 import { appConfig } from '../config/app.config';
 import { whatsAppService } from '../services/whatsapp.service';
 import { emailService } from '../services/email.service';
 import { logger } from '../utils/logger';
-
 /**
  * Format a Date object to YYYY-MM-DD string using UTC
  * When PostgreSQL returns a DATE column, it's a Date object at midnight UTC,
@@ -40,6 +40,35 @@ function formatDateToLocalString(date: Date | string | null | undefined): string
   return `${year}-${month}-${day}`;
 }
 
+function toSaudaResponse(sauda: Sauda): SaudaResponse {
+  return {
+    id: sauda.id,
+    display_id: formatSaudaDisplayId(sauda.id),
+    sauda_type: sauda.sauda_type,
+    rice_type: sauda.rice_type,
+    rice_code_id: sauda.rice_code_id,
+    rate: parseFloat(sauda.rate.toString()),
+    broker_id: sauda.broker_id,
+    broker_commission: sauda.broker_commission ? parseFloat(sauda.broker_commission.toString()) : null,
+    broker_commission_type: sauda.broker_commission_type,
+    quantity: sauda.quantity ? parseFloat(sauda.quantity.toString()) : null,
+    received_until_now: parseFloat(sauda.received_until_now.toString()),
+    completion_percentage: sauda.completion_percentage ? parseFloat(sauda.completion_percentage.toString()) : null,
+    cash_discount: sauda.cash_discount ? parseFloat(sauda.cash_discount.toString()) : null,
+    cash_discount_type: sauda.cash_discount_type,
+    estimated_delivery_time: sauda.estimated_delivery_time,
+    purchaser_id: sauda.purchaser_id,
+    cooked_rice_image_url: sauda.cooked_rice_image_url,
+    uncooked_rice_image_url: sauda.uncooked_rice_image_url,
+    status: sauda.status,
+    notes: sauda.notes,
+    is_dana_required: sauda.is_dana_required,
+    sauda_date: formatDateToLocalString(sauda.sauda_date),
+    created_at: sauda.created_at.toISOString(),
+    updated_at: sauda.updated_at.toISOString(),
+  };
+}
+
 export class SaudaController {
   async getAll(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
@@ -50,31 +79,7 @@ export class SaudaController {
       
       const saudas = await saudaDAO.findAll(includeInactive, status, saudaType, purchaserId);
 
-      const saudaResponses: SaudaResponse[] = saudas.map((sauda) => ({
-        id: sauda.id,
-        sauda_type: sauda.sauda_type,
-        rice_type: sauda.rice_type,
-        rice_code_id: sauda.rice_code_id,
-        rate: parseFloat(sauda.rate.toString()),
-        broker_id: sauda.broker_id,
-        broker_commission: sauda.broker_commission ? parseFloat(sauda.broker_commission.toString()) : null,
-        broker_commission_type: sauda.broker_commission_type,
-        quantity: sauda.quantity ? parseFloat(sauda.quantity.toString()) : null,
-        received_until_now: parseFloat(sauda.received_until_now.toString()),
-        completion_percentage: sauda.completion_percentage ? parseFloat(sauda.completion_percentage.toString()) : null,
-        cash_discount: sauda.cash_discount ? parseFloat(sauda.cash_discount.toString()) : null,
-        cash_discount_type: sauda.cash_discount_type,
-        estimated_delivery_time: sauda.estimated_delivery_time,
-        purchaser_id: sauda.purchaser_id,
-        cooked_rice_image_url: sauda.cooked_rice_image_url,
-        uncooked_rice_image_url: sauda.uncooked_rice_image_url,
-        status: sauda.status,
-        notes: sauda.notes,
-        is_dana_required: sauda.is_dana_required,
-        sauda_date: formatDateToLocalString(sauda.sauda_date),
-        created_at: sauda.created_at.toISOString(),
-        updated_at: sauda.updated_at.toISOString(),
-      }));
+      const saudaResponses: SaudaResponse[] = saudas.map(toSaudaResponse);
 
       return ResponseHandler.success(res, saudaResponses);
     } catch (error) {
@@ -91,33 +96,7 @@ export class SaudaController {
         throw new NotFoundError('Sauda not found');
       }
 
-      const saudaResponse: SaudaResponse = {
-        id: sauda.id,
-        sauda_type: sauda.sauda_type,
-        rice_type: sauda.rice_type,
-        rice_code_id: sauda.rice_code_id,
-        rate: parseFloat(sauda.rate.toString()),
-        broker_id: sauda.broker_id,
-        broker_commission: sauda.broker_commission ? parseFloat(sauda.broker_commission.toString()) : null,
-        broker_commission_type: sauda.broker_commission_type,
-        quantity: sauda.quantity ? parseFloat(sauda.quantity.toString()) : null,
-        received_until_now: parseFloat(sauda.received_until_now.toString()),
-        completion_percentage: sauda.completion_percentage ? parseFloat(sauda.completion_percentage.toString()) : null,
-        cash_discount: sauda.cash_discount ? parseFloat(sauda.cash_discount.toString()) : null,
-        cash_discount_type: sauda.cash_discount_type,
-        estimated_delivery_time: sauda.estimated_delivery_time,
-        purchaser_id: sauda.purchaser_id,
-        cooked_rice_image_url: sauda.cooked_rice_image_url,
-        uncooked_rice_image_url: sauda.uncooked_rice_image_url,
-        status: sauda.status,
-        notes: sauda.notes,
-        is_dana_required: sauda.is_dana_required,
-        sauda_date: formatDateToLocalString(sauda.sauda_date),
-        created_at: sauda.created_at.toISOString(),
-        updated_at: sauda.updated_at.toISOString(),
-      };
-
-      return ResponseHandler.success(res, saudaResponse);
+      return ResponseHandler.success(res, toSaudaResponse(sauda));
     } catch (error) {
       next(error);
     }
@@ -129,6 +108,7 @@ export class SaudaController {
 
       // Validate purchaser exists
       const purchaser = await vendorDAO.findById(saudaData.purchaser_id);
+
       if (!purchaser) {
         throw new NotFoundError('Purchaser (vendor) not found');
       }
@@ -168,33 +148,7 @@ export class SaudaController {
         throw new InternalServerError('Failed to create sauda. Please try again.');
       }
 
-      const saudaResponse: SaudaResponse = {
-        id: sauda.id,
-        sauda_type: sauda.sauda_type,
-        rice_type: sauda.rice_type,
-        rice_code_id: sauda.rice_code_id,
-        rate: parseFloat(sauda.rate.toString()),
-        broker_id: sauda.broker_id,
-        broker_commission: sauda.broker_commission ? parseFloat(sauda.broker_commission.toString()) : null,
-        broker_commission_type: sauda.broker_commission_type,
-        quantity: sauda.quantity ? parseFloat(sauda.quantity.toString()) : null,
-        received_until_now: parseFloat(sauda.received_until_now.toString()),
-        completion_percentage: sauda.completion_percentage ? parseFloat(sauda.completion_percentage.toString()) : null,
-        cash_discount: sauda.cash_discount ? parseFloat(sauda.cash_discount.toString()) : null,
-        cash_discount_type: sauda.cash_discount_type,
-        estimated_delivery_time: sauda.estimated_delivery_time,
-        purchaser_id: sauda.purchaser_id,
-        cooked_rice_image_url: sauda.cooked_rice_image_url,
-        uncooked_rice_image_url: sauda.uncooked_rice_image_url,
-        status: sauda.status,
-        notes: sauda.notes,
-        is_dana_required: sauda.is_dana_required,
-        sauda_date: formatDateToLocalString(sauda.sauda_date),
-        created_at: sauda.created_at.toISOString(),
-        updated_at: sauda.updated_at.toISOString(),
-      };
-
-      return ResponseHandler.created(res, saudaResponse, 'Sauda created successfully');
+      return ResponseHandler.created(res, toSaudaResponse(sauda), 'Sauda created successfully');
     } catch (error) {
       next(error);
     }
@@ -260,33 +214,7 @@ export class SaudaController {
         throw new InternalServerError('Failed to update sauda. Please try again.');
       }
 
-      const saudaResponse: SaudaResponse = {
-        id: sauda.id,
-        sauda_type: sauda.sauda_type,
-        rice_type: sauda.rice_type,
-        rice_code_id: sauda.rice_code_id,
-        rate: parseFloat(sauda.rate.toString()),
-        broker_id: sauda.broker_id,
-        broker_commission: sauda.broker_commission ? parseFloat(sauda.broker_commission.toString()) : null,
-        broker_commission_type: sauda.broker_commission_type,
-        quantity: sauda.quantity ? parseFloat(sauda.quantity.toString()) : null,
-        received_until_now: parseFloat(sauda.received_until_now.toString()),
-        completion_percentage: sauda.completion_percentage ? parseFloat(sauda.completion_percentage.toString()) : null,
-        cash_discount: sauda.cash_discount ? parseFloat(sauda.cash_discount.toString()) : null,
-        cash_discount_type: sauda.cash_discount_type,
-        estimated_delivery_time: sauda.estimated_delivery_time,
-        purchaser_id: sauda.purchaser_id,
-        cooked_rice_image_url: sauda.cooked_rice_image_url,
-        uncooked_rice_image_url: sauda.uncooked_rice_image_url,
-        status: sauda.status,
-        notes: sauda.notes,
-        is_dana_required: sauda.is_dana_required,
-        sauda_date: formatDateToLocalString(sauda.sauda_date),
-        created_at: sauda.created_at.toISOString(),
-        updated_at: sauda.updated_at.toISOString(),
-      };
-
-      return ResponseHandler.success(res, saudaResponse, 'Sauda updated successfully');
+      return ResponseHandler.success(res, toSaudaResponse(sauda), 'Sauda updated successfully');
     } catch (error) {
       next(error);
     }
@@ -310,33 +238,7 @@ export class SaudaController {
         throw new NotFoundError('Sauda not found');
       }
 
-      const saudaResponse: SaudaResponse = {
-        id: sauda.id,
-        sauda_type: sauda.sauda_type,
-        rice_type: sauda.rice_type,
-        rice_code_id: sauda.rice_code_id,
-        rate: parseFloat(sauda.rate.toString()),
-        broker_id: sauda.broker_id,
-        broker_commission: sauda.broker_commission ? parseFloat(sauda.broker_commission.toString()) : null,
-        broker_commission_type: sauda.broker_commission_type,
-        quantity: sauda.quantity ? parseFloat(sauda.quantity.toString()) : null,
-        received_until_now: parseFloat(sauda.received_until_now.toString()),
-        completion_percentage: sauda.completion_percentage ? parseFloat(sauda.completion_percentage.toString()) : null,
-        cash_discount: sauda.cash_discount ? parseFloat(sauda.cash_discount.toString()) : null,
-        cash_discount_type: sauda.cash_discount_type,
-        estimated_delivery_time: sauda.estimated_delivery_time,
-        purchaser_id: sauda.purchaser_id,
-        cooked_rice_image_url: sauda.cooked_rice_image_url,
-        uncooked_rice_image_url: sauda.uncooked_rice_image_url,
-        status: sauda.status,
-        notes: sauda.notes,
-        is_dana_required: sauda.is_dana_required,
-        sauda_date: formatDateToLocalString(sauda.sauda_date),
-        created_at: sauda.created_at.toISOString(),
-        updated_at: sauda.updated_at.toISOString(),
-      };
-
-      return ResponseHandler.success(res, saudaResponse, 'Sauda status updated successfully');
+      return ResponseHandler.success(res, toSaudaResponse(sauda), 'Sauda status updated successfully');
     } catch (error) {
       next(error);
     }
@@ -494,7 +396,7 @@ export class SaudaController {
     return {
       sauda,
       saudaDetails: {
-        saudaId: sauda.id.substring(0, 8).toUpperCase(),
+        saudaId: formatSaudaDisplayId(sauda.id),
         saudaType: sauda.sauda_type,
         riceType: sauda.rice_type,
         rate: parseFloat(sauda.rate.toString()),

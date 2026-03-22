@@ -38,6 +38,18 @@ router.get('/lookupAadhaar', authenticate, brokerController.lookupAadhaar.bind(b
 router.get('/verifyBankAccount', authenticate, brokerController.verifyBankAccount.bind(brokerController));
 
 /**
+ * @route   POST /api/v1/brokers/confirm-bank-verification/:id
+ * @desc    Verify stored bank_details via Surepass and set bank_details_verified_at / _by
+ * @access  Private
+ */
+router.post(
+  '/confirm-bank-verification/:id',
+  authenticate,
+  auditLog('UPDATE', 'brokers'),
+  brokerController.confirmBankVerification.bind(brokerController)
+);
+
+/**
  * @route   POST /api/v1/brokers/quickCreateFromPAN
  * @desc    Quick create broker from PAN number (for individual brokers)
  * @access  Private
@@ -65,9 +77,21 @@ router.post(
  * @route   GET /api/v1/brokers/getAllBrokers
  * @desc    Get all brokers
  * @access  Private
- * @query   include_inactive: boolean, type: purchase|sale|both
+ * @query   include_inactive: boolean, type: purchase|sale|both, bank_verified: true|false
  */
 router.get('/getAllBrokers', authenticate, brokerController.getAll.bind(brokerController));
+
+/**
+ * @route   GET /api/v1/brokers/:brokerId/brokerage-commission-summary
+ * @desc    Brokerage commission per purchase sauda + total (same computation as purchase summary)
+ * @access  Private
+ * @query   godown_id, status, from_date, to_date (all optional)
+ */
+router.get(
+  '/:brokerId/brokerage-commission-summary',
+  authenticate,
+  brokerController.getBrokerageCommissionSummary.bind(brokerController)
+);
 
 /**
  * @route   GET /api/v1/brokers/getBrokerById/:id

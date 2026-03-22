@@ -79,6 +79,8 @@ export interface UpdateSaudaDTO {
 
 export interface SaudaResponse {
   id: string;
+  /** First 4 hex digits of id — use in tables instead of full UUID */
+  display_id: string;
   sauda_type: SaudaType;
   rice_type: RiceType;
   rice_code_id: string | null;

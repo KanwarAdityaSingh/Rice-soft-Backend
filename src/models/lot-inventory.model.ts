@@ -1,5 +1,6 @@
 export interface LotInventory {
   id: string;
+  godown_id: string;
   lot_id: string;
   available_quantity: number;
   created_at: Date;
@@ -9,6 +10,7 @@ export interface LotInventory {
 }
 
 export interface CreateLotInventoryDTO {
+  godown_id: string;
   lot_id: string;
   available_quantity: number;
   created_by?: string;
@@ -21,6 +23,7 @@ export interface UpdateLotInventoryDTO {
 
 export interface LotInventoryResponse {
   id: string;
+  godown_id: string;
   lot_id: string;
   available_quantity: number;
   created_at: string;

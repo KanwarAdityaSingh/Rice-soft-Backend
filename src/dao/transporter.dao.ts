@@ -60,11 +60,11 @@ export class TransporterDAO {
   }
 
   async create(transporterData: CreateTransporterDTO): Promise<Transporter> {
-    // Extract first contact person data for legacy fields
-    const firstContactPerson = transporterData.contact_persons[0];
-    const contactPersonName = firstContactPerson.name;
-    const primaryPhone = firstContactPerson.phones[0];
-    const primaryEmail = firstContactPerson.emails?.[0] || null;
+    const persons = transporterData.contact_persons ?? [];
+    const firstContactPerson = persons[0];
+    const contactPersonName = firstContactPerson?.name ?? '';
+    const primaryPhone = firstContactPerson?.phones?.[0] ?? '';
+    const primaryEmail = firstContactPerson?.emails?.[0] || null;
 
     const query = `
       INSERT INTO transporters (business_name, contact_persons, contact_person, phone, email, address, gst_number,
@@ -76,7 +76,7 @@ export class TransporterDAO {
     
     const values = [
       transporterData.business_name,
-      JSON.stringify(transporterData.contact_persons),
+      JSON.stringify(persons),
       contactPersonName,
       primaryPhone,
       primaryEmail,

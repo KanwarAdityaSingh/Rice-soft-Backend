@@ -16,7 +16,8 @@ spec:
       containers:
         - name: backend
           image: rice-soft-backend:latest
-          imagePullPolicy: IfNotPresent
+          # Never pull from a registry; image is imported locally (k3s ctr import). IfNotPresent pulls docker.io/library/... when the local image is missing.
+          imagePullPolicy: Never
           ports:
             - containerPort: 3000
           env:

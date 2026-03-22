@@ -6,9 +6,9 @@ import { inwardSlipPassDAO } from './inward-slip-pass.dao';
 import { CreateInwardSlipLotDTO } from '../models/inward-slip-lot.model';
 
 export class KaantaDAO {
-  async findAll(saudaId?: string, ispId?: string): Promise<Kaanta[]> {
+  async findAll(saudaId?: string, ispId?: string, godownId?: string): Promise<Kaanta[]> {
     let query = `
-      SELECT id, kaanta_id, sauda_id, inward_slip_pass_id, full_truck_weight, 
+      SELECT id, kaanta_id, godown_id, sauda_id, inward_slip_pass_id, full_truck_weight, 
              empty_truck_weight, kaanta_weight, said_sent_weight, bag_weight, no_of_bags, bag_type,
              khaali_kaanta_parchi_url, bhara_kaanta_parchi_url,
              created_at, updated_at, created_by, updated_by
@@ -28,6 +28,10 @@ export class KaantaDAO {
       query += ` AND inward_slip_pass_id = $${paramCount++}`;
       params.push(ispId);
     }
+    if (godownId) {
+      query += ` AND godown_id = $${paramCount++}`;
+      params.push(godownId);
+    }
 
     query += ` ORDER BY created_at DESC`;
 
@@ -37,7 +41,7 @@ export class KaantaDAO {
 
   async findById(id: string): Promise<Kaanta | null> {
     const query = `
-      SELECT id, kaanta_id, sauda_id, inward_slip_pass_id, full_truck_weight, 
+      SELECT id, kaanta_id, godown_id, sauda_id, inward_slip_pass_id, full_truck_weight, 
              empty_truck_weight, kaanta_weight, said_sent_weight, bag_weight, no_of_bags, bag_type,
              khaali_kaanta_parchi_url, bhara_kaanta_parchi_url,
              created_at, updated_at, created_by, updated_by
@@ -66,19 +70,23 @@ export class KaantaDAO {
       if (!isp) {
         throw new Error('Inward slip pass not found');
       }
+      if (kaantaData.godown_id !== isp.godown_id) {
+        throw new Error('Kaanta godown must match inward slip pass godown');
+      }
 
       // Insert kaanta (triggers will calculate kaanta_weight and generate kaanta_id)
       const kaantaQuery = `
-        INSERT INTO kaantas (sauda_id, inward_slip_pass_id, full_truck_weight, 
+        INSERT INTO kaantas (godown_id, sauda_id, inward_slip_pass_id, full_truck_weight, 
                             empty_truck_weight, said_sent_weight, bag_weight, no_of_bags, bag_type, created_by)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-        RETURNING id, kaanta_id, sauda_id, inward_slip_pass_id, full_truck_weight, 
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        RETURNING id, kaanta_id, godown_id, sauda_id, inward_slip_pass_id, full_truck_weight, 
                   empty_truck_weight, kaanta_weight, said_sent_weight, bag_weight, no_of_bags, bag_type,
                   khaali_kaanta_parchi_url, bhara_kaanta_parchi_url,
                   created_at, updated_at, created_by, updated_by
       `;
       
       const kaantaValues = [
+        kaantaData.godown_id,
         kaantaData.sauda_id,
         kaantaData.inward_slip_pass_id,
         kaantaData.full_truck_weight,
@@ -102,6 +110,7 @@ export class KaantaDAO {
       // Auto-create lot with data from kaanta and sauda
       const lotData: CreateInwardSlipLotDTO = {
         sauda_id: createdKaanta.sauda_id,
+        godown_id: createdKaanta.godown_id,
         lot_number: `LOT-${createdKaanta.kaanta_id}`,
         rice_code_id: sauda.rice_code_id || undefined,
         rice_type: sauda.rice_type,
@@ -115,17 +124,18 @@ export class KaantaDAO {
 
       // Create lot using the existing DAO method (within same transaction)
       const lotQuery = `
-        INSERT INTO inward_slip_lots (sauda_id, lot_number, rice_code_id, rice_type, 
+        INSERT INTO inward_slip_lots (sauda_id, godown_id, lot_number, rice_code_id, rice_type, 
                                      no_of_bags, bag_weight, bill_weight, received_weight, 
                                      rate, created_by)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-        RETURNING id, sauda_id, lot_number, rice_code_id, rice_type, no_of_bags, 
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        RETURNING id, sauda_id, godown_id, lot_number, rice_code_id, rice_type, no_of_bags, 
                   bag_weight, total_weight, bill_weight, received_weight, rate, amount, 
                   created_at, updated_at, created_by, updated_by
       `;
       
       const lotValues = [
         lotData.sauda_id,
+        lotData.godown_id,
         lotData.lot_number,
         lotData.rice_code_id || null,
         lotData.rice_type || null,
@@ -216,7 +226,7 @@ export class KaantaDAO {
       UPDATE kaantas
       SET ${fields.join(', ')}
       WHERE id = $${paramCount}
-      RETURNING id, kaanta_id, sauda_id, inward_slip_pass_id, full_truck_weight, 
+      RETURNING id, kaanta_id, godown_id, sauda_id, inward_slip_pass_id, full_truck_weight, 
                 empty_truck_weight, kaanta_weight, said_sent_weight, bag_weight, no_of_bags, bag_type,
                 khaali_kaanta_parchi_url, bhara_kaanta_parchi_url,
                 created_at, updated_at, created_by, updated_by

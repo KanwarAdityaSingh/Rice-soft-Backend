@@ -1,5 +1,6 @@
 import Joi from 'joi';
 import { ValidationError } from './errors';
+import { BAG_TYPE_VALUES } from '../constants/bag-types';
 
 export const validate = <T>(schema: Joi.Schema, data: any): T => {
   const { error, value } = schema.validate(data, { abortEarly: false });
@@ -153,6 +154,15 @@ const bankDetailsSchema = Joi.object({
 });
 
 // Vendor validation schemas
+/** Stricter bank_details when verify_bank is true (create vendor / quick create). */
+export const bankDetailsForVerifySchema = Joi.object({
+  account_holder_name: Joi.string().required().min(2).max(255),
+  account_number: Joi.string().required().min(9).max(50),
+  ifsc_code: Joi.string().required().length(11),
+  bank_name: Joi.string().optional().allow(null, '').max(255),
+  branch: Joi.string().optional().allow(null, '').max(255),
+});
+
 export const createVendorSchema = Joi.object({
   business_name: Joi.string().required().min(2).max(255),
   contact_persons: Joi.array().items(
@@ -164,7 +174,12 @@ export const createVendorSchema = Joi.object({
   ).required().min(1),
   address: addressSchema.required(),
   business_details: businessDetailsSchema.required(),
-  bank_details: bankDetailsSchema.optional(),
+  bank_details: Joi.when('verify_bank', {
+    is: true,
+    then: bankDetailsForVerifySchema.required(),
+    otherwise: bankDetailsSchema.optional(),
+  }),
+  verify_bank: Joi.boolean().optional(),
   type: Joi.string().required().valid('purchaser', 'seller', 'both'),
   is_active: Joi.boolean().optional(),
   google_location_link: Joi.string().optional().allow(null, '').max(500),
@@ -239,10 +254,23 @@ export const createBrokerSchema = Joi.object({
   ).required().min(1),
   address: addressSchema.required(),
   business_details: brokerBusinessDetailsSchema.required(),
-  bank_details: bankDetailsSchema.optional(),
+  bank_details: Joi.when('verify_bank', {
+    is: true,
+    then: bankDetailsForVerifySchema.required(),
+    otherwise: bankDetailsSchema.optional(),
+  }),
+  verify_bank: Joi.boolean().optional(),
   broker_details: brokerDetailsSchema.optional(),
   type: Joi.string().required().valid('purchase', 'sale', 'both'),
   is_active: Joi.boolean().optional(),
+});
+
+/** Query for GET /brokers/:brokerId/brokerage-commission-summary */
+export const brokerBrokerageCommissionSummaryQuerySchema = Joi.object({
+  godown_id: Joi.string().optional().empty(['', null]).uuid(),
+  status: Joi.string().optional().valid('draft', 'active', 'completed', 'cancelled'),
+  from_date: Joi.string().optional().empty(['', null]).isoDate(),
+  to_date: Joi.string().optional().empty(['', null]).isoDate(),
 });
 
 export const updateBrokerSchema = Joi.object({
@@ -410,7 +438,7 @@ export const createTransporterSchema = Joi.object({
       phones: Joi.array().items(Joi.string().max(20)).required().min(1),
       emails: Joi.array().items(Joi.string().email().allow('', null)).optional()
     })
-  ).required().min(1),
+  ).optional().default([]),
   address: addressSchema.required(),
   gst_number: Joi.string().optional().allow(null, '').length(15),
   pan_number: Joi.string().optional().allow(null, '').length(10).uppercase(),
@@ -491,20 +519,28 @@ export const updateSaudaSchema = Joi.object({
 const salesSaudaLineItemSchema = Joi.object({
   product_id: Joi.string().required().uuid(),
   packaging_id: Joi.string().optional().uuid().allow(null),
-  quantity: Joi.number().required().min(0.001).precision(3),
+  packet_count: Joi.number().optional().integer().min(1),
+  quantity: Joi.number().optional().min(0.001).precision(3),
   quantity_unit: Joi.string().optional().valid('kg', 'packets').default('kg'),
   rate: Joi.number().required().min(0).precision(2),
-  amount: Joi.number().optional().min(0).precision(2),
+  discount_value: Joi.number().optional().min(0).precision(2).default(0),
+  discount_type: Joi.string().optional().valid('per_kg', 'percentage').default('per_kg'),
+  gst_percent: Joi.number().optional().min(0).precision(2).default(0),
+  amount: Joi.any().forbidden(),
+  discount_amount: Joi.any().forbidden(),
+  gst_amount: Joi.any().forbidden(),
+  final_amount: Joi.any().forbidden(),
   sort_order: Joi.number().optional().integer().min(0),
-});
+}).or('quantity', 'packet_count');
 
 export const createSalesSaudaSchema = Joi.object({
   sales_party_id: Joi.string().required().uuid(),
   status: Joi.string().optional().valid('draft', 'order', 'cancelled').default('draft'),
   sauda_date: Joi.string().optional().allow(null, '').isoDate(),
   notes: Joi.string().optional().allow(null, '').max(2000),
-  amount: Joi.number().optional().min(0).precision(2),
-  total_amount: Joi.number().optional().min(0).precision(2),
+  payment_terms: Joi.number().optional().integer().min(0).allow(null),
+  amount: Joi.any().forbidden(),
+  total_amount: Joi.any().forbidden(),
   lines: Joi.array().items(salesSaudaLineItemSchema).optional().min(0),
   created_by: Joi.string().optional().uuid(),
 });
@@ -514,8 +550,9 @@ export const updateSalesSaudaSchema = Joi.object({
   status: Joi.string().optional().valid('draft', 'order', 'cancelled'),
   sauda_date: Joi.string().optional().allow(null, '').isoDate(),
   notes: Joi.string().optional().allow(null, '').max(2000),
-  amount: Joi.number().optional().min(0).precision(2),
-  total_amount: Joi.number().optional().min(0).precision(2),
+  payment_terms: Joi.number().optional().integer().min(0).allow(null),
+  amount: Joi.any().forbidden(),
+  total_amount: Joi.any().forbidden(),
   lines: Joi.array().items(salesSaudaLineItemSchema).optional(),
   updated_by: Joi.string().optional().uuid(),
 }).min(1);
@@ -523,6 +560,7 @@ export const updateSalesSaudaSchema = Joi.object({
 // Invoice Dispatch validation schemas
 export const createInvoiceDispatchSchema = Joi.object({
   sales_sauda_id: Joi.string().required().uuid(),
+  godown_id: Joi.string().required().uuid(),
   internal_invoice_number: Joi.string().required().max(100),
   dispatch_date: Joi.string().optional().allow(null, '').isoDate(),
   transporter_id: Joi.string().optional().uuid().allow(null),
@@ -550,6 +588,7 @@ export const createCreditNoteSchema = Joi.object({
 // Inward Slip Pass validation schemas
 export const createLotSchema = Joi.object({
   sauda_id: Joi.string().required().uuid(),
+  godown_id: Joi.string().required().uuid(),
   lot_number: Joi.string().required().max(255),
   rice_code_id: Joi.string().optional().uuid().allow(null),
   rice_type: Joi.string().optional().valid('basmati', 'non_basmati', 'parboiled', 'raw', 'raw_basmati', 'steam_basmati', 'white_sella', 'golden_sella').allow(null),
@@ -562,6 +601,7 @@ export const createLotSchema = Joi.object({
 });
 
 export const updateLotSchema = Joi.object({
+  godown_id: Joi.forbidden(),
   lot_number: Joi.string().optional().max(255),
   rice_code_id: Joi.string().optional().uuid().allow(null),
   rice_type: Joi.string().optional().valid('basmati', 'non_basmati', 'parboiled', 'raw', 'raw_basmati', 'steam_basmati', 'white_sella', 'golden_sella').allow(null),
@@ -575,6 +615,7 @@ export const updateLotSchema = Joi.object({
 
 // Kaanta validation schemas
 export const createKaantaSchema = Joi.object({
+  godown_id: Joi.string().optional().uuid(),
   sauda_id: Joi.string().required().uuid(),
   inward_slip_pass_id: Joi.string().required().uuid(),
   full_truck_weight: Joi.number().required().min(0).precision(2),
@@ -582,7 +623,7 @@ export const createKaantaSchema = Joi.object({
   said_sent_weight: Joi.number().optional().min(0).precision(2).allow(null),
   bag_weight: Joi.number().required().min(0).precision(2),
   no_of_bags: Joi.number().required().integer().min(1),
-  bag_type: Joi.string().required().valid('jute', 'pp'),
+  bag_type: Joi.string().required().valid(...BAG_TYPE_VALUES),
   created_by: Joi.string().optional().uuid(),
 });
 
@@ -592,7 +633,7 @@ export const updateKaantaSchema = Joi.object({
   said_sent_weight: Joi.number().optional().min(0).precision(2).allow(null),
   bag_weight: Joi.number().optional().min(0).precision(2),
   no_of_bags: Joi.number().optional().integer().min(1),
-  bag_type: Joi.string().optional().valid('jute', 'pp'),
+  bag_type: Joi.string().optional().valid(...BAG_TYPE_VALUES),
   updated_by: Joi.string().optional().uuid(),
 }).min(1);
 
@@ -639,6 +680,7 @@ export const verifyVehicleSchema = Joi.object({
 
 export const createInwardSlipPassSchema = Joi.object({
   sauda_ids: Joi.array().items(Joi.string().uuid()).optional().min(1),
+  godown_id: Joi.string().required().uuid(),
   slip_number: Joi.string().optional().allow(null, '').max(255),
   date: Joi.string().required().isoDate(),
   vehicle_id: Joi.string().required().uuid(),
@@ -667,6 +709,7 @@ export const createInwardSlipPassSchema = Joi.object({
 
 export const updateInwardSlipPassSchema = Joi.object({
   sauda_ids: Joi.array().items(Joi.string().uuid()).optional().min(0),
+  godown_id: Joi.string().optional().uuid(),
   slip_number: Joi.string().optional().max(255),
   date: Joi.string().optional().isoDate(),
   vehicle_id: Joi.string().optional().uuid(),
@@ -890,6 +933,15 @@ export const setProductRatesSchema = Joi.object({
     .min(1),
 });
 
+/** Query for GET /products/:id/rates/history */
+export const productRateHistoryQuerySchema = Joi.object({
+  holding_capacity: Joi.number().optional().valid(5, 10, 25, 26, 30, 50),
+  from: Joi.string().optional().isoDate(),
+  to: Joi.string().optional().isoDate(),
+  limit: Joi.number().integer().min(1).max(5000).default(2000),
+  offset: Joi.number().integer().min(0).default(0),
+});
+
 /** Query params for GET /suggested-rate (product_id, packaging_id) */
 export const suggestedRateQuerySchema = Joi.object({
   product_id: Joi.string().required().uuid(),
@@ -904,6 +956,26 @@ export const createPackagingSchema = Joi.object({
   packaging_vendor_id: Joi.string().optional().uuid().allow(null, ''),
   ordered_weight: Joi.number().optional().min(0).precision(2).allow(null, ''),
   initial_packets: Joi.number().optional().integer().min(0).allow(null), // Optional: initial number of empty packets
+  godown_id: Joi.when('initial_packets', {
+    is: Joi.number().greater(0),
+    then: Joi.string().required().uuid(),
+    otherwise: Joi.string().optional().uuid().allow(null, ''),
+  }),
+  empty_bag_weight_kg: Joi.when('initial_packets', {
+    is: Joi.number().greater(0),
+    then: Joi.number().required().greater(0).precision(4),
+    otherwise: Joi.number().optional().allow(null).precision(4),
+  }),
+  empty_bag_rate_per_kg: Joi.when('initial_packets', {
+    is: Joi.number().greater(0),
+    then: Joi.number().required().min(0).precision(4),
+    otherwise: Joi.number().optional().allow(null).precision(4),
+  }),
+  empty_bag_gst_percent: Joi.when('initial_packets', {
+    is: Joi.number().greater(0),
+    then: Joi.number().required().min(0).max(100).precision(2),
+    otherwise: Joi.number().optional().allow(null).min(0).max(100).precision(2),
+  }),
   created_by: Joi.string().optional().uuid(),
 });
 
@@ -912,6 +984,9 @@ export const updatePackagingSchema = Joi.object({
   packet_type: Joi.string().optional().min(1).max(255),
   packaging_vendor_id: Joi.string().optional().uuid().allow(null, ''),
   ordered_weight: Joi.number().optional().min(0).precision(2).allow(null, ''),
+  empty_bag_weight_kg: Joi.number().optional().positive().precision(4),
+  empty_bag_rate_per_kg: Joi.number().optional().min(0).precision(4),
+  empty_bag_gst_percent: Joi.number().optional().min(0).max(100).precision(2),
   updated_by: Joi.string().optional().uuid(),
 }).min(1);
 
@@ -944,8 +1019,48 @@ export const updatePackagingVendorSchema = Joi.object({
   updated_by: Joi.string().optional().uuid(),
 }).min(1);
 
+// Godown validation schemas (contact_persons matches vendors)
+export const createGodownSchema = Joi.object({
+  name: Joi.string().required().trim().max(255),
+  gst_number: Joi.string().optional().allow(null, '').length(15).uppercase(),
+  address: addressSchema.required(),
+  google_maps_link: Joi.string().trim().max(2048).optional().allow(null, ''),
+  contact_persons: Joi.array()
+    .items(
+      Joi.object({
+        name: Joi.string().required().min(2).max(255),
+        phones: Joi.array().items(Joi.string().max(20)).required().min(1),
+        emails: Joi.array().items(Joi.string().email().allow('', null)).optional(),
+      })
+    )
+    .required()
+    .min(1),
+  is_active: Joi.boolean().optional(),
+  created_by: Joi.string().optional().uuid(),
+});
+
+export const updateGodownSchema = Joi.object({
+  name: Joi.string().optional().trim().max(255),
+  gst_number: Joi.string().optional().allow(null, '').length(15).uppercase(),
+  address: addressSchema.optional(),
+  google_maps_link: Joi.string().trim().max(2048).optional().allow(null, ''),
+  contact_persons: Joi.array()
+    .items(
+      Joi.object({
+        name: Joi.string().required().min(2).max(255),
+        phones: Joi.array().items(Joi.string().max(20)).required().min(1),
+        emails: Joi.array().items(Joi.string().email().allow('', null)).optional(),
+      })
+    )
+    .min(1)
+    .optional(),
+  is_active: Joi.boolean().optional(),
+  updated_by: Joi.string().optional().uuid(),
+}).min(1);
+
 // Batch validation schemas (Stage 1: Recipe attachment)
 export const createBatchSchema = Joi.object({
+  godown_id: Joi.string().required().uuid(),
   recipe_id: Joi.string().required().uuid(),
   quantity: Joi.number().required().min(0.01).precision(2),
   batch_number: Joi.string().optional().max(255),
@@ -975,6 +1090,7 @@ export const createBatchPackagingSchema = Joi.object({
 
 // Packets Inventory validation schemas
 export const createPacketsInventorySchema = Joi.object({
+  godown_id: Joi.string().required().uuid(),
   packaging_id: Joi.string().required().uuid(),
   available_quantity: Joi.number().required().integer().min(0),
   created_by: Joi.string().optional().uuid(),

@@ -3,6 +3,7 @@ export type BatchStatus = 'planned' | 'in_progress' | 'recipe_attached' | 'ready
 export interface Batch {
   id: string;
   batch_number: string;
+  godown_id: string;
   product_id: string | null; // Nullable for three-stage workflow (set in stage 2)
   recipe_id: string;
   packaging_id: string | null; // Nullable for three-stage workflow (kept for backward compatibility)
@@ -37,6 +38,7 @@ export interface BatchPackaging {
 }
 
 export interface CreateBatchDTO {
+  godown_id: string;
   recipe_id: string;
   quantity: number; // Total quantity in kg for stage 1
   batch_number?: string;
@@ -65,6 +67,7 @@ export interface UpdateBatchDTO {
 export interface BatchResponse {
   id: string;
   batch_number: string;
+  godown_id: string;
   product_id: string | null;
   recipe_id: string;
   packaging_id: string | null;

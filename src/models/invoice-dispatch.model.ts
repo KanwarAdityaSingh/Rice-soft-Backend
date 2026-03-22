@@ -3,6 +3,7 @@ export type InvoiceDispatchStatus = 'draft' | 'confirmed';
 export interface InvoiceDispatch {
   id: string;
   sales_sauda_id: string;
+  godown_id: string;
   internal_invoice_number: string;
   dispatch_date: Date | string | null;
   party_name: string;
@@ -22,6 +23,7 @@ export interface InvoiceDispatch {
 
 export interface CreateInvoiceDispatchDTO {
   sales_sauda_id: string;
+  godown_id: string;
   internal_invoice_number: string;
   dispatch_date?: string | Date;
   party_name: string;
@@ -38,6 +40,7 @@ export interface CreateInvoiceDispatchDTO {
 export interface InvoiceDispatchResponse {
   id: string;
   sales_sauda_id: string;
+  godown_id: string;
   internal_invoice_number: string;
   dispatch_date: string | null;
   party_name: string;

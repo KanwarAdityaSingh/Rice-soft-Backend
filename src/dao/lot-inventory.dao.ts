@@ -3,19 +3,20 @@ import { LotInventory, CreateLotInventoryDTO, UpdateLotInventoryDTO } from '../m
 import { logger } from '../utils/logger';
 
 export class LotInventoryDAO {
-  async findAll(): Promise<LotInventory[]> {
+  async findAll(godownId?: string): Promise<LotInventory[]> {
     const query = `
-      SELECT id, lot_id, available_quantity, created_at, updated_at, created_by, updated_by
+      SELECT id, godown_id, lot_id, available_quantity, created_at, updated_at, created_by, updated_by
       FROM lot_inventory
+      WHERE ($1::uuid IS NULL OR godown_id = $1)
       ORDER BY lot_id ASC
     `;
-    const result = await db.query<LotInventory>(query);
+    const result = await db.query<LotInventory>(query, [godownId ?? null]);
     return result.rows;
   }
 
   async findById(id: string): Promise<LotInventory | null> {
     const query = `
-      SELECT id, lot_id, available_quantity, created_at, updated_at, created_by, updated_by
+      SELECT id, godown_id, lot_id, available_quantity, created_at, updated_at, created_by, updated_by
       FROM lot_inventory
       WHERE id = $1
     `;
@@ -23,26 +24,28 @@ export class LotInventoryDAO {
     return result.rows[0] || null;
   }
 
-  async findByLotId(lotId: string): Promise<LotInventory | null> {
+  async findByLotId(lotId: string, godownId?: string): Promise<LotInventory | null> {
     const query = `
-      SELECT id, lot_id, available_quantity, created_at, updated_at, created_by, updated_by
+      SELECT id, godown_id, lot_id, available_quantity, created_at, updated_at, created_by, updated_by
       FROM lot_inventory
       WHERE lot_id = $1
+      ${godownId ? 'AND godown_id = $2' : ''}
     `;
-    const result = await db.query<LotInventory>(query, [lotId]);
+    const result = await db.query<LotInventory>(query, godownId ? [lotId, godownId] : [lotId]);
     return result.rows[0] || null;
   }
 
   async create(inventoryData: CreateLotInventoryDTO): Promise<LotInventory> {
     const query = `
-      INSERT INTO lot_inventory (lot_id, available_quantity, created_by)
-      VALUES ($1, $2, $3)
+      INSERT INTO lot_inventory (lot_id, godown_id, available_quantity, created_by)
+      VALUES ($1, $2, $3, $4)
       ON CONFLICT (lot_id) DO NOTHING
-      RETURNING id, lot_id, available_quantity, created_at, updated_at, created_by, updated_by
+      RETURNING id, godown_id, lot_id, available_quantity, created_at, updated_at, created_by, updated_by
     `;
     
     const values = [
       inventoryData.lot_id,
+      inventoryData.godown_id,
       inventoryData.available_quantity,
       inventoryData.created_by || null
     ];
@@ -51,7 +54,7 @@ export class LotInventoryDAO {
       const result = await db.query<LotInventory>(query, values);
       if (result.rows.length === 0) {
         // Already exists, return existing
-        const existing = await this.findByLotId(inventoryData.lot_id);
+        const existing = await this.findByLotId(inventoryData.lot_id, inventoryData.godown_id);
         if (!existing) {
           throw new Error('Failed to create lot inventory');
         }
@@ -90,7 +93,7 @@ export class LotInventoryDAO {
       UPDATE lot_inventory
       SET ${fields.join(', ')}
       WHERE id = $${paramCount}
-      RETURNING id, lot_id, available_quantity, created_at, updated_at, created_by, updated_by
+      RETURNING id, godown_id, lot_id, available_quantity, created_at, updated_at, created_by, updated_by
     `;
 
     try {
@@ -106,18 +109,18 @@ export class LotInventoryDAO {
     }
   }
 
-  async decrementQuantity(lotId: string, quantity: number): Promise<boolean> {
+  async decrementQuantity(lotId: string, quantity: number, godownId?: string): Promise<boolean> {
     const query = `
       UPDATE lot_inventory
       SET available_quantity = available_quantity - $1, updated_at = CURRENT_TIMESTAMP
-      WHERE lot_id = $2 AND available_quantity >= $1
+      WHERE lot_id = $2 AND ($3::uuid IS NULL OR godown_id = $3) AND available_quantity >= $1
     `;
-    const result = await db.query(query, [quantity, lotId]);
+    const result = await db.query(query, [quantity, lotId, godownId ?? null]);
     return (result.rowCount || 0) > 0;
   }
 
-  async getAvailableQuantity(lotId: string): Promise<number> {
-    const inventory = await this.findByLotId(lotId);
+  async getAvailableQuantity(lotId: string, godownId?: string): Promise<number> {
+    const inventory = await this.findByLotId(lotId, godownId);
     return inventory ? inventory.available_quantity : 0;
   }
 }

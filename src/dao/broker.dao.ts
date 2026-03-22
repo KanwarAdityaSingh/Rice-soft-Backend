@@ -2,6 +2,11 @@ import { db } from '../database/connection';
 import { Broker, CreateBrokerDTO, UpdateBrokerDTO, BrokerType, ContactPerson } from '../models/broker.model';
 import { logger } from '../utils/logger';
 
+const BROKER_SELECT_COLUMNS = `
+      id, business_name, contact_persons, email, phone, address, business_details,
+             bank_details, broker_details, type, is_active, user_id, created_at, updated_at, created_by, updated_by,
+             bank_details_verified_at, bank_details_verified_by, bank_verification_error`;
+
 export class BrokerDAO {
   /**
    * Transform contact_persons from database (JSONB or string) to ContactPerson[]
@@ -52,14 +57,19 @@ export class BrokerDAO {
   private transformBroker(broker: any): Broker {
     return {
       ...broker,
-      contact_persons: this.transformContactPersons(broker.contact_persons || broker.contact_person)
+      contact_persons: this.transformContactPersons(broker.contact_persons || broker.contact_person),
+      bank_details_verified_at: broker.bank_details_verified_at ?? null,
+      bank_details_verified_by: broker.bank_details_verified_by ?? null,
+      bank_verification_error: broker.bank_verification_error ?? null,
     };
   }
 
-  async findAll(includeInactive = false, type?: BrokerType): Promise<Broker[]> {
+  /**
+   * @param bankVerified - true: only brokers with confirmed bank; false: only never confirmed; undefined: all
+   */
+  async findAll(includeInactive = false, type?: BrokerType, bankVerified?: boolean): Promise<Broker[]> {
     let query = `
-      SELECT id, business_name, contact_persons, email, phone, address, business_details, 
-             bank_details, broker_details, type, is_active, user_id, created_at, updated_at, created_by, updated_by
+      SELECT ${BROKER_SELECT_COLUMNS}
       FROM brokers
       WHERE 1=1
     `;
@@ -76,6 +86,12 @@ export class BrokerDAO {
       params.push(type);
     }
 
+    if (bankVerified === true) {
+      query += ` AND bank_details_verified_at IS NOT NULL`;
+    } else if (bankVerified === false) {
+      query += ` AND bank_details_verified_at IS NULL`;
+    }
+
     query += ` ORDER BY business_name ASC`;
 
     const result = await db.query<any>(query, params);
@@ -84,8 +100,7 @@ export class BrokerDAO {
 
   async findById(id: string): Promise<Broker | null> {
     const query = `
-      SELECT id, business_name, contact_persons, email, phone, address, business_details,
-             bank_details, broker_details, type, is_active, created_at, updated_at, created_by, updated_by
+      SELECT ${BROKER_SELECT_COLUMNS}
       FROM brokers
       WHERE id = $1
     `;
@@ -95,8 +110,7 @@ export class BrokerDAO {
 
   async findByEmail(email: string): Promise<Broker | null> {
     const query = `
-      SELECT id, business_name, contact_persons, email, phone, address, business_details,
-             bank_details, broker_details, type, is_active, created_at, updated_at, created_by, updated_by
+      SELECT ${BROKER_SELECT_COLUMNS}
       FROM brokers
       WHERE email = $1
     `;
@@ -108,8 +122,7 @@ export class BrokerDAO {
     // Remove spaces from Aadhaar number for comparison
     const cleanedAadhaar = aadhaarNumber.replace(/\s/g, '');
     const query = `
-      SELECT id, business_name, contact_persons, email, phone, address, business_details,
-             bank_details, broker_details, type, is_active, created_at, updated_at, created_by, updated_by
+      SELECT ${BROKER_SELECT_COLUMNS}
       FROM brokers
       WHERE REPLACE(business_details->>'aadhaar_number', ' ', '') = $1
     `;
@@ -119,8 +132,7 @@ export class BrokerDAO {
 
   async findByPAN(panNumber: string): Promise<Broker | null> {
     const query = `
-      SELECT id, business_name, contact_persons, email, phone, address, business_details,
-             bank_details, broker_details, type, is_active, created_at, updated_at, created_by, updated_by
+      SELECT ${BROKER_SELECT_COLUMNS}
       FROM brokers
       WHERE business_details->>'pan_number' = $1
     `;
@@ -138,8 +150,7 @@ export class BrokerDAO {
       INSERT INTO brokers (business_name, contact_persons, email, phone, address, business_details, 
                           bank_details, broker_details, type, is_active, created_by, user_id)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-      RETURNING id, business_name, contact_persons, email, phone, address, business_details,
-                bank_details, broker_details, type, is_active, user_id, created_at, updated_at, created_by, updated_by
+      RETURNING ${BROKER_SELECT_COLUMNS}
     `;
     
     const values = [
@@ -206,6 +217,9 @@ export class BrokerDAO {
     if (brokerData.bank_details !== undefined) {
       updateFields.push(`bank_details = $${paramCount++}`);
       values.push(brokerData.bank_details ? JSON.stringify(brokerData.bank_details) : null);
+      updateFields.push(`bank_details_verified_at = NULL`);
+      updateFields.push(`bank_details_verified_by = NULL`);
+      updateFields.push(`bank_verification_error = NULL`);
     }
 
     if (brokerData.broker_details !== undefined) {
@@ -239,8 +253,7 @@ export class BrokerDAO {
       UPDATE brokers 
       SET ${updateFields.join(', ')}
       WHERE id = $${paramCount}
-      RETURNING id, business_name, contact_persons, email, phone, address, business_details,
-                bank_details, broker_details, type, is_active, created_at, updated_at, created_by, updated_by
+      RETURNING ${BROKER_SELECT_COLUMNS}
     `;
 
     const result = await db.query<any>(query, values);
@@ -254,6 +267,39 @@ export class BrokerDAO {
     }
 
     return broker;
+  }
+
+  /** Call after Surepass confirms the broker's stored account + IFSC. */
+  async markBankDetailsVerified(id: string, verifiedByUserId: string): Promise<Broker | null> {
+    const query = `
+      UPDATE brokers
+      SET bank_details_verified_at = CURRENT_TIMESTAMP,
+          bank_details_verified_by = $2,
+          bank_verification_error = NULL,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = $1
+      RETURNING ${BROKER_SELECT_COLUMNS}
+    `;
+    const result = await db.query<Broker>(query, [id, verifiedByUserId]);
+    const row = result.rows[0];
+    if (row) {
+      logger.info('Broker bank details marked verified', { brokerId: id });
+    }
+    return row ? this.transformBroker(row) : null;
+  }
+
+  /** Persist last bank verification failure (lenient create / future retries). Pass null to clear. */
+  async setBankVerificationError(id: string, message: string | null): Promise<Broker | null> {
+    const query = `
+      UPDATE brokers
+      SET bank_verification_error = $2,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = $1
+      RETURNING ${BROKER_SELECT_COLUMNS}
+    `;
+    const result = await db.query<Broker>(query, [id, message]);
+    const row = result.rows[0];
+    return row ? this.transformBroker(row) : null;
   }
 
   async delete(id: string): Promise<void> {

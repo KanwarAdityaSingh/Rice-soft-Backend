@@ -1,5 +1,6 @@
 export interface FinishedGoodsInventory {
   id: string;
+  godown_id: string;
   product_id: string;
   batch_id: string;
   packaging_id: string;
@@ -12,6 +13,7 @@ export interface FinishedGoodsInventory {
 }
 
 export interface CreateFinishedGoodsInventoryDTO {
+  godown_id?: string;
   product_id: string;
   batch_id: string;
   packaging_id: string;
@@ -22,6 +24,7 @@ export interface CreateFinishedGoodsInventoryDTO {
 
 export interface FinishedGoodsInventoryResponse {
   id: string;
+  godown_id: string;
   product_id: string;
   batch_id: string;
   packaging_id: string;

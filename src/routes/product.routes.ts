@@ -14,6 +14,7 @@ router.get('/brands', productController.getBrands.bind(productController));
 // Product CRUD routes
 router.get('/', productController.getAll.bind(productController));
 // Rates sub-resource (must come before /:id so "rates" is not treated as id)
+router.get('/:id/rates/history', productController.getRateHistory.bind(productController));
 router.get('/:id/rates', productController.getRates.bind(productController));
 router.put('/:id/rates', productController.setRates.bind(productController));
 

@@ -1,5 +1,6 @@
 import { Response, NextFunction } from 'express';
 import { brokerDAO } from '../dao/broker.dao';
+import { purchaseSummaryDAO } from '../dao/purchase-summary.dao';
 import { userDAO } from '../dao/user.dao';
 import { ResponseHandler } from '../utils/response';
 import {
@@ -7,39 +8,99 @@ import {
   createBrokerSchema,
   updateBrokerSchema,
   uuidSchema,
+  brokerBrokerageCommissionSummaryQuerySchema,
 } from '../utils/validators';
 import {
   NotFoundError,
   ConflictError,
   ValidationError,
   InternalServerError,
+  UnauthorizedError,
 } from '../utils/errors';
-import { CreateBrokerDTO, UpdateBrokerDTO, BrokerResponse, BrokerType } from '../models/broker.model';
+import { assertEnteredAccountHolderMatchesBankRecord } from '../utils/bank-account-holder-match';
+import {
+  BankDetails,
+  Broker,
+  CreateBrokerDTO,
+  UpdateBrokerDTO,
+  BrokerResponse,
+  BrokerType,
+} from '../models/broker.model';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { gstLookupService } from '../services/gst-lookup.service';
+import { logger } from '../utils/logger';
+import { bankDetailsForVerifySchema } from '../utils/validators';
 import Joi from 'joi';
+
+const LENIENT_BANK_VERIFY_FAIL_MESSAGE =
+  'Broker created but bank could not be verified.';
+
+const BANK_VERIFY_SUCCESS_MESSAGE = 'Bank details verified successfully.';
+
+function verificationErrorFromUnknown(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  return String(err);
+}
+
+/**
+ * After insert: Surepass + mark verified. Throws only for missing auth (caller should pre-check).
+ */
+async function tryVerifyBankOnCreate(
+  brokerId: string,
+  bankDetails: BankDetails,
+  userId: string | undefined
+): Promise<void> {
+  if (!userId) {
+    throw new ValidationError('Bank verification at creation requires an authenticated user');
+  }
+  const accountDigits = (bankDetails.account_number ?? '').replace(/\D/g, '');
+  const ifsc = (bankDetails.ifsc_code ?? '').trim().toUpperCase();
+  if (accountDigits.length < 9 || accountDigits.length > 18 || !ifsc) {
+    throw new ValidationError('Invalid bank account for verification');
+  }
+  const verificationResult = await gstLookupService.verifyBankAccount(accountDigits, ifsc);
+  assertEnteredAccountHolderMatchesBankRecord(
+    bankDetails.account_holder_name,
+    verificationResult.account_holder_name
+  );
+  await brokerDAO.markBankDetailsVerified(brokerId, userId);
+}
+
+function toBrokerResponse(broker: Broker): BrokerResponse {
+  return {
+    id: broker.id,
+    business_name: broker.business_name,
+    contact_persons: broker.contact_persons,
+    address: broker.address,
+    business_details: broker.business_details,
+    bank_details: broker.bank_details,
+    broker_details: broker.broker_details,
+    type: broker.type,
+    is_active: broker.is_active,
+    created_at: broker.created_at.toISOString(),
+    updated_at: broker.updated_at.toISOString(),
+    bank_details_verified_at: broker.bank_details_verified_at?.toISOString() ?? null,
+    bank_details_verified_by: broker.bank_details_verified_by ?? null,
+    bank_verification_error: broker.bank_verification_error ?? null,
+  };
+}
 
 export class BrokerController {
   async getAll(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const includeInactive = req.query.include_inactive === 'true';
       const type = req.query.type as BrokerType | undefined;
-      
-      const brokers = await brokerDAO.findAll(includeInactive, type);
+      const bankVerifiedRaw = req.query.bank_verified as string | undefined;
+      let bankVerified: boolean | undefined;
+      if (bankVerifiedRaw === 'true') {
+        bankVerified = true;
+      } else if (bankVerifiedRaw === 'false') {
+        bankVerified = false;
+      }
 
-      const brokerResponses: BrokerResponse[] = brokers.map((broker) => ({
-        id: broker.id,
-        business_name: broker.business_name,
-        contact_persons: broker.contact_persons,
-        address: broker.address,
-        business_details: broker.business_details,
-        bank_details: broker.bank_details,
-        broker_details: broker.broker_details,
-        type: broker.type,
-        is_active: broker.is_active,
-        created_at: broker.created_at.toISOString(),
-        updated_at: broker.updated_at.toISOString(),
-      }));
+      const brokers = await brokerDAO.findAll(includeInactive, type, bankVerified);
+
+      const brokerResponses: BrokerResponse[] = brokers.map(toBrokerResponse);
 
       return ResponseHandler.success(res, brokerResponses);
     } catch (error) {
@@ -56,21 +117,45 @@ export class BrokerController {
         throw new NotFoundError('Broker not found');
       }
 
-      const brokerResponse: BrokerResponse = {
-        id: broker.id,
-        business_name: broker.business_name,
-        contact_persons: broker.contact_persons,
-        address: broker.address,
-        business_details: broker.business_details,
-        bank_details: broker.bank_details,
-        broker_details: broker.broker_details,
-        type: broker.type,
-        is_active: broker.is_active,
-        created_at: broker.created_at.toISOString(),
-        updated_at: broker.updated_at.toISOString(),
-      };
+      return ResponseHandler.success(res, toBrokerResponse(broker));
+    } catch (error) {
+      next(error);
+    }
+  }
 
-      return ResponseHandler.success(res, brokerResponse);
+  /**
+   * Purchase saudas for this broker: computed brokerage per sauda (same engine as purchase summary) + total.
+   * @query godown_id — optional; scopes lots/ISPs like GET /purchase-summary/sauda/:id
+   * @query status — optional filter: draft|active|completed|cancelled
+   * @query from_date, to_date — optional YYYY-MM-DD filter on sauda_date
+   */
+  async getBrokerageCommissionSummary(
+    req: AuthRequest,
+    res: Response,
+    next: NextFunction
+  ): Promise<Response | void> {
+    try {
+      const brokerId = validate<string>(uuidSchema, req.params.brokerId);
+      const q = validate<{
+        godown_id?: string;
+        status?: string;
+        from_date?: string;
+        to_date?: string;
+      }>(brokerBrokerageCommissionSummaryQuerySchema, req.query);
+
+      const broker = await brokerDAO.findById(brokerId);
+      if (!broker) {
+        throw new NotFoundError('Broker not found');
+      }
+
+      const summary = await purchaseSummaryDAO.getBrokerCommissionSummary(brokerId, {
+        godownId: q.godown_id,
+        status: q.status,
+        fromDate: q.from_date,
+        toDate: q.to_date,
+      });
+
+      return ResponseHandler.success(res, summary, 'Broker commission summary retrieved successfully');
     } catch (error) {
       next(error);
     }
@@ -79,9 +164,15 @@ export class BrokerController {
   async create(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const brokerData = validate<CreateBrokerDTO>(createBrokerSchema, req.body);
+      const verifyBank = brokerData.verify_bank === true;
+      if (verifyBank && !req.user?.userId) {
+        throw new ValidationError('verify_bank requires an authenticated user');
+      }
+
+      const { verify_bank: _verifyBank, ...brokerPayload } = brokerData;
 
       // Get first contact person for validation and user creation
-      const firstContactPerson = brokerData.contact_persons[0];
+      const firstContactPerson = brokerPayload.contact_persons[0];
       if (!firstContactPerson || !firstContactPerson.phones || firstContactPerson.phones.length === 0) {
         throw new ValidationError('At least one contact person with a phone number is required');
       }
@@ -103,24 +194,24 @@ export class BrokerController {
       }
 
       // Check if PAN already exists (if provided)
-      if (brokerData.business_details.pan_number) {
-        const panExists = await brokerDAO.panExists(brokerData.business_details.pan_number);
+      if (brokerPayload.business_details.pan_number) {
+        const panExists = await brokerDAO.panExists(brokerPayload.business_details.pan_number);
         if (panExists) {
           throw new ConflictError('PAN number already exists');
         }
       }
 
       // Check if Aadhaar already exists (if provided)
-      if (brokerData.business_details.aadhaar_number) {
-        const aadhaarExists = await brokerDAO.aadhaarExists(brokerData.business_details.aadhaar_number);
+      if (brokerPayload.business_details.aadhaar_number) {
+        const aadhaarExists = await brokerDAO.aadhaarExists(brokerPayload.business_details.aadhaar_number);
         if (aadhaarExists) {
           throw new ConflictError('Aadhaar number already exists');
         }
       }
 
       // Check if GST already exists (if provided)
-      if (brokerData.business_details.gst_number) {
-        const gstExists = await brokerDAO.gstExists(brokerData.business_details.gst_number);
+      if (brokerPayload.business_details.gst_number) {
+        const gstExists = await brokerDAO.gstExists(brokerPayload.business_details.gst_number);
         if (gstExists) {
           throw new ConflictError('GST number already exists');
         }
@@ -150,7 +241,7 @@ export class BrokerController {
           full_name: firstContactPerson.name,
           phone: primaryPhone,
           user_type: 'broker' as const,
-          is_active: brokerData.is_active !== undefined ? brokerData.is_active : true,
+          is_active: brokerPayload.is_active !== undefined ? brokerPayload.is_active : true,
           created_by: req.user?.userId,
         };
 
@@ -167,7 +258,7 @@ export class BrokerController {
 
       // Create broker with user_id (or undefined if no email)
       const brokerWithUser = {
-        ...brokerData,
+        ...brokerPayload,
         user_id: user?.id,
         created_by: req.user?.userId,
       };
@@ -190,21 +281,34 @@ export class BrokerController {
         throw new InternalServerError('Failed to create broker. Please try again.');
       }
 
-      const brokerResponse: BrokerResponse = {
-        id: broker.id,
-        business_name: broker.business_name,
-        contact_persons: broker.contact_persons,
-        address: broker.address,
-        business_details: broker.business_details,
-        bank_details: broker.bank_details,
-        broker_details: broker.broker_details,
-        type: broker.type,
-        is_active: broker.is_active,
-        created_at: broker.created_at.toISOString(),
-        updated_at: broker.updated_at.toISOString(),
-      };
+      if (verifyBank && broker.bank_details) {
+        try {
+          await tryVerifyBankOnCreate(broker.id, broker.bank_details, req.user?.userId);
+          const refreshed = await brokerDAO.findById(broker.id);
+          return ResponseHandler.created(
+            res,
+            toBrokerResponse(refreshed ?? broker),
+            'Broker created successfully',
+            { verification_message: BANK_VERIFY_SUCCESS_MESSAGE }
+          );
+        } catch (verifyErr) {
+          const errMsg = verificationErrorFromUnknown(verifyErr);
+          logger.warn('Bank verification failed after broker create (lenient)', {
+            brokerId: broker.id,
+            error: errMsg,
+          });
+          await brokerDAO.setBankVerificationError(broker.id, errMsg);
+          const refreshed = await brokerDAO.findById(broker.id);
+          return ResponseHandler.created(
+            res,
+            toBrokerResponse(refreshed ?? broker),
+            LENIENT_BANK_VERIFY_FAIL_MESSAGE,
+            { verification_error: errMsg }
+          );
+        }
+      }
 
-      return ResponseHandler.created(res, brokerResponse, 'Broker created successfully');
+      return ResponseHandler.created(res, toBrokerResponse(broker), 'Broker created successfully');
     } catch (error) {
       next(error);
     }
@@ -274,21 +378,7 @@ export class BrokerController {
         throw new InternalServerError('Failed to update broker. Please try again.');
       }
 
-      const brokerResponse: BrokerResponse = {
-        id: broker.id,
-        business_name: broker.business_name,
-        contact_persons: broker.contact_persons,
-        address: broker.address,
-        business_details: broker.business_details,
-        bank_details: broker.bank_details,
-        broker_details: broker.broker_details,
-        type: broker.type,
-        is_active: broker.is_active,
-        created_at: broker.created_at.toISOString(),
-        updated_at: broker.updated_at.toISOString(),
-      };
-
-      return ResponseHandler.success(res, brokerResponse, 'Broker updated successfully');
+      return ResponseHandler.success(res, toBrokerResponse(broker), 'Broker updated successfully');
     } catch (error) {
       next(error);
     }
@@ -441,8 +531,6 @@ export class BrokerController {
    */
   async createFromPAN(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const { pan_number, business_name, contact_persons, address, type, broker_details } = req.body;
-
       // Validate required fields (PAN gives less info, so we need more input)
       const quickCreateSchema = Joi.object({
         pan_number: Joi.string().required().length(10).uppercase().messages({
@@ -495,13 +583,37 @@ export class BrokerController {
           specialization: Joi.string().optional().allow(null, '').max(255),
           experience_years: Joi.string().optional().allow(null, '').max(100),
         }).optional(),
+        verify_bank: Joi.boolean().optional(),
+        bank_details: Joi.when('verify_bank', {
+          is: true,
+          then: bankDetailsForVerifySchema.required(),
+          otherwise: Joi.object().optional(),
+        }),
       });
 
-      try {
-        validate(quickCreateSchema, req.body);
-      } catch (validationError: any) {
-        const errorMessage = validationError?.details?.[0]?.message || 'Invalid request data';
-        throw new ValidationError(errorMessage);
+      const body = validate(quickCreateSchema, req.body) as {
+        pan_number: string;
+        business_name?: string;
+        contact_persons: CreateBrokerDTO['contact_persons'];
+        address: CreateBrokerDTO['address'];
+        type: BrokerType;
+        broker_details?: CreateBrokerDTO['broker_details'];
+        bank_details?: BankDetails;
+        verify_bank?: boolean;
+      };
+      const {
+        pan_number,
+        business_name,
+        contact_persons,
+        address,
+        type,
+        broker_details,
+        bank_details,
+        verify_bank,
+      } = body;
+      const verifyBank = verify_bank === true;
+      if (verifyBank && !req.user?.userId) {
+        throw new ValidationError('verify_bank requires an authenticated user');
       }
 
       // Validate PAN format
@@ -555,7 +667,8 @@ export class BrokerController {
           pan_number,
           business_type: businessType,
         },
-        broker_details: broker_details || null,
+        broker_details: broker_details ?? undefined,
+        bank_details: bank_details ?? undefined,
         type,
         is_active: true,
         created_by: req.user?.userId,
@@ -571,21 +684,38 @@ export class BrokerController {
         throw new InternalServerError('Failed to create broker. Please try again.');
       }
 
-      const brokerResponse: BrokerResponse = {
-        id: broker.id,
-        business_name: broker.business_name,
-        contact_persons: broker.contact_persons,
-        address: broker.address,
-        business_details: broker.business_details,
-        bank_details: broker.bank_details,
-        broker_details: broker.broker_details,
-        type: broker.type,
-        is_active: broker.is_active,
-        created_at: broker.created_at.toISOString(),
-        updated_at: broker.updated_at.toISOString(),
-      };
+      if (verifyBank && broker.bank_details) {
+        try {
+          await tryVerifyBankOnCreate(broker.id, broker.bank_details, req.user?.userId);
+          const refreshed = await brokerDAO.findById(broker.id);
+          return ResponseHandler.created(
+            res,
+            toBrokerResponse(refreshed ?? broker),
+            'Broker created from PAN successfully',
+            { verification_message: BANK_VERIFY_SUCCESS_MESSAGE }
+          );
+        } catch (verifyErr) {
+          const errMsg = verificationErrorFromUnknown(verifyErr);
+          logger.warn('Bank verification failed after PAN broker create (lenient)', {
+            brokerId: broker.id,
+            error: errMsg,
+          });
+          await brokerDAO.setBankVerificationError(broker.id, errMsg);
+          const refreshed = await brokerDAO.findById(broker.id);
+          return ResponseHandler.created(
+            res,
+            toBrokerResponse(refreshed ?? broker),
+            LENIENT_BANK_VERIFY_FAIL_MESSAGE,
+            { verification_error: errMsg }
+          );
+        }
+      }
 
-      return ResponseHandler.created(res, brokerResponse, 'Broker created from PAN successfully');
+      return ResponseHandler.created(
+        res,
+        toBrokerResponse(broker),
+        'Broker created from PAN successfully'
+      );
     } catch (error) {
       next(error);
     }
@@ -597,9 +727,6 @@ export class BrokerController {
    */
   async createFromGST(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const { gst_number, contact_persons, type, broker_details, bank_details } = req.body;
-
-      // Validate required fields
       const quickCreateSchema = Joi.object({
         gst_number: Joi.string().required().length(15).uppercase().messages({
           'string.length': 'GST number must be exactly 15 characters',
@@ -633,22 +760,26 @@ export class BrokerController {
           specialization: Joi.string().optional().allow(null, '').max(255),
           experience_years: Joi.string().optional().allow(null, '').max(100),
         }).optional(),
-        bank_details: Joi.object({
-          account_holder_name: Joi.string().optional().allow(null, ''),
-          account_number: Joi.string().optional().allow(null, ''),
-          ifsc_code: Joi.string().optional().allow(null, '').length(11).messages({
-            'string.length': 'IFSC code must be exactly 11 characters'
-          }),
-          bank_name: Joi.string().optional().allow(null, ''),
-          branch: Joi.string().optional().allow(null, ''),
-        }).optional(),
+        verify_bank: Joi.boolean().optional(),
+        bank_details: Joi.when('verify_bank', {
+          is: true,
+          then: bankDetailsForVerifySchema.required(),
+          otherwise: Joi.object().optional(),
+        }),
       });
 
-      try {
-        validate(quickCreateSchema, req.body);
-      } catch (validationError: any) {
-        const errorMessage = validationError?.details?.[0]?.message || 'Invalid request data';
-        throw new ValidationError(errorMessage);
+      const body = validate(quickCreateSchema, req.body) as {
+        gst_number: string;
+        contact_persons: CreateBrokerDTO['contact_persons'];
+        type: BrokerType;
+        broker_details?: CreateBrokerDTO['broker_details'];
+        bank_details?: BankDetails;
+        verify_bank?: boolean;
+      };
+      const { gst_number, contact_persons, type, broker_details, bank_details, verify_bank } = body;
+      const verifyBank = verify_bank === true;
+      if (verifyBank && !req.user?.userId) {
+        throw new ValidationError('verify_bank requires an authenticated user');
       }
 
       // Validate GST format
@@ -707,8 +838,8 @@ export class BrokerController {
           pan_number: mappedData.business_details.pan_number, // PAN is embedded in GST
           business_type: businessType,
         },
-        broker_details: broker_details || null,
-        bank_details: bank_details || null,
+        broker_details: broker_details ?? undefined,
+        bank_details: bank_details ?? undefined,
         type,
         is_active: true,
         created_by: req.user?.userId,
@@ -724,21 +855,88 @@ export class BrokerController {
         throw new InternalServerError('Failed to create broker. Please try again.');
       }
 
-      const brokerResponse: BrokerResponse = {
-        id: broker.id,
-        business_name: broker.business_name,
-        contact_persons: broker.contact_persons,
-        address: broker.address,
-        business_details: broker.business_details,
-        bank_details: broker.bank_details,
-        broker_details: broker.broker_details,
-        type: broker.type,
-        is_active: broker.is_active,
-        created_at: broker.created_at.toISOString(),
-        updated_at: broker.updated_at.toISOString(),
-      };
+      if (verifyBank && broker.bank_details) {
+        try {
+          await tryVerifyBankOnCreate(broker.id, broker.bank_details, req.user?.userId);
+          const refreshed = await brokerDAO.findById(broker.id);
+          return ResponseHandler.created(
+            res,
+            toBrokerResponse(refreshed ?? broker),
+            'Broker created from GST successfully',
+            { verification_message: BANK_VERIFY_SUCCESS_MESSAGE }
+          );
+        } catch (verifyErr) {
+          const errMsg = verificationErrorFromUnknown(verifyErr);
+          logger.warn('Bank verification failed after GST broker create (lenient)', {
+            brokerId: broker.id,
+            error: errMsg,
+          });
+          await brokerDAO.setBankVerificationError(broker.id, errMsg);
+          const refreshed = await brokerDAO.findById(broker.id);
+          return ResponseHandler.created(
+            res,
+            toBrokerResponse(refreshed ?? broker),
+            LENIENT_BANK_VERIFY_FAIL_MESSAGE,
+            { verification_error: errMsg }
+          );
+        }
+      }
 
-      return ResponseHandler.created(res, brokerResponse, 'Broker created from GST successfully');
+      return ResponseHandler.created(
+        res,
+        toBrokerResponse(broker),
+        'Broker created from GST successfully'
+      );
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Confirms stored bank_details for this broker via Surepass and persists verification metadata.
+   * POST after the client has saved account + IFSC on the broker (or uses existing saved values).
+   */
+  async confirmBankVerification(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const id = validate<string>(uuidSchema, req.params.id);
+      if (!req.user?.userId) {
+        throw new UnauthorizedError('Authentication required');
+      }
+
+      const broker = await brokerDAO.findById(id);
+      if (!broker) {
+        throw new NotFoundError('Broker not found');
+      }
+
+      const bd = broker.bank_details;
+      const accountDigits = (bd?.account_number ?? '').replace(/\D/g, '');
+      const ifsc = (bd?.ifsc_code ?? '').trim().toUpperCase();
+
+      if (!bd || accountDigits.length < 9 || accountDigits.length > 18) {
+        throw new ValidationError(
+          'Broker must have a valid bank account number (9–18 digits) in bank_details before confirmation'
+        );
+      }
+      if (!ifsc) {
+        throw new ValidationError('Broker must have IFSC in bank_details before confirmation');
+      }
+
+      const enteredName = bd.account_holder_name?.trim();
+      if (!enteredName) {
+        throw new ValidationError(
+          'Broker must have account_holder_name in bank_details before confirmation'
+        );
+      }
+
+      const verificationResult = await gstLookupService.verifyBankAccount(accountDigits, ifsc);
+      assertEnteredAccountHolderMatchesBankRecord(enteredName, verificationResult.account_holder_name);
+
+      const updated = await brokerDAO.markBankDetailsVerified(id, req.user.userId);
+      if (!updated) {
+        throw new NotFoundError('Broker not found');
+      }
+
+      return ResponseHandler.success(res, toBrokerResponse(updated), 'Bank details verified and saved');
     } catch (error) {
       next(error);
     }

@@ -3,6 +3,8 @@ import { RiceType } from './lead.model';
 export interface PurchaseSummary {
   // Identifiers
   sauda_id?: string;
+  /** Short label for UI (4 hex chars); set when sauda_id is present */
+  sauda_display_id?: string;
   inward_slip_pass_id?: string;
   
   // Separate Fields - Step by Step Breakdown (Vendor POV)
@@ -44,6 +46,7 @@ export interface PurchaseSummary {
 
 export interface SaudaSummaryDetails {
   id: string;
+  display_id: string;
   sauda_type: string;
   rice_type: RiceType;
   rice_code_id: string | null;
@@ -74,6 +77,7 @@ export interface LotSummaryDetails {
   id: string;
   lot_number: string;
   sauda_id: string;
+  sauda_display_id: string;
   rice_type: RiceType | null;
   no_of_bags: number;
   bag_weight: number | null;
@@ -86,6 +90,7 @@ export interface LotSummaryDetails {
 
 export interface SaudaBreakdown {
   sauda_id: string;
+  sauda_display_id: string;
   sauda_details: SaudaSummaryDetails;
   total_lots: number;
   total_bags: number;
@@ -104,5 +109,23 @@ export interface SaudaBreakdown {
 
 export interface GetSummaryOptions {
   // IGST removed - this interface kept for backward compatibility but igst_percentage is ignored
+}
+
+/** Per purchase sauda: computed broker commission (same rules as GET /purchase-summary/sauda/:id). */
+export interface BrokerCommissionSummaryLine {
+  sauda_id: string;
+  sauda_display_id: string;
+  sauda_date: string | null;
+  status: string;
+  broker_commission: number | null;
+  broker_commission_type: string;
+  amount_after_discount: number;
+  broker_commission_amount: number;
+}
+
+export interface BrokerCommissionSummary {
+  broker_id: string;
+  lines: BrokerCommissionSummaryLine[];
+  total_broker_commission: number;
 }
 

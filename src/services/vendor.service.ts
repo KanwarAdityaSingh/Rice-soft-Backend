@@ -5,8 +5,12 @@ import { gstLookupService } from './gst-lookup.service';
 import { logger } from '../utils/logger';
 
 export class VendorService {
-  async getAllVendors(includeInactive: boolean, type?: VendorType): Promise<Vendor[]> {
-    return await vendorDAO.findAll(includeInactive, type);
+  async getAllVendors(
+    includeInactive: boolean,
+    type?: VendorType,
+    bankVerified?: boolean
+  ): Promise<Vendor[]> {
+    return await vendorDAO.findAll(includeInactive, type, bankVerified);
   }
 
   async getVendorById(id: string): Promise<Vendor> {
@@ -49,7 +53,8 @@ export class VendorService {
       type: vendorData.type
     });
 
-    return await vendorDAO.create(vendorData);
+    const { verify_bank: _verifyBank, ...createPayload } = vendorData;
+    return await vendorDAO.create(createPayload);
   }
 
   async updateVendor(id: string, vendorData: UpdateVendorDTO): Promise<Vendor> {

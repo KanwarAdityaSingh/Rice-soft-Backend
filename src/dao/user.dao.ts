@@ -151,6 +151,11 @@ export class UserDAO {
       values.push(userData.phone);
     }
 
+    if (userData.user_type !== undefined) {
+      updateFields.push(`user_type = $${paramCount++}`);
+      values.push(userData.user_type);
+    }
+
     if (userData.is_active !== undefined) {
       updateFields.push(`is_active = $${paramCount++}`);
       values.push(userData.is_active);

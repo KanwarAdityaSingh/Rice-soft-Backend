@@ -7,10 +7,31 @@ import { productDAO } from '../dao/product.dao';
 import { packagingVendorDAO } from '../dao/packaging-vendor.dao';
 import { inwardSlipLotDAO } from '../dao/inward-slip-lot.dao';
 import { db } from '../database/connection';
+import type { BagType } from '../constants/bag-types';
+import type { Packaging } from '../models/packaging.model';
+
+/** Nested `packaging` on GET inventory packets — aligns with costing on `PackagingResponse`. */
+function mapPackagingForPacketsInventory(packaging: Packaging) {
+  return {
+    id: packaging.id,
+    packaging_number: packaging.packaging_number,
+    holding_capacity: packaging.holding_capacity,
+    packet_type: packaging.packet_type,
+    packaging_vendor_id: packaging.packaging_vendor_id,
+    ordered_weight: packaging.ordered_weight,
+    empty_bag_weight_kg: packaging.empty_bag_weight_kg,
+    empty_bag_rate_per_kg: packaging.empty_bag_rate_per_kg,
+    empty_bag_gst_percent: packaging.empty_bag_gst_percent,
+    empty_bags_total_weight_kg: packaging.empty_bags_total_weight_kg,
+    empty_bags_taxable_amount: packaging.empty_bags_taxable_amount,
+    empty_bags_gst_amount: packaging.empty_bags_gst_amount,
+    empty_bags_total_amount: packaging.empty_bags_total_amount,
+  };
+}
 
 export class InventoryService {
-  async getFinishedGoodsInventory(productId?: string, batchId?: string) {
-    const inventory = await finishedGoodsInventoryDAO.findAll(productId, batchId);
+  async getFinishedGoodsInventory(productId?: string, batchId?: string, godownId?: string) {
+    const inventory = await finishedGoodsInventoryDAO.findAll(productId, batchId, godownId);
     const results = [];
 
     for (const item of inventory) {
@@ -42,30 +63,23 @@ export class InventoryService {
     return results;
   }
 
-  async getPacketsInventory() {
-    const inventory = await packetsInventoryDAO.findAll();
+  async getPacketsInventory(godownId?: string) {
+    const inventory = await packetsInventoryDAO.findAll(godownId);
     const results = [];
 
     for (const item of inventory) {
       const packaging = await packagingDAO.findById(item.packaging_id);
       results.push({
         ...item,
-        packaging: packaging ? {
-          id: packaging.id,
-          packaging_number: packaging.packaging_number,
-          holding_capacity: packaging.holding_capacity,
-          packet_type: packaging.packet_type,
-          packaging_vendor_id: packaging.packaging_vendor_id,
-          ordered_weight: packaging.ordered_weight
-        } : undefined
+        packaging: packaging ? mapPackagingForPacketsInventory(packaging) : undefined
       });
     }
 
     return results;
   }
 
-  async getLotInventory() {
-    const inventory = await lotInventoryDAO.findAll();
+  async getLotInventory(godownId?: string) {
+    const inventory = await lotInventoryDAO.findAll(godownId);
     const results = [];
 
     for (const item of inventory) {
@@ -85,15 +99,15 @@ export class InventoryService {
     return results;
   }
 
-  async getBagsInventory(bagType?: string) {
-    return await bagsInventoryDAO.findAll(bagType as 'jute' | 'pp' | undefined);
+  async getBagsInventory(bagType?: string, godownId?: string) {
+    return await bagsInventoryDAO.findAll(bagType as BagType | undefined, godownId);
   }
 
-  async getInventorySummary() {
-    const finishedGoods = await this.getFinishedGoodsInventory();
-    const packets = await this.getPacketsInventory();
-    const lots = await this.getLotInventory();
-    const bags = await this.getBagsInventory();
+  async getInventorySummary(godownId?: string) {
+    const finishedGoods = await this.getFinishedGoodsInventory(undefined, undefined, godownId);
+    const packets = await this.getPacketsInventory(godownId);
+    const lots = await this.getLotInventory(godownId);
+    const bags = await this.getBagsInventory(undefined, godownId);
 
     const totalFinishedGoodsPackets = finishedGoods.reduce((sum: number, item: any) => sum + item.no_of_packets, 0);
     const totalFinishedGoodsWeight = finishedGoods.reduce((sum: number, item: any) => sum + item.total_weight, 0);
@@ -124,10 +138,10 @@ export class InventoryService {
     };
   }
 
-  async getHierarchicalInventory() {
+  async getHierarchicalInventory(godownId?: string) {
     // Get all products grouped by brand
     const products = await productDAO.findAll();
-    const finishedGoods = await finishedGoodsInventoryDAO.findAll();
+    const finishedGoods = await finishedGoodsInventoryDAO.findAll(undefined, undefined, godownId);
     const packaging = await packagingDAO.findAll();
 
     // Group products by brand

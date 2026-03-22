@@ -72,9 +72,21 @@ router.post(
  * @route   GET /api/v1/vendors/getAllVendors
  * @desc    Get all vendors
  * @access  Private
- * @query   include_inactive: boolean, type: purchaser|seller|both
+ * @query   include_inactive: boolean, type: purchaser|seller|both, bank_verified: true|false (filter by Surepass confirmation)
  */
 router.get('/getAllVendors', authenticate, vendorController.getAll.bind(vendorController));
+
+/**
+ * @route   POST /api/v1/vendors/confirm-bank-verification/:id
+ * @desc    Verify stored bank_details via Surepass and set bank_details_verified_at / _by
+ * @access  Private
+ */
+router.post(
+  '/confirm-bank-verification/:id',
+  authenticate,
+  auditLog('UPDATE', 'vendors'),
+  vendorController.confirmBankVerification.bind(vendorController)
+);
 
 /**
  * @route   GET /api/v1/vendors/getVendorById/:id

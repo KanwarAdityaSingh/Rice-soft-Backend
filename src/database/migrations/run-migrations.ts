@@ -308,9 +308,15 @@ async function runMigrations() {
 
     logger.info(`Migrations completed: ${executedCount} executed, ${skippedCount} skipped`);
     logger.info('All migrations completed successfully');
+    await db.close();
     process.exit(0);
   } catch (error) {
     logger.error('Migration failed:', error);
+    try {
+      await db.close();
+    } catch {
+      /* ignore close errors */
+    }
     process.exit(1);
   }
 }

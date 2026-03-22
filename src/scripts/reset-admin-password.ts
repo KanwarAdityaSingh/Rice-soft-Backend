@@ -34,6 +34,10 @@ async function resetAdminPassword() {
     logger.info('Updated credentials:');
     logger.info('  Username: admin');
     logger.info(`  Password: ${adminPassword}`);
+    logger.warn(
+      'Shell/curl tip: the default password contains $. In bash/zsh, wrap JSON in SINGLE quotes ' +
+        "so the shell does not strip it, e.g. curl ... -d '{\"username\":\"admin\",\"password\":\"...\"}'"
+    );
     logger.warn('IMPORTANT: Please change this password after logging in!');
 
     await db.close();

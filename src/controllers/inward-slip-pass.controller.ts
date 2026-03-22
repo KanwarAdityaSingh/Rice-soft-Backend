@@ -21,13 +21,15 @@ import { CreateInwardSlipPassDTO, UpdateInwardSlipPassDTO, InwardSlipPassRespons
 import { AuthRequest } from '../middleware/auth.middleware';
 import { uploadToS3, validateFileSize, validateFileType } from '../utils/s3-upload';
 import { appConfig } from '../config/app.config';
+import { godownService } from '../services/godown.service';
 
 export class InwardSlipPassController {
   async getAll(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const saudaId = req.query.sauda_id as string | undefined;
+      const godownId = req.query.godown_id as string | undefined;
       
-      const inwardSlipPasses = await inwardSlipPassDAO.findAll(saudaId);
+      const inwardSlipPasses = await inwardSlipPassDAO.findAll(saudaId, godownId);
 
       // Fetch sauda_ids for each inward slip pass
       const responses: InwardSlipPassResponse[] = await Promise.all(
@@ -35,6 +37,7 @@ export class InwardSlipPassController {
           const saudaIds = await inwardSlipPassSaudaDAO.getLinkedSaudaIds(pass.id);
           return {
             id: pass.id,
+            godown_id: pass.godown_id,
             sauda_ids: saudaIds,
             slip_number: pass.slip_number,
             date: pass.date.toISOString().split('T')[0],
@@ -80,6 +83,7 @@ export class InwardSlipPassController {
 
       const response: InwardSlipPassResponse = {
         id: inwardSlipPass.id,
+        godown_id: inwardSlipPass.godown_id,
         sauda_ids: saudaIds,
         slip_number: inwardSlipPass.slip_number,
         date: inwardSlipPass.date.toISOString().split('T')[0],
@@ -113,6 +117,7 @@ export class InwardSlipPassController {
   async create(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const inwardSlipPassData = validate<CreateInwardSlipPassDTO>(createInwardSlipPassSchema, req.body);
+      await godownService.assertActive(inwardSlipPassData.godown_id);
 
       // Validate vehicle exists
       const vehicle = await vehicleDAO.findById(inwardSlipPassData.vehicle_id);
@@ -124,7 +129,7 @@ export class InwardSlipPassController {
       if (inwardSlipPassData.sauda_ids && inwardSlipPassData.sauda_ids.length > 0) {
         for (const saudaId of inwardSlipPassData.sauda_ids) {
           const sauda = await saudaDAO.findById(saudaId);
-      if (!sauda) {
+          if (!sauda) {
             throw new NotFoundError(`Sauda not found: ${saudaId}`);
           }
         }
@@ -177,6 +182,7 @@ export class InwardSlipPassController {
 
       const response: InwardSlipPassResponse = {
         id: inwardSlipPass.id,
+        godown_id: inwardSlipPass.godown_id,
         sauda_ids: linkedSaudaIds,
         slip_number: inwardSlipPass.slip_number,
         date: inwardSlipPass.date.toISOString().split('T')[0],
@@ -212,6 +218,9 @@ export class InwardSlipPassController {
       const id = validate<string>(uuidSchema, req.params.id);
       
       const inwardSlipPassData = validate<UpdateInwardSlipPassDTO>(updateInwardSlipPassSchema, req.body);
+      if (inwardSlipPassData.godown_id) {
+        await godownService.assertActive(inwardSlipPassData.godown_id);
+      }
 
       // Check if inward slip pass exists
       const existingPass = await inwardSlipPassDAO.findById(id);
@@ -283,6 +292,7 @@ export class InwardSlipPassController {
 
       const response: InwardSlipPassResponse = {
         id: inwardSlipPass.id,
+        godown_id: inwardSlipPass.godown_id,
         sauda_ids: linkedSaudaIds,
         slip_number: inwardSlipPass.slip_number,
         date: inwardSlipPass.date.toISOString().split('T')[0],
@@ -335,6 +345,7 @@ export class InwardSlipPassController {
 
       const response: InwardSlipPassResponse = {
         id: inwardSlipPass.id,
+        godown_id: inwardSlipPass.godown_id,
         sauda_ids: saudaIds,
         slip_number: inwardSlipPass.slip_number,
         date: inwardSlipPass.date.toISOString().split('T')[0],

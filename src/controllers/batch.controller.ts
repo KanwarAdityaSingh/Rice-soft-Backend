@@ -13,12 +13,14 @@ export class BatchController {
     try {
       const productId = req.query.product_id as string | undefined;
       const status = req.query.status as string | undefined;
+      const godownId = req.query.godown_id as string | undefined;
 
-      const batches = await batchDAO.findAll(productId, status);
+      const batches = await batchDAO.findAll(productId, status, godownId);
 
       const batchResponses: BatchResponse[] = batches.map((batch) => ({
         id: batch.id,
         batch_number: batch.batch_number,
+        godown_id: batch.godown_id,
         product_id: batch.product_id,
         recipe_id: batch.recipe_id,
         packaging_id: batch.packaging_id,
@@ -43,6 +45,7 @@ export class BatchController {
       const batchResponse: BatchWithDetailsResponse = {
         id: batchDetails.id,
         batch_number: batchDetails.batch_number,
+        godown_id: batchDetails.godown_id,
         product_id: batchDetails.product_id,
         recipe_id: batchDetails.recipe_id,
         packaging_id: batchDetails.packaging_id,
@@ -93,6 +96,7 @@ export class BatchController {
       const batchResponse: BatchResponse = {
         id: batch.id,
         batch_number: batch.batch_number,
+        godown_id: batch.godown_id,
         product_id: batch.product_id,
         recipe_id: batch.recipe_id,
         packaging_id: batch.packaging_id,
@@ -126,6 +130,7 @@ export class BatchController {
       const batchResponse: BatchResponse = {
         id: batch.id,
         batch_number: batch.batch_number,
+        godown_id: batch.godown_id,
         product_id: batch.product_id,
         recipe_id: batch.recipe_id,
         packaging_id: batch.packaging_id,
@@ -207,6 +212,7 @@ export class BatchController {
       const batchResponse: BatchResponse = {
         id: updatedBatch.id,
         batch_number: updatedBatch.batch_number,
+        godown_id: updatedBatch.godown_id,
         product_id: updatedBatch.product_id,
         recipe_id: updatedBatch.recipe_id,
         packaging_id: updatedBatch.packaging_id,

@@ -30,6 +30,7 @@ import invoiceDispatchRoutes from './invoice-dispatch.routes';
 import inventoryLedgerRoutes from './inventory-ledger.routes';
 import creditNoteRoutes from './credit-note.routes';
 import suggestedRateRoutes from './suggested-rate.routes';
+import godownRoutes from './godown.routes';
 
 const router = Router();
 
@@ -74,6 +75,7 @@ router.use('/invoice-dispatches', invoiceDispatchRoutes);
 router.use('/inventory-ledger', inventoryLedgerRoutes);
 router.use('/credit-notes', creditNoteRoutes);
 router.use('/suggested-rate', suggestedRateRoutes);
+router.use('/godowns', godownRoutes);
 
 export default router;
 

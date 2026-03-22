@@ -8,9 +8,10 @@ export class PurchaseSummaryController {
   async getSaudaSummary(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const { saudaId } = req.params;
+      const godownId = req.query.godown_id as string | undefined;
 
       // IGST removed - no options needed
-      const summary = await purchaseSummaryDAO.getSaudaSummary(saudaId);
+      const summary = await purchaseSummaryDAO.getSaudaSummary(saudaId, godownId);
 
       return ResponseHandler.success(res, summary, 'Sauda summary retrieved successfully');
     } catch (error) {
@@ -25,9 +26,10 @@ export class PurchaseSummaryController {
   async getIspSummary(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const { ispId } = req.params;
+      const godownId = req.query.godown_id as string | undefined;
 
       // IGST removed - no options needed
-      const summary = await purchaseSummaryDAO.getIspSummary(ispId);
+      const summary = await purchaseSummaryDAO.getIspSummary(ispId, godownId);
 
       return ResponseHandler.success(res, summary, 'ISP summary retrieved successfully');
     } catch (error) {

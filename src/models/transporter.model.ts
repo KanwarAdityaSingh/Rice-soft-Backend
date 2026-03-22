@@ -42,7 +42,8 @@ export interface Transporter {
 
 export interface CreateTransporterDTO {
   business_name: string;
-  contact_persons: ContactPerson[];
+  /** Optional; stored as `[]` when omitted. Legacy columns use empty strings when no contacts. */
+  contact_persons?: ContactPerson[];
   address: Address;
   gst_number?: string;
   pan_number?: string;

@@ -83,7 +83,7 @@ export class TransporterController {
       const transporterData = validate<CreateTransporterDTO>(createTransporterSchema, req.body);
 
       // Check if email already exists (check all emails from contact_persons)
-      for (const contactPerson of transporterData.contact_persons) {
+      for (const contactPerson of transporterData.contact_persons ?? []) {
         if (contactPerson.emails) {
           for (const email of contactPerson.emails) {
             if (email && email.trim() !== '') {

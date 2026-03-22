@@ -74,6 +74,8 @@ export class CreditNoteService {
     const cn = await creditNoteDAO.findById(id);
     if (!cn) throw new NotFoundError('Credit note not found');
     if (cn.status === 'confirmed') return this.getById(id);
+    const dispatch = await invoiceDispatchDAO.findById(cn.invoice_dispatch_id);
+    if (!dispatch) throw new NotFoundError('Invoice dispatch not found');
 
     const lines = await creditNoteLineDAO.findByCreditNoteId(id);
     if (lines.length === 0) throw new ValidationError('Credit note has no lines');
@@ -83,7 +85,7 @@ export class CreditNoteService {
         const toRestore = parseFloat(line.quantity_returned.toString());
         const allocations = await invoiceDispatchAllocationDAO.findByInvoiceDispatchLineId(line.invoice_dispatch_line_id);
         if (allocations.length === 0) {
-          const fgiRows = await finishedGoodsInventoryDAO.findAll(line.product_id);
+          const fgiRows = await finishedGoodsInventoryDAO.findAll(line.product_id, undefined, dispatch.godown_id);
           if (fgiRows.length === 0) throw new ConflictError(`No FGI row found for product ${line.product_id} to restore into`);
           const row = fgiRows[0];
           const stockBefore = parseFloat(row.total_weight.toString());
@@ -94,6 +96,7 @@ export class CreditNoteService {
           );
           await inventoryLedgerDAO.create(
             {
+              godown_id: dispatch.godown_id,
               product_id: line.product_id,
               quantity_change: toRestore,
               source_type: 'sale_return',
@@ -132,6 +135,7 @@ export class CreditNoteService {
           );
           await inventoryLedgerDAO.create(
             {
+              godown_id: dispatch.godown_id,
               product_id: line.product_id,
               quantity_change: addBack,
               source_type: 'sale_return',
@@ -148,7 +152,7 @@ export class CreditNoteService {
           );
         }
         if (remaining > 0.001) {
-          const fgiRows = await finishedGoodsInventoryDAO.findAll(line.product_id);
+          const fgiRows = await finishedGoodsInventoryDAO.findAll(line.product_id, undefined, dispatch.godown_id);
           const row = fgiRows[0];
           if (!row) throw new ConflictError(`No FGI row for product ${line.product_id}`);
           const stockBefore = parseFloat(row.total_weight.toString());
@@ -159,6 +163,7 @@ export class CreditNoteService {
           );
           await inventoryLedgerDAO.create(
             {
+              godown_id: dispatch.godown_id,
               product_id: line.product_id,
               quantity_change: remaining,
               source_type: 'sale_return',

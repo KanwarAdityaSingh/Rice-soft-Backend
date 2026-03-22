@@ -3,9 +3,9 @@ import { Batch, CreateBatchDTO, UpdateBatchDTO, BatchLotUsage, BatchRiceCodeUsag
 import { logger } from '../utils/logger';
 
 export class BatchDAO {
-  async findAll(productId?: string, status?: string): Promise<Batch[]> {
+  async findAll(productId?: string, status?: string, godownId?: string): Promise<Batch[]> {
     let query = `
-      SELECT id, batch_number, product_id, recipe_id, packaging_id, quantity, status,
+      SELECT id, batch_number, godown_id, product_id, recipe_id, packaging_id, quantity, status,
              created_at, updated_at, created_by, updated_by
       FROM batches
       WHERE 1=1
@@ -22,6 +22,10 @@ export class BatchDAO {
       query += ` AND status = $${paramCount++}`;
       params.push(status);
     }
+    if (godownId) {
+      query += ` AND godown_id = $${paramCount++}`;
+      params.push(godownId);
+    }
 
     query += ` ORDER BY created_at DESC`;
 
@@ -31,7 +35,7 @@ export class BatchDAO {
 
   async findById(id: string): Promise<Batch | null> {
     const query = `
-      SELECT id, batch_number, product_id, recipe_id, packaging_id, quantity, status,
+      SELECT id, batch_number, godown_id, product_id, recipe_id, packaging_id, quantity, status,
              created_at, updated_at, created_by, updated_by
       FROM batches
       WHERE id = $1
@@ -42,14 +46,15 @@ export class BatchDAO {
 
   async create(batchData: CreateBatchDTO): Promise<Batch> {
     const query = `
-      INSERT INTO batches (batch_number, product_id, recipe_id, packaging_id, quantity, status, created_by)
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
-      RETURNING id, batch_number, product_id, recipe_id, packaging_id, quantity, status,
+      INSERT INTO batches (batch_number, godown_id, product_id, recipe_id, packaging_id, quantity, status, created_by)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      RETURNING id, batch_number, godown_id, product_id, recipe_id, packaging_id, quantity, status,
                 created_at, updated_at, created_by, updated_by
     `;
     
     const values = [
       batchData.batch_number || null,
+      batchData.godown_id,
       null, // product_id - nullable for three-stage workflow
       batchData.recipe_id,
       null, // packaging_id - nullable for three-stage workflow
@@ -97,7 +102,7 @@ export class BatchDAO {
       UPDATE batches
       SET ${fields.join(', ')}
       WHERE id = $${paramCount}
-      RETURNING id, batch_number, product_id, recipe_id, packaging_id, quantity, status,
+      RETURNING id, batch_number, godown_id, product_id, recipe_id, packaging_id, quantity, status,
                 created_at, updated_at, created_by, updated_by
     `;
 

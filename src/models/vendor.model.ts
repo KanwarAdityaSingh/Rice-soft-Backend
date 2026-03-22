@@ -51,8 +51,12 @@ export interface Vendor {
   last_enquiry_date: Date | null;
   google_location_link: string | null;
   business_card_url: string | null;
+  /** Set when confirm-bank-verification succeeds; cleared when bank_details are updated */
+  bank_details_verified_at: Date | null;
+  bank_details_verified_by: string | null;
+  /** Last failed verify_bank / confirm attempt; cleared on success or bank_details update */
+  bank_verification_error: string | null;
 }
-
 
 export interface CreateVendorDTO {
   business_name: string;
@@ -67,6 +71,8 @@ export interface CreateVendorDTO {
   lead_id?: string;
   google_location_link?: string;
   business_card_url?: string;
+  /** If true, attempt Surepass verification after insert; on failure vendor is kept unverified (lenient). */
+  verify_bank?: boolean;
 }
 
 export interface UpdateVendorDTO {
@@ -99,4 +105,7 @@ export interface VendorResponse {
   last_enquiry_date: string | null;
   google_location_link: string | null;
   business_card_url: string | null;
+  bank_details_verified_at: string | null;
+  bank_details_verified_by: string | null;
+  bank_verification_error: string | null;
 }

@@ -3,9 +3,9 @@ import { InwardSlipLot, CreateInwardSlipLotDTO, UpdateInwardSlipLotDTO } from '.
 import { logger } from '../utils/logger';
 
 export class InwardSlipLotDAO {
-  async findAll(saudaId?: string): Promise<InwardSlipLot[]> {
+  async findAll(saudaId?: string, godownId?: string): Promise<InwardSlipLot[]> {
     let query = `
-      SELECT id, sauda_id, lot_number, rice_code_id, rice_type, no_of_bags, bag_weight, total_weight,
+      SELECT id, sauda_id, godown_id, lot_number, rice_code_id, rice_type, no_of_bags, bag_weight, total_weight,
              bill_weight, received_weight, rate, amount, created_at, updated_at, created_by, updated_by
       FROM inward_slip_lots
       WHERE 1=1
@@ -18,6 +18,10 @@ export class InwardSlipLotDAO {
       query += ` AND sauda_id = $${paramCount++}`;
       params.push(saudaId);
     }
+    if (godownId) {
+      query += ` AND godown_id = $${paramCount++}`;
+      params.push(godownId);
+    }
 
     query += ` ORDER BY lot_number ASC`;
 
@@ -25,13 +29,13 @@ export class InwardSlipLotDAO {
     return result.rows;
   }
 
-  async findBySaudaId(saudaId: string): Promise<InwardSlipLot[]> {
-    return this.findAll(saudaId);
+  async findBySaudaId(saudaId: string, godownId?: string): Promise<InwardSlipLot[]> {
+    return this.findAll(saudaId, godownId);
   }
 
   async findById(id: string): Promise<InwardSlipLot | null> {
     const query = `
-      SELECT id, sauda_id, lot_number, rice_code_id, rice_type, no_of_bags, bag_weight, total_weight,
+      SELECT id, sauda_id, godown_id, lot_number, rice_code_id, rice_type, no_of_bags, bag_weight, total_weight,
              bill_weight, received_weight, rate, amount, created_at, updated_at, created_by, updated_by
       FROM inward_slip_lots
       WHERE id = $1
@@ -42,15 +46,16 @@ export class InwardSlipLotDAO {
 
   async create(inwardSlipLotData: CreateInwardSlipLotDTO): Promise<InwardSlipLot> {
     const query = `
-      INSERT INTO inward_slip_lots (sauda_id, lot_number, rice_code_id, rice_type, no_of_bags, bag_weight,
+      INSERT INTO inward_slip_lots (sauda_id, godown_id, lot_number, rice_code_id, rice_type, no_of_bags, bag_weight,
                                    bill_weight, received_weight, rate, created_by)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-      RETURNING id, sauda_id, lot_number, rice_code_id, rice_type, no_of_bags, bag_weight, total_weight,
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      RETURNING id, sauda_id, godown_id, lot_number, rice_code_id, rice_type, no_of_bags, bag_weight, total_weight,
                 bill_weight, received_weight, rate, amount, created_at, updated_at, created_by, updated_by
     `;
     
     const values = [
       inwardSlipLotData.sauda_id,
+      inwardSlipLotData.godown_id,
       inwardSlipLotData.lot_number,
       inwardSlipLotData.rice_code_id || null,
       inwardSlipLotData.rice_type || null,
@@ -90,6 +95,10 @@ export class InwardSlipLotDAO {
     const values: any[] = [];
     let paramCount = 1;
 
+    if (inwardSlipLotData.godown_id !== undefined) {
+      fields.push(`godown_id = $${paramCount++}`);
+      values.push(inwardSlipLotData.godown_id);
+    }
     if (inwardSlipLotData.lot_number !== undefined) {
       fields.push(`lot_number = $${paramCount++}`);
       values.push(inwardSlipLotData.lot_number);
@@ -138,7 +147,7 @@ export class InwardSlipLotDAO {
       UPDATE inward_slip_lots
       SET ${fields.join(', ')}
       WHERE id = $${paramCount}
-      RETURNING id, sauda_id, lot_number, rice_code_id, rice_type, no_of_bags, bag_weight, total_weight,
+      RETURNING id, sauda_id, godown_id, lot_number, rice_code_id, rice_type, no_of_bags, bag_weight, total_weight,
                 bill_weight, received_weight, rate, amount, created_at, updated_at, created_by, updated_by
     `;
 

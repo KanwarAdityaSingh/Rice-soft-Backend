@@ -25,6 +25,7 @@ function formatDispatch(dispatch: any) {
   return {
     id: dispatch.id,
     sales_sauda_id: dispatch.sales_sauda_id,
+    godown_id: dispatch.godown_id,
     internal_invoice_number: dispatch.internal_invoice_number,
     dispatch_date: typeof dispatch.dispatch_date === 'string' ? dispatch.dispatch_date : dispatch.dispatch_date?.toISOString?.()?.split('T')[0] ?? null,
     party_name: dispatch.party_name,
@@ -46,8 +47,9 @@ export class InvoiceDispatchController {
   async getAll(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const salesSaudaId = req.query.sales_sauda_id as string | undefined;
+      const godownId = req.query.godown_id as string | undefined;
       const status = req.query.status as 'draft' | 'confirmed' | undefined;
-      const list = await invoiceDispatchService.list(salesSaudaId, status);
+      const list = await invoiceDispatchService.list(salesSaudaId, status, godownId);
       const data = list.map((d) => formatDispatch({ ...d, lines: [] }));
       return ResponseHandler.success(res, data);
     } catch (error) {
@@ -67,11 +69,12 @@ export class InvoiceDispatchController {
 
   async create(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const body = validate<{ sales_sauda_id: string; internal_invoice_number: string; dispatch_date?: string; transporter_id?: string; vehicle_id?: string; distance_km?: number; route_description?: string }>(createInvoiceDispatchSchema, req.body);
+      const body = validate<{ sales_sauda_id: string; godown_id: string; internal_invoice_number: string; dispatch_date?: string; transporter_id?: string; vehicle_id?: string; distance_km?: number; route_description?: string }>(createInvoiceDispatchSchema, req.body);
       const userId = req.user?.userId;
       const dispatch = await invoiceDispatchService.create(
         {
           sales_sauda_id: body.sales_sauda_id,
+          godown_id: body.godown_id,
           internal_invoice_number: body.internal_invoice_number,
           dispatch_date: body.dispatch_date,
           transporter_id: body.transporter_id,

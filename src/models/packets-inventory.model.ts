@@ -1,5 +1,6 @@
 export interface PacketsInventory {
   id: string;
+  godown_id: string;
   packaging_id: string;
   available_quantity: number;
   created_at: Date;
@@ -9,6 +10,7 @@ export interface PacketsInventory {
 }
 
 export interface CreatePacketsInventoryDTO {
+  godown_id?: string;
   packaging_id: string;
   available_quantity: number;
   created_by?: string;
@@ -21,6 +23,7 @@ export interface UpdatePacketsInventoryDTO {
 
 export interface PacketsInventoryResponse {
   id: string;
+  godown_id: string;
   packaging_id: string;
   available_quantity: number;
   created_at: string;

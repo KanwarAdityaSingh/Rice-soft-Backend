@@ -56,8 +56,11 @@ export class BatchService {
         if (!lot) {
           throw new NotFoundError(`Lot ${lotQty.lotId} not found`);
         }
+        if (lot.godown_id !== batchData.godown_id) {
+          throw new BadRequestError(`Lot ${lot.lot_number} belongs to different godown`);
+        }
 
-        const availableQty = await lotInventoryDAO.getAvailableQuantity(lotQty.lotId);
+        const availableQty = await lotInventoryDAO.getAvailableQuantity(lotQty.lotId, batchData.godown_id);
         if (availableQty < lotQty.quantity) {
           throw new BadRequestError(
             `Insufficient quantity in lot ${lot.lot_number}. Available: ${availableQty} kg, Required: ${lotQty.quantity} kg`
@@ -99,12 +102,12 @@ export class BatchService {
         }
 
         // Get current lot inventory for audit
-        const lotInventory = await lotInventoryDAO.findByLotId(lotQty.lotId);
+        const lotInventory = await lotInventoryDAO.findByLotId(lotQty.lotId, batchData.godown_id);
         const quantityBefore = lotInventory?.available_quantity || 0;
         const quantityAfter = quantityBefore - lotQty.quantity;
 
         // Decrement lot inventory
-        const decremented = await lotInventoryDAO.decrementQuantity(lotQty.lotId, lotQty.quantity);
+        const decremented = await lotInventoryDAO.decrementQuantity(lotQty.lotId, lotQty.quantity, batchData.godown_id);
         if (!decremented) {
           throw new BadRequestError(`Failed to decrement lot inventory for lot ${lot.lot_number}`);
         }
@@ -143,19 +146,19 @@ export class BatchService {
             const kaantaResult = await client.query(kaantaQuery, [lot.sauda_id, lot.bag_weight]);
             if (kaantaResult.rows.length > 0) {
               const kaanta = kaantaResult.rows[0];
-              const bagType = kaanta.bag_type as 'jute' | 'pp';
+              const bagType = kaanta.bag_type;
               const bagCapacity = parseFloat(kaanta.bag_weight.toString());
 
               // Get current bags inventory for audit
-              const bagsInventory = await bagsInventoryDAO.findByTypeAndCapacity(bagType, bagCapacity);
+              const bagsInventory = await bagsInventoryDAO.findByTypeAndCapacity(bagType, bagCapacity, batchData.godown_id);
               const filledBefore = bagsInventory?.filled_bags || 0;
               const emptyBefore = bagsInventory?.empty_bags || 0;
 
-              await bagsInventoryDAO.decrementFilledBags(bagType, bagCapacity, bagsEmptied);
-              await bagsInventoryDAO.incrementEmptyBags(bagType, bagCapacity, bagsEmptied);
+              await bagsInventoryDAO.decrementFilledBags(bagType, bagCapacity, bagsEmptied, batchData.godown_id);
+              await bagsInventoryDAO.incrementEmptyBags(bagType, bagCapacity, bagsEmptied, batchData.godown_id);
 
               // Get updated bags inventory for audit
-              const updatedBagsInventory = await bagsInventoryDAO.findByTypeAndCapacity(bagType, bagCapacity);
+              const updatedBagsInventory = await bagsInventoryDAO.findByTypeAndCapacity(bagType, bagCapacity, batchData.godown_id);
 
               // Calculate usage ratio for notes
               const usageRatio = (lotQty.quantity / lot.received_weight * 100).toFixed(2);
@@ -328,7 +331,7 @@ export class BatchService {
       const packetsNeeded = Math.ceil(packagingData.quantity / packaging.holding_capacity);
 
       // Check packets inventory has sufficient empty packets
-      const packetsInventory = await packetsInventoryDAO.findByPackagingId(packaging.id);
+      const packetsInventory = await packetsInventoryDAO.findByPackagingId(packaging.id, batch.godown_id);
       if (!packetsInventory || packetsInventory.available_quantity < packetsNeeded) {
         throw new BadRequestError(
           `Insufficient empty packets for ${packaging.holding_capacity} kg packaging. Available: ${packetsInventory?.available_quantity || 0}, Required: ${packetsNeeded}`
@@ -342,7 +345,7 @@ export class BatchService {
       const packetsQuantityBefore = packetsInventory.available_quantity;
       const packetsQuantityAfter = packetsQuantityBefore - packetsNeeded;
 
-      const packetsDecremented = await packetsInventoryDAO.decrementQuantity(packaging.id, packetsNeeded);
+      const packetsDecremented = await packetsInventoryDAO.decrementQuantity(packaging.id, packetsNeeded, batch.godown_id);
       if (!packetsDecremented) {
         throw new BadRequestError(`Failed to decrement packets inventory for ${packaging.holding_capacity} kg packaging`);
       }
@@ -369,6 +372,7 @@ export class BatchService {
       // Create finished goods inventory entry
       const totalWeight = packetsNeeded * packaging.holding_capacity;
       const finishedGoods = await finishedGoodsInventoryDAO.create({
+        godown_id: batch.godown_id,
         product_id: packagingData.product_id,
         batch_id: batch.id,
         packaging_id: packaging.id,

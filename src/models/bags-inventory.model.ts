@@ -2,6 +2,7 @@ import { BagType } from './kaanta.model';
 
 export interface BagsInventory {
   id: string;
+  godown_id: string;
   bag_type: BagType;
   bag_capacity: number;
   filled_bags: number;
@@ -13,6 +14,7 @@ export interface BagsInventory {
 }
 
 export interface CreateBagsInventoryDTO {
+  godown_id: string;
   bag_type: BagType;
   bag_capacity: number;
   filled_bags?: number;
@@ -28,6 +30,7 @@ export interface UpdateBagsInventoryDTO {
 
 export interface BagsInventoryResponse {
   id: string;
+  godown_id: string;
   bag_type: BagType;
   bag_capacity: number;
   filled_bags: number;

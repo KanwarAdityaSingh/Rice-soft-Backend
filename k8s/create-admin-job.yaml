@@ -11,7 +11,7 @@ spec:
       containers:
         - name: create-admin
           image: rice-soft-backend:latest
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Never
           env:
             - name: HOST
               value: "0.0.0.0"

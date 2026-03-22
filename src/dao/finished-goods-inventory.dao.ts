@@ -3,9 +3,9 @@ import { FinishedGoodsInventory, CreateFinishedGoodsInventoryDTO } from '../mode
 import { logger } from '../utils/logger';
 
 export class FinishedGoodsInventoryDAO {
-  async findAll(productId?: string, batchId?: string): Promise<FinishedGoodsInventory[]> {
+  async findAll(productId?: string, batchId?: string, godownId?: string): Promise<FinishedGoodsInventory[]> {
     let query = `
-      SELECT id, product_id, batch_id, packaging_id, no_of_packets, total_weight,
+      SELECT id, godown_id, product_id, batch_id, packaging_id, no_of_packets, total_weight,
              created_at, updated_at, created_by, updated_by
       FROM finished_goods_inventory
       WHERE 1=1
@@ -22,6 +22,10 @@ export class FinishedGoodsInventoryDAO {
       query += ` AND batch_id = $${paramCount++}`;
       params.push(batchId);
     }
+    if (godownId) {
+      query += ` AND godown_id = $${paramCount++}`;
+      params.push(godownId);
+    }
 
     query += ` ORDER BY created_at DESC`;
 
@@ -31,7 +35,7 @@ export class FinishedGoodsInventoryDAO {
 
   async findById(id: string): Promise<FinishedGoodsInventory | null> {
     const query = `
-      SELECT id, product_id, batch_id, packaging_id, no_of_packets, total_weight,
+      SELECT id, godown_id, product_id, batch_id, packaging_id, no_of_packets, total_weight,
              created_at, updated_at, created_by, updated_by
       FROM finished_goods_inventory
       WHERE id = $1
@@ -42,7 +46,7 @@ export class FinishedGoodsInventoryDAO {
 
   async findByBatchId(batchId: string): Promise<FinishedGoodsInventory | null> {
     const query = `
-      SELECT id, product_id, batch_id, packaging_id, no_of_packets, total_weight,
+      SELECT id, godown_id, product_id, batch_id, packaging_id, no_of_packets, total_weight,
              created_at, updated_at, created_by, updated_by
       FROM finished_goods_inventory
       WHERE batch_id = $1
@@ -53,13 +57,20 @@ export class FinishedGoodsInventoryDAO {
 
   async create(inventoryData: CreateFinishedGoodsInventoryDTO): Promise<FinishedGoodsInventory> {
     const query = `
-      INSERT INTO finished_goods_inventory (product_id, batch_id, packaging_id, no_of_packets, total_weight, created_by)
-      VALUES ($1, $2, $3, $4, $5, $6)
-      RETURNING id, product_id, batch_id, packaging_id, no_of_packets, total_weight,
+      INSERT INTO finished_goods_inventory (godown_id, product_id, batch_id, packaging_id, no_of_packets, total_weight, created_by)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      RETURNING id, godown_id, product_id, batch_id, packaging_id, no_of_packets, total_weight,
                 created_at, updated_at, created_by, updated_by
     `;
     
+    const effectiveGodownId =
+      inventoryData.godown_id ??
+      (
+        await db.query<{ id: string }>('SELECT id FROM godowns ORDER BY created_at ASC LIMIT 1')
+      ).rows[0]?.id;
+
     const values = [
+      effectiveGodownId,
       inventoryData.product_id,
       inventoryData.batch_id,
       inventoryData.packaging_id,
@@ -83,7 +94,7 @@ export class FinishedGoodsInventoryDAO {
       UPDATE finished_goods_inventory
       SET no_of_packets = $1, total_weight = $2, updated_at = CURRENT_TIMESTAMP
       WHERE id = $3
-      RETURNING id, product_id, batch_id, packaging_id, no_of_packets, total_weight,
+      RETURNING id, godown_id, product_id, batch_id, packaging_id, no_of_packets, total_weight,
                 created_at, updated_at, created_by, updated_by
     `;
     const result = await db.query<FinishedGoodsInventory>(query, [noOfPackets, totalWeight, id]);

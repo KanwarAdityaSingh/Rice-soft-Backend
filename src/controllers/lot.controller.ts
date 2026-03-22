@@ -14,17 +14,20 @@ import {
 } from '../utils/errors';
 import { CreateInwardSlipLotDTO, UpdateInwardSlipLotDTO, InwardSlipLotResponse } from '../models/inward-slip-lot.model';
 import { AuthRequest } from '../middleware/auth.middleware';
+import { godownService } from '../services/godown.service';
 
 export class LotController {
   async getAll(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const saudaId = req.query.sauda_id as string | undefined;
+      const godownId = req.query.godown_id as string | undefined;
       
-      const lots = await inwardSlipLotDAO.findAll(saudaId);
+      const lots = await inwardSlipLotDAO.findAll(saudaId, godownId);
 
       const lotResponses: InwardSlipLotResponse[] = lots.map((lot) => ({
         id: lot.id,
         sauda_id: lot.sauda_id,
+        godown_id: lot.godown_id,
         lot_number: lot.lot_number,
         rice_code_id: lot.rice_code_id,
         rice_type: lot.rice_type,
@@ -57,6 +60,7 @@ export class LotController {
       const lotResponse: InwardSlipLotResponse = {
         id: lot.id,
         sauda_id: lot.sauda_id,
+        godown_id: lot.godown_id,
         lot_number: lot.lot_number,
         rice_code_id: lot.rice_code_id,
         rice_type: lot.rice_type,
@@ -86,6 +90,7 @@ export class LotController {
       if (!sauda) {
         throw new NotFoundError('Sauda not found');
       }
+      await godownService.assertActive(lotData.godown_id);
 
       // Validate rice_code if provided
       if (lotData.rice_code_id) {
@@ -105,6 +110,7 @@ export class LotController {
       const lotResponse: InwardSlipLotResponse = {
         id: lot.id,
         sauda_id: lot.sauda_id,
+        godown_id: lot.godown_id,
         lot_number: lot.lot_number,
         rice_code_id: lot.rice_code_id,
         rice_type: lot.rice_type,
@@ -140,6 +146,9 @@ export class LotController {
       if (req.user) {
         lotData.updated_by = req.user.userId;
       }
+      if (lotData.godown_id !== undefined) {
+        delete (lotData as any).godown_id;
+      }
 
       const lot = await inwardSlipLotDAO.update(id, lotData);
       if (!lot) {
@@ -149,6 +158,7 @@ export class LotController {
       const lotResponse: InwardSlipLotResponse = {
         id: lot.id,
         sauda_id: lot.sauda_id,
+        godown_id: lot.godown_id,
         lot_number: lot.lot_number,
         rice_code_id: lot.rice_code_id,
         rice_type: lot.rice_type,

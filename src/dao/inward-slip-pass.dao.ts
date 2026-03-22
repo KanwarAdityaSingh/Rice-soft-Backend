@@ -3,9 +3,9 @@ import { InwardSlipPass, CreateInwardSlipPassDTO, UpdateInwardSlipPassDTO } from
 import { logger } from '../utils/logger';
 
 export class InwardSlipPassDAO {
-  async findAll(saudaId?: string): Promise<InwardSlipPass[]> {
+  async findAll(saudaId?: string, godownId?: string): Promise<InwardSlipPass[]> {
     let query = `
-      SELECT isp.id, isp.slip_number, isp.date, isp.vehicle_id, isp.party_name, isp.party_address,
+      SELECT isp.id, isp.godown_id, isp.slip_number, isp.date, isp.vehicle_id, isp.party_name, isp.party_address,
              isp.party_gst_number, isp.party_pan_number, isp.transporter_id, isp.transportation_cost, isp.status, 
              isp.other_bills,
              isp.bill_pdf_url, isp.bill_number, isp.bill_date, isp.bilti_image_url, isp.bilti_pdf_url, isp.eway_bill_number, isp.eway_bill_url,
@@ -15,14 +15,19 @@ export class InwardSlipPassDAO {
     `;
     
     const params: any[] = [];
+    let paramCount = 1;
 
     if (saudaId) {
       query += ` AND isp.id IN (
         SELECT inward_slip_pass_id 
         FROM inward_slip_pass_saudas 
-        WHERE sauda_id = $1
+        WHERE sauda_id = $${paramCount++}
       )`;
       params.push(saudaId);
+    }
+    if (godownId) {
+      query += ` AND isp.godown_id = $${paramCount++}`;
+      params.push(godownId);
     }
 
     query += ` ORDER BY isp.date DESC, isp.created_at DESC`;
@@ -37,7 +42,7 @@ export class InwardSlipPassDAO {
 
   async findById(id: string): Promise<InwardSlipPass | null> {
     const query = `
-      SELECT isp.id, isp.slip_number, isp.date, isp.vehicle_id, isp.party_name, isp.party_address,
+      SELECT isp.id, isp.godown_id, isp.slip_number, isp.date, isp.vehicle_id, isp.party_name, isp.party_address,
              isp.party_gst_number, isp.party_pan_number, isp.transporter_id, isp.transportation_cost, isp.status, 
              isp.other_bills,
              isp.bill_pdf_url, isp.bill_number, isp.bill_date, isp.bilti_image_url, isp.bilti_pdf_url, isp.eway_bill_number, isp.eway_bill_url,
@@ -59,15 +64,16 @@ export class InwardSlipPassDAO {
 
   async create(inwardSlipPassData: CreateInwardSlipPassDTO): Promise<InwardSlipPass> {
     const insertQuery = `
-      INSERT INTO inward_slip_passes (slip_number, date, vehicle_id, party_name,
+      INSERT INTO inward_slip_passes (godown_id, slip_number, date, vehicle_id, party_name,
                                       party_address, party_gst_number, party_pan_number, transporter_id, transportation_cost, status, other_bills,
                                       bill_pdf_url, bill_number, bill_date, bilti_image_url,
                                       bilti_pdf_url, eway_bill_number, eway_bill_url, notes, created_by)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
       RETURNING id
     `;
     
     const values = [
+      inwardSlipPassData.godown_id,
       inwardSlipPassData.slip_number || null, // null will trigger auto-generation
       inwardSlipPassData.date,
       inwardSlipPassData.vehicle_id,
@@ -113,6 +119,10 @@ export class InwardSlipPassDAO {
     const values: any[] = [];
     let paramCount = 1;
 
+    if (inwardSlipPassData.godown_id !== undefined) {
+      fields.push(`godown_id = $${paramCount++}`);
+      values.push(inwardSlipPassData.godown_id);
+    }
     if (inwardSlipPassData.slip_number !== undefined) {
       fields.push(`slip_number = $${paramCount++}`);
       values.push(inwardSlipPassData.slip_number);

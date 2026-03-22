@@ -14,15 +14,18 @@ export class KaantaController {
   async getAll(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const { sauda_id, inward_slip_pass_id } = req.query;
+      const godownId = req.query.godown_id as string | undefined;
 
       const kaantas = await kaantaDAO.findAll(
         sauda_id as string | undefined,
-        inward_slip_pass_id as string | undefined
+        inward_slip_pass_id as string | undefined,
+        godownId
       );
 
       const kaantaResponses: KaantaResponse[] = kaantas.map((kaanta) => ({
         id: kaanta.id,
         kaanta_id: kaanta.kaanta_id,
+        godown_id: kaanta.godown_id,
         sauda_id: kaanta.sauda_id,
         inward_slip_pass_id: kaanta.inward_slip_pass_id,
         full_truck_weight: parseFloat(kaanta.full_truck_weight.toString()),
@@ -56,6 +59,7 @@ export class KaantaController {
       const kaantaResponse: KaantaResponse = {
         id: kaanta.id,
         kaanta_id: kaanta.kaanta_id,
+        godown_id: kaanta.godown_id,
         sauda_id: kaanta.sauda_id,
         inward_slip_pass_id: kaanta.inward_slip_pass_id,
         full_truck_weight: parseFloat(kaanta.full_truck_weight.toString()),
@@ -92,6 +96,7 @@ export class KaantaController {
       if (!isp) {
         throw new NotFoundError('Inward slip pass not found');
       }
+      kaantaData.godown_id = isp.godown_id;
 
       // Set created_by from authenticated user
       if (req.user) {
@@ -103,6 +108,7 @@ export class KaantaController {
       const kaantaResponse: KaantaResponse = {
         id: kaanta.id,
         kaanta_id: kaanta.kaanta_id,
+        godown_id: kaanta.godown_id,
         sauda_id: kaanta.sauda_id,
         inward_slip_pass_id: kaanta.inward_slip_pass_id,
         full_truck_weight: parseFloat(kaanta.full_truck_weight.toString()),
@@ -142,6 +148,7 @@ export class KaantaController {
       const kaantaResponse: KaantaResponse = {
         id: kaanta.id,
         kaanta_id: kaanta.kaanta_id,
+        godown_id: kaanta.godown_id,
         sauda_id: kaanta.sauda_id,
         inward_slip_pass_id: kaanta.inward_slip_pass_id,
         full_truck_weight: parseFloat(kaanta.full_truck_weight.toString()),

@@ -1,12 +1,22 @@
 import { db } from '../database/connection';
 import { Packaging, CreatePackagingDTO, UpdatePackagingDTO, PackagingWeight } from '../models/packaging.model';
 import { logger } from '../utils/logger';
+import type { EmptyBagReceiptSnapshot } from '../utils/empty-bag-cost';
+
+const PACKAGING_SELECT_COLUMNS = `
+      id, packaging_number, product_id, holding_capacity, packet_type, packaging_vendor_id, ordered_weight,
+      empty_bag_weight_kg, empty_bag_rate_per_kg, empty_bag_gst_percent,
+      empty_bags_total_weight_kg, empty_bags_taxable_amount, empty_bags_gst_amount, empty_bags_total_amount,
+      created_at, updated_at, created_by, updated_by`;
+
+/** Row passed to INSERT; `packaging_number` is optional (DB trigger fills if omitted). */
+export type CreatePackagingRow = CreatePackagingDTO &
+  Partial<EmptyBagReceiptSnapshot> & { packaging_number?: string | null };
 
 export class PackagingDAO {
   async findAll(productId?: string): Promise<Packaging[]> {
     let query = `
-      SELECT id, packaging_number, product_id, holding_capacity, packet_type, packaging_vendor_id, ordered_weight, 
-             created_at, updated_at, created_by, updated_by
+      SELECT ${PACKAGING_SELECT_COLUMNS}
       FROM packaging
     `;
     const params: any[] = [];
@@ -24,8 +34,7 @@ export class PackagingDAO {
 
   async findById(id: string): Promise<Packaging | null> {
     const query = `
-      SELECT id, packaging_number, product_id, holding_capacity, packet_type, packaging_vendor_id, ordered_weight,
-             created_at, updated_at, created_by, updated_by
+      SELECT ${PACKAGING_SELECT_COLUMNS}
       FROM packaging
       WHERE id = $1
     `;
@@ -35,8 +44,7 @@ export class PackagingDAO {
 
   async findByProductId(productId: string): Promise<Packaging[]> {
     const query = `
-      SELECT id, packaging_number, product_id, holding_capacity, packet_type, packaging_vendor_id, ordered_weight,
-             created_at, updated_at, created_by, updated_by
+      SELECT ${PACKAGING_SELECT_COLUMNS}
       FROM packaging
       WHERE product_id = $1
       ORDER BY packaging_number ASC, holding_capacity ASC
@@ -47,8 +55,7 @@ export class PackagingDAO {
 
   async findByProductAndWeight(productId: string, weight: PackagingWeight): Promise<Packaging | null> {
     const query = `
-      SELECT id, packaging_number, product_id, holding_capacity, packet_type, packaging_vendor_id, ordered_weight,
-             created_at, updated_at, created_by, updated_by
+      SELECT ${PACKAGING_SELECT_COLUMNS}
       FROM packaging
       WHERE product_id = $1 AND holding_capacity = $2
       ORDER BY packaging_number ASC
@@ -60,8 +67,7 @@ export class PackagingDAO {
 
   async findByCapacityAndType(holdingCapacity: number, packetType: string): Promise<Packaging | null> {
     const query = `
-      SELECT id, packaging_number, product_id, holding_capacity, packet_type, packaging_vendor_id, ordered_weight,
-             created_at, updated_at, created_by, updated_by
+      SELECT ${PACKAGING_SELECT_COLUMNS}
       FROM packaging
       WHERE holding_capacity = $1 AND packet_type = $2
       ORDER BY packaging_number ASC
@@ -71,22 +77,52 @@ export class PackagingDAO {
     return result.rows[0] || null;
   }
 
-  async create(packagingData: CreatePackagingDTO): Promise<Packaging> {
+  async create(packagingData: CreatePackagingRow): Promise<Packaging> {
+    const {
+      initial_packets: _initialPackets,
+      godown_id: _godownId,
+      packaging_number: packagingNumberIn,
+      product_id,
+      holding_capacity,
+      packet_type,
+      packaging_vendor_id,
+      ordered_weight,
+      empty_bag_weight_kg,
+      empty_bag_rate_per_kg,
+      empty_bag_gst_percent,
+      empty_bags_total_weight_kg,
+      empty_bags_taxable_amount,
+      empty_bags_gst_amount,
+      empty_bags_total_amount,
+      created_by,
+    } = packagingData;
+
     const query = `
-      INSERT INTO packaging (packaging_number, product_id, holding_capacity, packet_type, packaging_vendor_id, ordered_weight, created_by)
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
-      RETURNING id, packaging_number, product_id, holding_capacity, packet_type, packaging_vendor_id, ordered_weight,
-                created_at, updated_at, created_by, updated_by
+      INSERT INTO packaging (
+        packaging_number, product_id, holding_capacity, packet_type, packaging_vendor_id, ordered_weight,
+        empty_bag_weight_kg, empty_bag_rate_per_kg, empty_bag_gst_percent,
+        empty_bags_total_weight_kg, empty_bags_taxable_amount, empty_bags_gst_amount, empty_bags_total_amount,
+        created_by
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+      RETURNING ${PACKAGING_SELECT_COLUMNS}
     `;
-    
+
     const values = [
-      (packagingData as any).packaging_number || null, // Optional - auto-generated if null
-      packagingData.product_id,
-      packagingData.holding_capacity,
-      packagingData.packet_type,
-      packagingData.packaging_vendor_id || null,
-      packagingData.ordered_weight || null,
-      packagingData.created_by || null
+      packagingNumberIn || null,
+      product_id,
+      holding_capacity,
+      packet_type,
+      packaging_vendor_id || null,
+      ordered_weight ?? null,
+      empty_bag_weight_kg ?? null,
+      empty_bag_rate_per_kg ?? null,
+      empty_bag_gst_percent ?? null,
+      empty_bags_total_weight_kg ?? null,
+      empty_bags_taxable_amount ?? null,
+      empty_bags_gst_amount ?? null,
+      empty_bags_total_amount ?? null,
+      created_by || null,
     ];
     
     try {
@@ -120,6 +156,18 @@ export class PackagingDAO {
       fields.push(`ordered_weight = $${paramCount++}`);
       values.push(packagingData.ordered_weight || null);
     }
+    if (packagingData.empty_bag_weight_kg !== undefined) {
+      fields.push(`empty_bag_weight_kg = $${paramCount++}`);
+      values.push(packagingData.empty_bag_weight_kg);
+    }
+    if (packagingData.empty_bag_rate_per_kg !== undefined) {
+      fields.push(`empty_bag_rate_per_kg = $${paramCount++}`);
+      values.push(packagingData.empty_bag_rate_per_kg);
+    }
+    if (packagingData.empty_bag_gst_percent !== undefined) {
+      fields.push(`empty_bag_gst_percent = $${paramCount++}`);
+      values.push(packagingData.empty_bag_gst_percent);
+    }
     if (packagingData.updated_by !== undefined) {
       fields.push(`updated_by = $${paramCount++}`);
       values.push(packagingData.updated_by);
@@ -136,8 +184,7 @@ export class PackagingDAO {
       UPDATE packaging
       SET ${fields.join(', ')}
       WHERE id = $${paramCount}
-      RETURNING id, packaging_number, product_id, holding_capacity, packet_type, packaging_vendor_id, ordered_weight,
-                created_at, updated_at, created_by, updated_by
+      RETURNING ${PACKAGING_SELECT_COLUMNS}
     `;
 
     try {

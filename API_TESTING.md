@@ -17,13 +17,15 @@ curl http://localhost:3000/api/v1/health
 
 ### Login
 ```bash
-curl -X POST http://localhost:3000/api/v1/auth/login \
+curl -X POST http://localhost:3000/api/v1/auth/loginUser \
   -H "Content-Type: application/json" \
   -d '{
     "username": "admin",
     "password": "Xk9#mP2@nQ7!vR4$wT8&aL5"
   }'
 ```
+
+**Shell quoting:** The default admin password contains `$`. In bash/zsh, **do not** wrap the JSON in double quotes for `-d` — the shell will expand `$…` and the password will be wrong (you will get `401 Invalid credentials`). Use single quotes around the whole `-d` argument as above, or escape `$` as `\$`.
 
 **Save the token from the response for subsequent requests!**
 

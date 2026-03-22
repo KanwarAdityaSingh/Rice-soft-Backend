@@ -1,8 +1,11 @@
-export type BagType = 'jute' | 'pp';
+import type { BagType } from '../constants/bag-types';
+export type { BagType } from '../constants/bag-types';
+export { BAG_TYPE_VALUES } from '../constants/bag-types';
 
 export interface Kaanta {
   id: string;
   kaanta_id: string;
+  godown_id: string;
   sauda_id: string;
   inward_slip_pass_id: string;
   full_truck_weight: number;
@@ -21,6 +24,7 @@ export interface Kaanta {
 }
 
 export interface CreateKaantaDTO {
+  godown_id: string;
   sauda_id: string;
   inward_slip_pass_id: string;
   full_truck_weight: number;
@@ -47,6 +51,7 @@ export interface UpdateKaantaDTO {
 export interface KaantaResponse {
   id: string;
   kaanta_id: string;
+  godown_id: string;
   sauda_id: string;
   inward_slip_pass_id: string;
   full_truck_weight: number;

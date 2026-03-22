@@ -20,7 +20,7 @@ export class SalesSaudaDAO {
   async findAll(salesPartyId?: string, status?: SalesSaudaStatus): Promise<SalesSauda[]> {
     let query = `
       SELECT id, sales_party_id, status, order_number, TO_CHAR(sauda_date, 'YYYY-MM-DD') as sauda_date,
-             notes, amount, created_at, updated_at, created_by, updated_by
+             notes, payment_terms, amount, created_at, updated_at, created_by, updated_by
       FROM sales_saudas
       WHERE 1=1
     `;
@@ -42,7 +42,7 @@ export class SalesSaudaDAO {
   async findById(id: string): Promise<SalesSauda | null> {
     const query = `
       SELECT id, sales_party_id, status, order_number, TO_CHAR(sauda_date, 'YYYY-MM-DD') as sauda_date,
-             notes, amount, created_at, updated_at, created_by, updated_by
+             notes, payment_terms, amount, created_at, updated_at, created_by, updated_by
       FROM sales_saudas
       WHERE id = $1
     `;
@@ -52,16 +52,17 @@ export class SalesSaudaDAO {
 
   async create(data: CreateSalesSaudaDTO): Promise<SalesSauda> {
     const query = `
-      INSERT INTO sales_saudas (sales_party_id, status, sauda_date, notes, amount, created_by)
-      VALUES ($1, $2, $3, $4, $5, $6)
+      INSERT INTO sales_saudas (sales_party_id, status, sauda_date, notes, payment_terms, amount, created_by)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
       RETURNING id, sales_party_id, status, order_number, TO_CHAR(sauda_date, 'YYYY-MM-DD') as sauda_date,
-                notes, amount, created_at, updated_at, created_by, updated_by
+                notes, payment_terms, amount, created_at, updated_at, created_by, updated_by
     `;
     const values = [
       data.sales_party_id,
       data.status || 'draft',
       data.sauda_date != null ? (typeof data.sauda_date === 'string' ? data.sauda_date : formatDateToLocalString(data.sauda_date as Date)) : null,
       data.notes || null,
+      data.payment_terms ?? null,
       data.amount != null ? Number(data.amount) : 0,
       data.created_by || null,
     ];
@@ -98,6 +99,10 @@ export class SalesSaudaDAO {
       fields.push(`notes = $${paramCount++}`);
       values.push(data.notes ?? null);
     }
+    if (data.payment_terms !== undefined) {
+      fields.push(`payment_terms = $${paramCount++}`);
+      values.push(data.payment_terms ?? null);
+    }
     if (data.amount !== undefined) {
       fields.push(`amount = $${paramCount++}`);
       values.push(Number(data.amount));
@@ -112,7 +117,7 @@ export class SalesSaudaDAO {
     const query = `
       UPDATE sales_saudas SET ${fields.join(', ')} WHERE id = $${paramCount}
       RETURNING id, sales_party_id, status, order_number, TO_CHAR(sauda_date, 'YYYY-MM-DD') as sauda_date,
-                notes, amount, created_at, updated_at, created_by, updated_by
+                notes, payment_terms, amount, created_at, updated_at, created_by, updated_by
     `;
     const result = await db.query<SalesSauda>(query, values);
     if (result.rows.length === 0) return null;

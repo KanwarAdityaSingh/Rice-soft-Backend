@@ -9,13 +9,14 @@ import {
 export class InventoryLedgerDAO {
   async create(data: CreateInventoryLedgerDTO, client?: PoolClient): Promise<InventoryLedgerEntry> {
     const query = `
-      INSERT INTO inventory_ledger (product_id, quantity_change, source_type, source_id, stock_before, stock_after,
+      INSERT INTO inventory_ledger (godown_id, product_id, quantity_change, source_type, source_id, stock_before, stock_after,
         reference_type, reference_id, batch_id, packaging_id, created_by)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-      RETURNING id, product_id, quantity_change, source_type, source_id, stock_before, stock_after,
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      RETURNING id, godown_id, product_id, quantity_change, source_type, source_id, stock_before, stock_after,
                 reference_type, reference_id, batch_id, packaging_id, created_at, created_by
     `;
     const values = [
+      data.godown_id,
       data.product_id,
       data.quantity_change,
       data.source_type,
@@ -37,6 +38,7 @@ export class InventoryLedgerDAO {
   async find(
     filters: {
       product_id?: string;
+      godown_id?: string;
       source_type?: InventoryLedgerSourceType;
       from_date?: string;
       to_date?: string;
@@ -45,12 +47,16 @@ export class InventoryLedgerDAO {
     }
   ): Promise<InventoryLedgerEntry[]> {
     let query = `
-      SELECT id, product_id, quantity_change, source_type, source_id, stock_before, stock_after,
+      SELECT id, godown_id, product_id, quantity_change, source_type, source_id, stock_before, stock_after,
              reference_type, reference_id, batch_id, packaging_id, created_at, created_by
       FROM inventory_ledger WHERE 1=1
     `;
     const params: any[] = [];
     let n = 1;
+    if (filters.godown_id) {
+      query += ` AND godown_id = $${n++}`;
+      params.push(filters.godown_id);
+    }
     if (filters.product_id) {
       query += ` AND product_id = $${n++}`;
       params.push(filters.product_id);

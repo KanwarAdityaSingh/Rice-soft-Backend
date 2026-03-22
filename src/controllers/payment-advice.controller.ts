@@ -188,7 +188,7 @@ export class PaymentAdviceController {
           calculatedAmount = summary.final_total_amount;
         }
       }
-      
+
       // Set the calculated amount
       paymentAdviceData.amount = calculatedAmount;
 

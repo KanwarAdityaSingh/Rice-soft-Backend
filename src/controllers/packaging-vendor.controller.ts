@@ -8,6 +8,19 @@ import { createPackagingVendorSchema, updatePackagingVendorSchema } from '../uti
 import { gstLookupService } from '../services/gst-lookup.service';
 import { ValidationError, NotFoundError, InternalServerError } from '../utils/errors';
 
+function parsePackagingVendorIdParam(raw: string | undefined): string {
+  if (!raw) {
+    throw new ValidationError('Packaging vendor id is required');
+  }
+  try {
+    return validate<string>(uuidSchema, raw);
+  } catch {
+    throw new ValidationError(
+      'Invalid packaging vendor id. For GSTIN lookup use GET /api/v1/packaging-vendors/lookupGST?gst_number=<GSTIN>.'
+    );
+  }
+}
+
 export class PackagingVendorController {
   async getAll(_req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
@@ -31,7 +44,7 @@ export class PackagingVendorController {
 
   async getById(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const id = validate<string>(uuidSchema, req.params.id);
+      const id = parsePackagingVendorIdParam(req.params.id);
       const vendor = await packagingVendorService.getVendorById(id);
 
       const vendorResponse: PackagingVendorResponse = {
@@ -78,7 +91,7 @@ export class PackagingVendorController {
 
   async update(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const id = validate<string>(uuidSchema, req.params.id);
+      const id = parsePackagingVendorIdParam(req.params.id);
       const vendorData = validate<UpdatePackagingVendorDTO>(updatePackagingVendorSchema, req.body);
 
       if (req.user) {
@@ -105,7 +118,7 @@ export class PackagingVendorController {
 
   async delete(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const id = validate<string>(uuidSchema, req.params.id);
+      const id = parsePackagingVendorIdParam(req.params.id);
       await packagingVendorService.deleteVendor(id);
 
       return ResponseHandler.success(res, null, 'Packaging vendor deleted successfully');

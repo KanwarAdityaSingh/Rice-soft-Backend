@@ -2,12 +2,23 @@ import { db } from '../database/connection';
 import { Vendor, CreateVendorDTO, UpdateVendorDTO, VendorType } from '../models/vendor.model';
 import { logger } from '../utils/logger';
 
-export class VendorDAO {
-  async findAll(includeInactive = false, type?: VendorType): Promise<Vendor[]> {
-    let query = `
-      SELECT id, business_name, contact_persons, contact_person, email, phone, address, business_details, 
+const VENDOR_SELECT_COLUMNS = `
+      id, business_name, contact_persons, contact_person, email, phone, address, business_details,
              bank_details, type, is_active, user_id, lead_id, created_at, updated_at, created_by, updated_by,
-             last_enquiry_date, google_location_link, business_card_url
+             last_enquiry_date, google_location_link, business_card_url,
+             bank_details_verified_at, bank_details_verified_by, bank_verification_error`;
+
+export class VendorDAO {
+  /**
+   * @param bankVerified - true: only vendors with confirmed bank; false: only never confirmed; undefined: all
+   */
+  async findAll(
+    includeInactive = false,
+    type?: VendorType,
+    bankVerified?: boolean
+  ): Promise<Vendor[]> {
+    let query = `
+      SELECT ${VENDOR_SELECT_COLUMNS}
       FROM vendors
       WHERE 1=1
     `;
@@ -24,6 +35,12 @@ export class VendorDAO {
       params.push(type);
     }
 
+    if (bankVerified === true) {
+      query += ` AND bank_details_verified_at IS NOT NULL`;
+    } else if (bankVerified === false) {
+      query += ` AND bank_details_verified_at IS NULL`;
+    }
+
     query += ` ORDER BY business_name ASC`;
 
     const result = await db.query<Vendor>(query, params);
@@ -32,9 +49,7 @@ export class VendorDAO {
 
   async findById(id: string): Promise<Vendor | null> {
     const query = `
-      SELECT id, business_name, contact_persons, contact_person, email, phone, address, business_details,
-             bank_details, type, is_active, user_id, lead_id, created_at, updated_at, created_by, updated_by,
-             last_enquiry_date, google_location_link, business_card_url
+      SELECT ${VENDOR_SELECT_COLUMNS}
       FROM vendors
       WHERE id = $1
     `;
@@ -44,9 +59,7 @@ export class VendorDAO {
 
   async findByEmail(email: string): Promise<Vendor | null> {
     const query = `
-      SELECT id, business_name, contact_persons, contact_person, email, phone, address, business_details,
-             bank_details, type, is_active, user_id, lead_id, created_at, updated_at, created_by, updated_by,
-             last_enquiry_date, google_location_link, business_card_url
+      SELECT ${VENDOR_SELECT_COLUMNS}
       FROM vendors
       WHERE email = $1
     `;
@@ -56,9 +69,7 @@ export class VendorDAO {
 
   async findByGST(gstNumber: string): Promise<Vendor | null> {
     const query = `
-      SELECT id, business_name, contact_persons, contact_person, email, phone, address, business_details,
-             bank_details, type, is_active, user_id, lead_id, created_at, updated_at, created_by, updated_by,
-             last_enquiry_date, google_location_link, business_card_url
+      SELECT ${VENDOR_SELECT_COLUMNS}
       FROM vendors
       WHERE business_details->>'gst_number' = $1
     `;
@@ -68,9 +79,7 @@ export class VendorDAO {
 
   async findByPAN(panNumber: string): Promise<Vendor | null> {
     const query = `
-      SELECT id, business_name, contact_persons, contact_person, email, phone, address, business_details,
-             bank_details, type, is_active, user_id, lead_id, created_at, updated_at, created_by, updated_by,
-             last_enquiry_date, google_location_link, business_card_url
+      SELECT ${VENDOR_SELECT_COLUMNS}
       FROM vendors
       WHERE business_details->>'pan_number' = $1
     `;
@@ -89,9 +98,7 @@ export class VendorDAO {
       INSERT INTO vendors (business_name, contact_persons, contact_person, email, phone, address, business_details, 
                           bank_details, type, is_active, created_by, user_id, lead_id, google_location_link, business_card_url)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-      RETURNING id, business_name, contact_persons, contact_person, email, phone, address, business_details,
-                bank_details, type, is_active, user_id, lead_id, created_at, updated_at, created_by, updated_by,
-                last_enquiry_date, google_location_link, business_card_url
+      RETURNING ${VENDOR_SELECT_COLUMNS}
     `;
     
     const values = [
@@ -163,6 +170,9 @@ export class VendorDAO {
     if (vendorData.bank_details !== undefined) {
       updateFields.push(`bank_details = $${paramCount++}`);
       values.push(JSON.stringify(vendorData.bank_details));
+      updateFields.push(`bank_details_verified_at = NULL`);
+      updateFields.push(`bank_details_verified_by = NULL`);
+      updateFields.push(`bank_verification_error = NULL`);
     }
 
     if (vendorData.type !== undefined) {
@@ -206,9 +216,7 @@ export class VendorDAO {
       UPDATE vendors 
       SET ${updateFields.join(', ')}
       WHERE id = $${paramCount}
-      RETURNING id, business_name, contact_persons, contact_person, email, phone, address, business_details,
-                bank_details, type, is_active, user_id, lead_id, created_at, updated_at, created_by, updated_by,
-                last_enquiry_date, google_location_link, business_card_url
+      RETURNING ${VENDOR_SELECT_COLUMNS}
     `;
 
     const result = await db.query<Vendor>(query, values);
@@ -222,6 +230,38 @@ export class VendorDAO {
     }
 
     return vendor || null;
+  }
+
+  /** Call after Surepass confirms the vendor's stored account + IFSC. */
+  async markBankDetailsVerified(id: string, verifiedByUserId: string): Promise<Vendor | null> {
+    const query = `
+      UPDATE vendors
+      SET bank_details_verified_at = CURRENT_TIMESTAMP,
+          bank_details_verified_by = $2,
+          bank_verification_error = NULL,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = $1
+      RETURNING ${VENDOR_SELECT_COLUMNS}
+    `;
+    const result = await db.query<Vendor>(query, [id, verifiedByUserId]);
+    const row = result.rows[0];
+    if (row) {
+      logger.info('Vendor bank details marked verified', { vendorId: id });
+    }
+    return row || null;
+  }
+
+  /** Persist last bank verification failure (lenient create / future retries). Pass null to clear. */
+  async setBankVerificationError(id: string, message: string | null): Promise<Vendor | null> {
+    const query = `
+      UPDATE vendors
+      SET bank_verification_error = $2,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = $1
+      RETURNING ${VENDOR_SELECT_COLUMNS}
+    `;
+    const result = await db.query<Vendor>(query, [id, message]);
+    return result.rows[0] || null;
   }
 
   async delete(id: string): Promise<void> {

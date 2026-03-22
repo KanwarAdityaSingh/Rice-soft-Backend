@@ -8,6 +8,7 @@ import { salesSaudaLineDAO } from '../dao/sales-sauda-line.dao';
 import { salesPartyDAO } from '../dao/sales-party.dao';
 import { packagingDAO } from '../dao/packaging.dao';
 import { inventoryLedgerDAO } from '../dao/inventory-ledger.dao';
+import { godownService } from './godown.service';
 import { NotFoundError, ValidationError, ConflictError } from '../utils/errors';
 import type { Address } from '../models/vendor.model';
 
@@ -18,8 +19,8 @@ function formatPartyAddress(addr: Address | undefined): string {
 }
 
 export class InvoiceDispatchService {
-  async list(salesSaudaId?: string, status?: 'draft' | 'confirmed') {
-    return invoiceDispatchDAO.findAll(salesSaudaId, status);
+  async list(salesSaudaId?: string, status?: 'draft' | 'confirmed', godownId?: string) {
+    return invoiceDispatchDAO.findAll(salesSaudaId, status, godownId);
   }
 
   async getById(id: string) {
@@ -32,6 +33,7 @@ export class InvoiceDispatchService {
   async create(
     data: {
       sales_sauda_id: string;
+      godown_id: string;
       internal_invoice_number: string;
       dispatch_date?: string;
       transporter_id?: string;
@@ -44,6 +46,7 @@ export class InvoiceDispatchService {
     const sauda = await salesSaudaDAO.findById(data.sales_sauda_id);
     if (!sauda) throw new NotFoundError('Sales sauda not found');
     if (sauda.status !== 'order') throw new ValidationError('Sales sauda must be finalized (order) before creating dispatch');
+    await godownService.assertActive(data.godown_id);
     const salesParty = await salesPartyDAO.findById(sauda.sales_party_id);
     if (!salesParty) throw new NotFoundError('Sales party not found');
 
@@ -54,6 +57,7 @@ export class InvoiceDispatchService {
 
     const dispatch = await invoiceDispatchDAO.create({
       sales_sauda_id: data.sales_sauda_id,
+      godown_id: data.godown_id,
       internal_invoice_number: data.internal_invoice_number,
       dispatch_date: data.dispatch_date,
       party_name,
@@ -101,11 +105,13 @@ export class InvoiceDispatchService {
 
         // Lock FGI rows for this product (and selected packaging when set) in FIFO order
         const usePackaging = line.packaging_id != null;
-        const lockParams = usePackaging ? [line.product_id, line.packaging_id] : [line.product_id];
+        const lockParams = usePackaging
+          ? [dispatch.godown_id, line.product_id, line.packaging_id]
+          : [dispatch.godown_id, line.product_id];
         const locked = await client.query(
-          `SELECT id, product_id, batch_id, packaging_id, no_of_packets, total_weight
+          `SELECT id, godown_id, product_id, batch_id, packaging_id, no_of_packets, total_weight
            FROM finished_goods_inventory
-           WHERE product_id = $1 ${usePackaging ? 'AND packaging_id = $2' : ''} AND total_weight > 0
+           WHERE godown_id = $1 AND product_id = $2 ${usePackaging ? 'AND packaging_id = $3' : ''} AND total_weight > 0
            ORDER BY created_at ASC
            FOR UPDATE`,
           lockParams
@@ -154,6 +160,7 @@ export class InvoiceDispatchService {
           await inventoryLedgerDAO.create(
             {
               product_id: line.product_id,
+              godown_id: dispatch.godown_id,
               quantity_change: -deduct,
               source_type: 'sales_dispatch',
               source_id: id,

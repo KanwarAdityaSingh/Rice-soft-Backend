@@ -12,12 +12,21 @@ router.use(authenticate);
 router.get('/', packagingVendorController.getAll.bind(packagingVendorController));
 
 /**
- * @route   GET /api/v1/packaging-vendors/gst/lookup
- * @desc    Lookup GST number and get business details
+ * @route   GET /api/v1/packaging-vendors/lookupGST (aliases: /lookupgst, /lookup-gst)
+ * @desc    Lookup GST number — same contract as GET /vendors/lookupGST
  * @access  Private
  * @query   gst_number: string (15 chars)
  */
-router.get('/gst/lookup', packagingVendorController.lookupGST.bind(packagingVendorController));
+const lookupGST = packagingVendorController.lookupGST.bind(packagingVendorController);
+router.get('/lookupGST', lookupGST);
+router.get('/lookupgst', lookupGST);
+router.get('/lookup-gst', lookupGST);
+
+/**
+ * @route   GET /api/v1/packaging-vendors/gst/lookup
+ * @desc    Legacy path — same handler as /lookupGST
+ */
+router.get('/gst/lookup', lookupGST);
 
 router.get('/:id', packagingVendorController.getById.bind(packagingVendorController));
 router.post('/', packagingVendorController.create.bind(packagingVendorController));

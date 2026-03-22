@@ -4,6 +4,7 @@ import { inventoryAuditService } from '../services/inventory-audit.service';
 import { ResponseHandler } from '../utils/response';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { validate, uuidSchema } from '../utils/validators';
+import { BAG_TYPE_VALUES } from '../constants/bag-types';
 
 export class InventoryController {
   // =====================================================
@@ -14,18 +15,9 @@ export class InventoryController {
     try {
       const productId = req.query.product_id as string | undefined;
       const batchId = req.query.batch_id as string | undefined;
+      const godownId = req.query.godown_id as string | undefined;
 
-      const inventory = await inventoryService.getFinishedGoodsInventory(productId, batchId);
-
-      return ResponseHandler.success(res, inventory);
-    } catch (error) {
-      next(error);
-    }
-  }
-
-  async getPackets(_req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
-    try {
-      const inventory = await inventoryService.getPacketsInventory();
+      const inventory = await inventoryService.getFinishedGoodsInventory(productId, batchId, godownId);
 
       return ResponseHandler.success(res, inventory);
     } catch (error) {
@@ -33,9 +25,21 @@ export class InventoryController {
     }
   }
 
-  async getLots(_req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+  async getPackets(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const inventory = await inventoryService.getLotInventory();
+      const godownId = req.query.godown_id as string | undefined;
+      const inventory = await inventoryService.getPacketsInventory(godownId);
+
+      return ResponseHandler.success(res, inventory);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getLots(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const godownId = req.query.godown_id as string | undefined;
+      const inventory = await inventoryService.getLotInventory(godownId);
 
       return ResponseHandler.success(res, inventory);
     } catch (error) {
@@ -46,8 +50,9 @@ export class InventoryController {
   async getBags(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const bagType = req.query.bag_type as string | undefined;
+      const godownId = req.query.godown_id as string | undefined;
 
-      const inventory = await inventoryService.getBagsInventory(bagType);
+      const inventory = await inventoryService.getBagsInventory(bagType, godownId);
 
       return ResponseHandler.success(res, inventory);
     } catch (error) {
@@ -55,9 +60,10 @@ export class InventoryController {
     }
   }
 
-  async getSummary(_req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+  async getSummary(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const summary = await inventoryService.getInventorySummary();
+      const godownId = req.query.godown_id as string | undefined;
+      const summary = await inventoryService.getInventorySummary(godownId);
 
       return ResponseHandler.success(res, summary);
     } catch (error) {
@@ -65,9 +71,10 @@ export class InventoryController {
     }
   }
 
-  async getHierarchical(_req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+  async getHierarchical(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const hierarchicalInventory = await inventoryService.getHierarchicalInventory();
+      const godownId = req.query.godown_id as string | undefined;
+      const hierarchicalInventory = await inventoryService.getHierarchicalInventory(godownId);
 
       return ResponseHandler.success(res, hierarchicalInventory);
     } catch (error) {
@@ -182,8 +189,8 @@ export class InventoryController {
       const bagCapacity = parseFloat(req.params.bagCapacity);
       const limit = parseInt(req.query.limit as string) || 100;
 
-      if (!['jute', 'pp'].includes(bagType)) {
-        return ResponseHandler.error(res, 'Invalid bag type. Must be "jute" or "pp"', 400);
+      if (!(BAG_TYPE_VALUES as readonly string[]).includes(bagType)) {
+        return ResponseHandler.error(res, `Invalid bag type. Must be one of: ${BAG_TYPE_VALUES.join(', ')}`, 400);
       }
 
       if (isNaN(bagCapacity) || bagCapacity <= 0) {

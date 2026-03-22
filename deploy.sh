@@ -1,8 +1,16 @@
 #!/bin/bash
 set -euo pipefail
 
-# Configuration
-KEY_PATH="${AWS_KEY_PATH:-$HOME/aws_keys/santkripa.pem}"
+# Configuration: try AWS_KEY_PATH, then common key locations
+if [ -n "${AWS_KEY_PATH:-}" ] && [ -f "${AWS_KEY_PATH}" ]; then
+  KEY_PATH="$AWS_KEY_PATH"
+elif [ -f "$HOME/aws_keys/santkripa.pem" ]; then
+  KEY_PATH="$HOME/aws_keys/santkripa.pem"
+elif [ -f "$HOME/.ssh/santkripa.pem" ]; then
+  KEY_PATH="$HOME/.ssh/santkripa.pem"
+else
+  KEY_PATH="${AWS_KEY_PATH:-$HOME/aws_keys/santkripa.pem}"
+fi
 REMOTE_HOST="${REMOTE_HOST:-ubuntu@3.6.49.120}"
 REMOTE_DIR="${REMOTE_DIR:-~/Rice-soft-Backend}"
 
@@ -26,8 +34,9 @@ echo_error() {
 
 # Check if key file exists
 if [ ! -f "$KEY_PATH" ]; then
-    echo_error "SSH key not found at: $KEY_PATH"
-    echo "Set AWS_KEY_PATH environment variable or place key at ~/aws_keys/santkripa.pem"
+    echo_error "SSH key not found."
+    echo "Set AWS_KEY_PATH to your PEM path, or place the key at:"
+    echo "  ~/aws_keys/santkripa.pem  or  ~/.ssh/santkripa.pem"
     exit 1
 fi
 
@@ -35,10 +44,11 @@ echo_info "Starting deployment to $REMOTE_HOST"
 echo_info "Using SSH key: $KEY_PATH"
 
 # Step 1: Upload code
-echo_info "Step 1/5: Uploading code to server..."
+echo_info "Step 1/6: Uploading code to server..."
 TAR_EXCLUDES=(--exclude='./node_modules' --exclude='./logs' --exclude='./.git' --exclude='./.DS_Store' --exclude='./.cursor' --exclude='./dist')
 
-tar -czf - "${TAR_EXCLUDES[@]}" . | ssh -o StrictHostKeyChecking=no -i "$KEY_PATH" "$REMOTE_HOST" \
+# macOS: omit AppleDouble/xattrs from the stream so Linux tar/npm do not spam LIBARCHIVE.xattr warnings
+COPYFILE_DISABLE=1 tar -czf - "${TAR_EXCLUDES[@]}" . | ssh -o StrictHostKeyChecking=no -i "$KEY_PATH" "$REMOTE_HOST" \
     "set -euo pipefail; mkdir -p $REMOTE_DIR && cd $REMOTE_DIR && tar xzf -"
 
 if [ $? -eq 0 ]; then
@@ -49,13 +59,13 @@ else
 fi
 
 # Step 2: Build Docker image
-echo_info "Step 2/5: Building Docker image..."
+echo_info "Step 2/6: Building Docker image..."
 ssh -o StrictHostKeyChecking=no -i "$KEY_PATH" "$REMOTE_HOST" <<'EOS'
 set -euo pipefail
 cd ~/Rice-soft-Backend
 
 echo "Building Docker image..."
-if sudo docker build -t rice-soft-backend:latest . 2>&1 | grep -E "(Step|Successfully|error|ERROR)" | tail -n 15; then
+if sudo docker build -t rice-soft-backend:latest .; then
     echo "✓ Docker image built successfully"
 else
     echo "✗ Docker build failed"
@@ -69,10 +79,17 @@ if [ $? -ne 0 ]; then
 fi
 
 # Step 3: Import image to k3s
-echo_info "Step 3/5: Importing image to k3s..."
+echo_info "Step 3/6: Importing image to k3s..."
 ssh -o StrictHostKeyChecking=no -i "$KEY_PATH" "$REMOTE_HOST" <<'EOS'
 set -euo pipefail
 cd ~/Rice-soft-Backend
+
+# Prune BEFORE import only. crictl rmi --prune AFTER import deletes the image we just loaded:
+# it is "unused" until a pod runs, so the migrate job would then pull docker.io/library/... and fail.
+echo "Pruning Docker + old containerd images (before import; frees space without dropping new image)..."
+sudo docker builder prune -f 2>/dev/null || true
+sudo docker image prune -f 2>/dev/null || true
+sudo k3s crictl rmi --prune 2>/dev/null || true
 
 echo "Saving Docker image..."
 sudo docker save rice-soft-backend:latest > backend.tar
@@ -80,14 +97,15 @@ sudo docker save rice-soft-backend:latest > backend.tar
 echo "Importing to k3s..."
 sudo k3s ctr images import backend.tar
 
-echo "Cleaning up..."
+echo "Cleaning up tarball..."
 rm -f backend.tar
 
+df -h / | tail -n 1
 echo "✓ Image imported to k3s"
 EOS
 
 # Step 4: Run database migrations
-echo_info "Step 4/5: Running database migrations..."
+echo_info "Step 4/6: Running database migrations..."
 ssh -o StrictHostKeyChecking=no -i "$KEY_PATH" "$REMOTE_HOST" <<'EOS'
 set -euo pipefail
 
@@ -106,30 +124,66 @@ sudo kubectl -n rice apply -f k8s/migrate-job.yaml || {
         -- node dist/database/migrations/run-migrations.js || true
 }
 
-echo "Waiting for migration to complete (45s)..."
-sleep 45
+echo "Waiting for migrate pod (up to 120s)..."
+i=0
+while [ "$i" -lt 120 ]; do
+  if sudo kubectl -n rice get pods -l job-name=migrate -o name 2>/dev/null | grep -q .; then
+    echo "Pod is up."
+    break
+  fi
+  i=$((i + 1))
+  sleep 1
+done
 
-echo "Checking migration job status..."
-sudo kubectl -n rice get jobs --sort-by=.metadata.creationTimestamp | grep -E "migrate|NAME" | tail -n 4 || true
+# Run `kubectl wait` in the background and stream logs in the FOREGROUND.
+# Background `kubectl logs -f &` often buffers over SSH, so you saw no output until wait ended.
+echo "Starting job waiter (15m max) and streaming migration logs below..."
+sudo kubectl -n rice wait --for=condition=complete job/migrate --timeout=900s &
+WAITPID=$!
 
-# Check if migration job completed
-MIGRATE_JOB=$(sudo kubectl -n rice get jobs -o jsonpath='{.items[?(@.metadata.name=="migrate")].metadata.name}' 2>/dev/null || echo "")
-if [ -n "$MIGRATE_JOB" ]; then
-    SUCCEEDED=$(sudo kubectl -n rice get job migrate -o jsonpath='{.status.succeeded}' 2>/dev/null || echo "0")
-    if [ "$SUCCEEDED" = "1" ]; then
-        echo "✓ Migration completed successfully"
-    else
-        echo_warn "Migration job exists but may not have completed. Check logs if needed."
-    fi
+echo "========== LIVE MIGRATION LOGS (init + migrate) — foreground stream =========="
+set +e
+if sudo kubectl -n rice get pods -l job-name=migrate -o name 2>/dev/null | grep -q .; then
+  sudo kubectl -n rice logs -f job/migrate --all-containers=true --timestamps 2>&1
 else
-    echo_warn "Migration job not found. Migrations may need to be run manually."
+  echo "[WARN] No migrate pod yet — polling pod status until job finishes..."
+  while kill -0 "$WAITPID" 2>/dev/null; do
+    sudo kubectl -n rice get pods -l job-name=migrate -o wide 2>/dev/null || true
+    sleep 5
+  done
 fi
+
+wait "$WAITPID"
+WAIT_EXIT=$?
+set -e
+echo "========== END LIVE MIGRATION LOGS =========="
+
+if [ "$WAIT_EXIT" -eq 0 ]; then
+    echo "✓ Migration job completed successfully"
+else
+    echo "[ERROR] Migration job did not complete (timeout or failed)."
+    echo "=== Pods for job migrate ==="
+    sudo kubectl -n rice get pods -l job-name=migrate -o wide 2>/dev/null || true
+    echo "=== Describe pods ==="
+    sudo kubectl -n rice describe pod -l job-name=migrate 2>/dev/null || true
+    echo "=== Job migrate logs (all containers) ==="
+    sudo kubectl -n rice logs job/migrate --all-containers=true --tail=200 2>/dev/null || true
+    echo "=== Job describe ==="
+    sudo kubectl -n rice describe job migrate 2>/dev/null || true
+    exit 1
+fi
+
+sudo kubectl -n rice get job migrate -o wide
 EOS
 
 # Step 5: Restart backend deployment
-echo_info "Step 5/5: Restarting backend deployment..."
+echo_info "Step 5/6: Restarting backend deployment..."
 ssh -o StrictHostKeyChecking=no -i "$KEY_PATH" "$REMOTE_HOST" <<'EOS'
 set -euo pipefail
+cd ~/Rice-soft-Backend
+
+echo "Applying backend manifest (imagePullPolicy, resources) from repo..."
+sudo kubectl apply -f k8s/backend-deployment.yaml
 
 echo "Restarting backend deployment..."
 sudo kubectl -n rice rollout restart deploy/backend
@@ -151,7 +205,7 @@ if [ $? -ne 0 ]; then
 fi
 
 # Step 6: Verify deployment
-echo_info "Verifying deployment..."
+echo_info "Step 6/6: Verifying deployment..."
 ssh -o StrictHostKeyChecking=no -i "$KEY_PATH" "$REMOTE_HOST" <<'EOS'
 set -euo pipefail
 

@@ -2,6 +2,7 @@ export type InventoryLedgerSourceType = 'purchase_inward' | 'sales_dispatch' | '
 
 export interface InventoryLedgerEntry {
   id: string;
+  godown_id: string;
   product_id: string;
   quantity_change: number;
   source_type: InventoryLedgerSourceType;
@@ -17,6 +18,7 @@ export interface InventoryLedgerEntry {
 }
 
 export interface CreateInventoryLedgerDTO {
+  godown_id: string;
   product_id: string;
   quantity_change: number;
   source_type: InventoryLedgerSourceType;

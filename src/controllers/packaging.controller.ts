@@ -1,5 +1,5 @@
 import { Response, NextFunction } from 'express';
-import { packagingDAO } from '../dao/packaging.dao';
+import { packagingDAO, CreatePackagingRow } from '../dao/packaging.dao';
 import { productDAO } from '../dao/product.dao';
 import { packetsInventoryDAO } from '../dao/packets-inventory.dao';
 import { packetsInventoryAuditDAO } from '../dao/inventory-audit.dao';
@@ -7,27 +7,63 @@ import { INVENTORY_AUDIT_REASONS } from '../models/inventory-audit.model';
 import { ResponseHandler } from '../utils/response';
 import { validate, uuidSchema } from '../utils/validators';
 import { AuthRequest } from '../middleware/auth.middleware';
-import { CreatePackagingDTO, UpdatePackagingDTO, PackagingResponse } from '../models/packaging.model';
+import {
+  CreatePackagingDTO,
+  UpdatePackagingDTO,
+  Packaging,
+  PackagingGodownInventoryItem,
+  PackagingResponse,
+} from '../models/packaging.model';
 import { createPackagingSchema, updatePackagingSchema, createPacketsInventorySchema } from '../utils/validators';
-import { NotFoundError } from '../utils/errors';
+import { NotFoundError, BadRequestError } from '../utils/errors';
+import { computeEmptyBagReceiptSnapshot } from '../utils/empty-bag-cost';
+import { godownDAO } from '../dao/godown.dao';
+import type { PackagingGodownInventoryRow } from '../dao/packets-inventory.dao';
 
 export class PackagingController {
+  /**
+   * Build API packaging shape with per-godown packet inventory (from `packets_inventory` + `godowns`).
+   */
+  private toPackagingResponse(pkg: Packaging, summaries: PackagingGodownInventoryRow[]): PackagingResponse {
+    const packets_inventory: PackagingGodownInventoryItem[] = summaries
+      .filter((s) => s.packaging_id === pkg.id)
+      .map((s) => ({
+        godown_id: s.godown_id,
+        godown_name: s.godown_name,
+        available_quantity: s.available_quantity,
+      }));
+
+    return {
+      id: pkg.id,
+      packaging_number: pkg.packaging_number,
+      product_id: pkg.product_id,
+      holding_capacity: pkg.holding_capacity,
+      packet_type: pkg.packet_type,
+      packaging_vendor_id: pkg.packaging_vendor_id,
+      ordered_weight: pkg.ordered_weight,
+      empty_bag_weight_kg: pkg.empty_bag_weight_kg,
+      empty_bag_rate_per_kg: pkg.empty_bag_rate_per_kg,
+      empty_bag_gst_percent: pkg.empty_bag_gst_percent,
+      empty_bags_total_weight_kg: pkg.empty_bags_total_weight_kg,
+      empty_bags_taxable_amount: pkg.empty_bags_taxable_amount,
+      empty_bags_gst_amount: pkg.empty_bags_gst_amount,
+      empty_bags_total_amount: pkg.empty_bags_total_amount,
+      created_at: pkg.created_at.toISOString(),
+      updated_at: pkg.updated_at.toISOString(),
+      packets_inventory,
+    };
+  }
+
   async getAll(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const productId = req.query.product_id as string | undefined;
       const packaging = await packagingDAO.findAll(productId);
 
-      const packagingResponses: PackagingResponse[] = packaging.map((pkg) => ({
-        id: pkg.id,
-        packaging_number: pkg.packaging_number,
-        product_id: pkg.product_id,
-        holding_capacity: pkg.holding_capacity,
-        packet_type: pkg.packet_type,
-        packaging_vendor_id: pkg.packaging_vendor_id,
-        ordered_weight: pkg.ordered_weight,
-        created_at: pkg.created_at.toISOString(),
-        updated_at: pkg.updated_at.toISOString(),
-      }));
+      const ids = packaging.map((p) => p.id);
+      const summaries = await packetsInventoryDAO.findGodownSummariesByPackagingIds(ids);
+      const packagingResponses: PackagingResponse[] = packaging.map((pkg) =>
+        this.toPackagingResponse(pkg, summaries)
+      );
 
       return ResponseHandler.success(res, packagingResponses);
     } catch (error) {
@@ -44,17 +80,8 @@ export class PackagingController {
         throw new NotFoundError('Packaging not found');
       }
 
-      const packagingResponse: PackagingResponse = {
-        id: packaging.id,
-        packaging_number: packaging.packaging_number,
-        product_id: packaging.product_id,
-        holding_capacity: packaging.holding_capacity,
-        packet_type: packaging.packet_type,
-        packaging_vendor_id: packaging.packaging_vendor_id,
-        ordered_weight: packaging.ordered_weight,
-        created_at: packaging.created_at.toISOString(),
-        updated_at: packaging.updated_at.toISOString(),
-      };
+      const summaries = await packetsInventoryDAO.findGodownSummariesByPackagingIds([packaging.id]);
+      const packagingResponse = this.toPackagingResponse(packaging, summaries);
 
       return ResponseHandler.success(res, packagingResponse);
     } catch (error) {
@@ -80,23 +107,47 @@ export class PackagingController {
         packagingData.created_by = req.user.userId;
       }
 
-      const packaging = await packagingDAO.create(packagingData);
+      let createRow: CreatePackagingRow = { ...packagingData };
+      if (
+        packagingData.initial_packets !== undefined &&
+        packagingData.initial_packets !== null &&
+        packagingData.initial_packets > 0
+      ) {
+        const snap = computeEmptyBagReceiptSnapshot(
+          packagingData.initial_packets,
+          packagingData.empty_bag_weight_kg!,
+          packagingData.empty_bag_rate_per_kg!,
+          packagingData.empty_bag_gst_percent!
+        );
+        createRow = { ...createRow, ...snap };
+      }
 
-      // If initial_packets is provided, set initial stock (SET, not ADD)
+      const packaging = await packagingDAO.create(createRow);
+
+      // If initial_packets is provided, set initial stock (SET, not ADD) in the chosen godown
       if (packagingData.initial_packets !== undefined && packagingData.initial_packets !== null && packagingData.initial_packets > 0) {
-        // Check if inventory already exists
-        const existingInventory = await packetsInventoryDAO.findByPackagingId(packaging.id);
+        const godownId = packagingData.godown_id as string;
+        const godown = await godownDAO.findById(godownId);
+        if (!godown) {
+          throw new NotFoundError('Godown not found');
+        }
+        if (!godown.is_active) {
+          throw new BadRequestError('Cannot add initial packet stock to an inactive godown');
+        }
+
+        // Check if inventory already exists for this packaging + godown
+        const existingInventory = await packetsInventoryDAO.findByPackagingId(packaging.id, godownId);
         const quantityBefore = existingInventory?.available_quantity || 0;
-        
-        // Set initial stock (will SET the quantity, not add to existing)
+
         const inventory = await packetsInventoryDAO.setInitialStock(
           packaging.id,
           packagingData.initial_packets,
+          godownId,
           packagingData.created_by
         );
 
         // Log the audit for initial stock setting
-        const stockNote = `Initial Stock Set on Packaging Creation | Quantity Set: ${packagingData.initial_packets} packets | Type: ${packaging.packet_type} (${packaging.holding_capacity} kg capacity)`;
+        const stockNote = `Initial Stock Set on Packaging Creation | Quantity Set: ${packagingData.initial_packets} packets | Type: ${packaging.packet_type} (${packaging.holding_capacity} kg capacity) | Empty bags: ${packaging.empty_bags_total_weight_kg ?? '—'} kg @ ${packaging.empty_bag_rate_per_kg ?? '—'}/kg + ${packaging.empty_bag_gst_percent ?? '—'}% GST | Total ₹${packaging.empty_bags_total_amount ?? '—'}`;
         
         await packetsInventoryAuditDAO.create({
           packets_inventory_id: inventory.id,
@@ -112,17 +163,8 @@ export class PackagingController {
         });
       }
 
-      const packagingResponse: PackagingResponse = {
-        id: packaging.id,
-        packaging_number: packaging.packaging_number,
-        product_id: packaging.product_id,
-        holding_capacity: packaging.holding_capacity,
-        packet_type: packaging.packet_type,
-        packaging_vendor_id: packaging.packaging_vendor_id,
-        ordered_weight: packaging.ordered_weight,
-        created_at: packaging.created_at.toISOString(),
-        updated_at: packaging.updated_at.toISOString(),
-      };
+      const summaries = await packetsInventoryDAO.findGodownSummariesByPackagingIds([packaging.id]);
+      const packagingResponse = this.toPackagingResponse(packaging, summaries);
 
       return ResponseHandler.created(res, packagingResponse, 'Packaging created successfully');
     } catch (error) {
@@ -145,17 +187,8 @@ export class PackagingController {
         throw new NotFoundError('Packaging not found');
       }
 
-      const packagingResponse: PackagingResponse = {
-        id: packaging.id,
-        packaging_number: packaging.packaging_number,
-        product_id: packaging.product_id,
-        holding_capacity: packaging.holding_capacity,
-        packet_type: packaging.packet_type,
-        packaging_vendor_id: packaging.packaging_vendor_id,
-        ordered_weight: packaging.ordered_weight,
-        created_at: packaging.created_at.toISOString(),
-        updated_at: packaging.updated_at.toISOString(),
-      };
+      const summaries = await packetsInventoryDAO.findGodownSummariesByPackagingIds([packaging.id]);
+      const packagingResponse = this.toPackagingResponse(packaging, summaries);
 
       return ResponseHandler.success(res, packagingResponse, 'Packaging updated successfully');
     } catch (error) {

@@ -203,6 +203,9 @@ GET /packaging-vendors
 ```
 **Response:** Array of packaging vendor objects
 
+#### Lookup GST (prefill vendor form)
+Same response as `GET /vendors/lookupGST` (`gst_data`, `mapped_data`). Paths: `GET /packaging-vendors/lookupGST?gst_number=` (aliases: `/lookupgst`, `/lookup-gst`; legacy: `/packaging-vendors/gst/lookup`).
+
 #### Get Packaging Vendor by ID
 ```
 GET /packaging-vendors/:id

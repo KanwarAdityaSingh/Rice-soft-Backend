@@ -4,22 +4,25 @@ import {
   SaudaSummaryDetails,
   IspSummaryDetails,
   LotSummaryDetails,
-  SaudaBreakdown
+  SaudaBreakdown,
+  BrokerCommissionSummary,
+  BrokerCommissionSummaryLine,
 } from '../models/purchase-summary.model';
 import { logger } from '../utils/logger';
+import { formatSaudaDisplayId } from '../utils/sauda-display';
 
 export class PurchaseSummaryDAO {
   /**
    * Get purchase summary for a single sauda
    * Aggregates all lots and applies sauda-level discounts/commissions
    */
-  async getSaudaSummary(saudaId: string): Promise<PurchaseSummary> {
+  async getSaudaSummary(saudaId: string, godownId?: string): Promise<PurchaseSummary> {
     // IGST removed - always set to 0
     const igstPercentage = 0;
 
     // Get sauda details
     const saudaQuery = `
-      SELECT id, sauda_type, rice_type, rice_code_id, rate, broker_id, 
+      SELECT id, sauda_type, rice_type, rice_code_id, rate, broker_id,
              broker_commission, broker_commission_type, cash_discount, cash_discount_type,
              quantity, received_until_now, completion_percentage, purchaser_id, status
       FROM saudas
@@ -33,28 +36,38 @@ export class PurchaseSummaryDAO {
     
     const sauda = saudaResult.rows[0];
 
-    // Get all lots for this sauda
-    const lotsQuery = `
+    // Get lots for this sauda; optional godownId scopes to physical stock in that godown
+    const lotsParams: unknown[] = [saudaId];
+    let lotsQuery = `
       SELECT id, lot_number, sauda_id, rice_type, no_of_bags, bag_weight, total_weight,
              bill_weight, received_weight, rate, amount
       FROM inward_slip_lots
       WHERE sauda_id = $1
-      ORDER BY lot_number
     `;
-    const lotsResult = await db.query(lotsQuery, [saudaId]);
+    if (godownId) {
+      lotsQuery += ` AND godown_id = $2`;
+      lotsParams.push(godownId);
+    }
+    lotsQuery += ` ORDER BY lot_number`;
+    const lotsResult = await db.query(lotsQuery, lotsParams);
     const lots = lotsResult.rows;
 
-    // Get ISPs linked to this sauda (via kaantas)
-    const ispQuery = `
+    // Get ISPs linked to this sauda (via kaantas); optional godown filter on ISP
+    const ispParams: unknown[] = [saudaId];
+    let ispQuery = `
       SELECT DISTINCT isp.id, isp.slip_number, isp.date, v.vehicle_number, 
              isp.party_name, isp.transporter_id, isp.transportation_cost
       FROM inward_slip_passes isp
       INNER JOIN kaantas k ON k.inward_slip_pass_id = isp.id
       LEFT JOIN vehicles v ON v.id = isp.vehicle_id
       WHERE k.sauda_id = $1
-      ORDER BY isp.date DESC
     `;
-    const ispResult = await db.query(ispQuery, [saudaId]);
+    if (godownId) {
+      ispQuery += ` AND isp.godown_id = $2`;
+      ispParams.push(godownId);
+    }
+    ispQuery += ` ORDER BY isp.date DESC`;
+    const ispResult = await db.query(ispQuery, ispParams);
     const isps = ispResult.rows;
 
     // Calculate totals
@@ -127,6 +140,7 @@ export class PurchaseSummaryDAO {
       id: lot.id,
       lot_number: lot.lot_number,
       sauda_id: lot.sauda_id,
+      sauda_display_id: formatSaudaDisplayId(lot.sauda_id as string),
       rice_type: lot.rice_type,
       no_of_bags: parseInt(lot.no_of_bags || '0', 10),
       bag_weight: lot.bag_weight ? parseFloat(lot.bag_weight) : null,
@@ -151,6 +165,7 @@ export class PurchaseSummaryDAO {
     // Format sauda details
     const saudaDetails: SaudaSummaryDetails = {
       id: sauda.id,
+      display_id: formatSaudaDisplayId(sauda.id as string),
       sauda_type: sauda.sauda_type,
       rice_type: sauda.rice_type,
       rice_code_id: sauda.rice_code_id,
@@ -171,6 +186,7 @@ export class PurchaseSummaryDAO {
 
     return {
       sauda_id: saudaId,
+      sauda_display_id: formatSaudaDisplayId(saudaId),
       total_lots: totalLots,
       total_bags: totalBags,
       total_weight: totalWeight,
@@ -195,13 +211,13 @@ export class PurchaseSummaryDAO {
    * Get purchase summary for an ISP (aggregates all saudas in that ISP)
    * Returns combined summary with per-sauda breakdown
    */
-  async getIspSummary(ispId: string): Promise<PurchaseSummary> {
+  async getIspSummary(ispId: string, godownId?: string): Promise<PurchaseSummary> {
     // IGST removed - always set to 0
     const igstPercentage = 0;
 
     // Get ISP details
     const ispQuery = `
-      SELECT isp.id, isp.slip_number, isp.date, v.vehicle_number, isp.party_name, 
+      SELECT isp.id, isp.godown_id, isp.slip_number, isp.date, v.vehicle_number, isp.party_name, 
              isp.transporter_id, isp.transportation_cost
       FROM inward_slip_passes isp
       LEFT JOIN vehicles v ON v.id = isp.vehicle_id
@@ -214,6 +230,9 @@ export class PurchaseSummaryDAO {
     }
     
     const isp = ispResult.rows[0];
+    if (godownId && isp.godown_id !== godownId) {
+      throw new Error('Inward slip pass not found');
+    }
 
     // Get all saudas linked to this ISP (via kaantas)
     const saudasQuery = `
@@ -245,10 +264,11 @@ export class PurchaseSummaryDAO {
     let totalFinalAmount = 0;
 
     for (const saudaId of saudaIds) {
-      const saudaSummary = await this.getSaudaSummary(saudaId);
+      const saudaSummary = await this.getSaudaSummary(saudaId, godownId);
       
       const breakdown: SaudaBreakdown = {
         sauda_id: saudaId,
+        sauda_display_id: formatSaudaDisplayId(saudaId),
         sauda_details: saudaSummary.sauda_details!,
         total_lots: saudaSummary.total_lots,
         total_bags: saudaSummary.total_bags,
@@ -313,6 +333,80 @@ export class PurchaseSummaryDAO {
       net_payable: totalFinalAmount,
       isp_details: [ispDetails],
       saudas: saudaBreakdowns,
+    };
+  }
+
+  /**
+   * Purchase saudas for this broker: computed broker_commission_amount per sauda (via getSaudaSummary)
+   * and sum. Optional godown_id scopes lots/ISPs like GET /purchase-summary/sauda/:id?godown_id=
+   */
+  async getBrokerCommissionSummary(
+    brokerId: string,
+    options?: {
+      godownId?: string;
+      status?: string;
+      fromDate?: string;
+      toDate?: string;
+    }
+  ): Promise<BrokerCommissionSummary> {
+    const conditions: string[] = ['broker_id = $1'];
+    const params: unknown[] = [brokerId];
+    let n = 2;
+
+    if (options?.status) {
+      conditions.push(`status = $${n++}`);
+      params.push(options.status);
+    }
+    if (options?.fromDate) {
+      conditions.push(`sauda_date >= $${n++}::date`);
+      params.push(options.fromDate);
+    }
+    if (options?.toDate) {
+      conditions.push(`sauda_date <= $${n++}::date`);
+      params.push(options.toDate);
+    }
+
+    const listQuery = `
+      SELECT id, sauda_date, status
+      FROM saudas
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY sauda_date DESC NULLS LAST, created_at DESC
+    `;
+    const listResult = await db.query<{ id: string; sauda_date: Date | null; status: string }>(listQuery, params);
+    const rows = listResult.rows;
+
+    const lines: BrokerCommissionSummaryLine[] = [];
+    let totalBrokerCommission = 0;
+
+    for (const row of rows) {
+      const summary = await this.getSaudaSummary(row.id, options?.godownId);
+      const details = summary.sauda_details;
+      const saudaDateStr =
+        row.sauda_date instanceof Date
+          ? row.sauda_date.toISOString().split('T')[0]
+          : row.sauda_date
+            ? String(row.sauda_date).split('T')[0]
+            : null;
+
+      lines.push({
+        sauda_id: row.id,
+        sauda_display_id: summary.sauda_display_id ?? formatSaudaDisplayId(row.id),
+        sauda_date: saudaDateStr,
+        status: details?.status ?? row.status,
+        broker_commission: details?.broker_commission ?? null,
+        broker_commission_type: details?.broker_commission_type ?? 'percentage',
+        amount_after_discount: summary.amount_after_discount,
+        broker_commission_amount: summary.broker_commission_amount,
+      });
+      totalBrokerCommission += summary.broker_commission_amount;
+    }
+
+    logger.info('Broker commission summary calculated', { brokerId, saudaCount: lines.length, totalBrokerCommission });
+
+    return {
+      broker_id: brokerId,
+      lines,
+      total_broker_commission: totalBrokerCommission,
     };
   }
 }

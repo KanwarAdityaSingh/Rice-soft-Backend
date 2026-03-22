@@ -14,6 +14,7 @@
     "reset-admin-password": "ts-node src/scripts/reset-admin-password.ts",
     "clear-purchase-module-data": "ts-node src/scripts/clear-purchase-module-data.ts",
     "seed-purchase-module-data": "ts-node src/scripts/seed-purchase-module-data.ts",
+    "test:godown-flow": "ts-node src/scripts/test-godown-full-flow.ts",
     "lint": "eslint . --ext .ts",
     "format": "prettier --write \"src/**/*.ts\""
   },

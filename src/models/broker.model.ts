@@ -53,6 +53,11 @@ export interface Broker {
   updated_at: Date;
   created_by: string | null;
   updated_by: string | null;
+  /** Set when confirm-bank-verification succeeds; cleared when bank_details are updated */
+  bank_details_verified_at: Date | null;
+  bank_details_verified_by: string | null;
+  /** Last failed verify_bank / confirm attempt; cleared on success or bank_details update */
+  bank_verification_error: string | null;
 }
 
 export interface CreateBrokerDTO {
@@ -66,6 +71,8 @@ export interface CreateBrokerDTO {
   is_active?: boolean;
   created_by?: string;
   user_id?: string;
+  /** If true, attempt Surepass verification after insert; on failure broker is kept unverified (lenient). */
+  verify_bank?: boolean;
 }
 
 export interface UpdateBrokerDTO {
@@ -92,4 +99,7 @@ export interface BrokerResponse {
   is_active: boolean;
   created_at: string;
   updated_at: string;
+  bank_details_verified_at: string | null;
+  bank_details_verified_by: string | null;
+  bank_verification_error: string | null;
 }

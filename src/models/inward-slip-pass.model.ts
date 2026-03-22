@@ -8,6 +8,7 @@ export interface OtherBill {
 
 export interface InwardSlipPass {
   id: string;
+  godown_id: string;
   slip_number: string;
   date: Date;
   vehicle_id: string | null;
@@ -35,6 +36,7 @@ export interface InwardSlipPass {
 
 export interface CreateInwardSlipPassDTO {
   sauda_ids?: string[]; // Array of sauda IDs to link
+  godown_id: string;
   slip_number?: string; // Optional - auto-generated as ISP-001, ISP-002, etc. if not provided
   date: string; // ISO date string
   vehicle_id: string;
@@ -59,6 +61,7 @@ export interface CreateInwardSlipPassDTO {
 
 export interface UpdateInwardSlipPassDTO {
   sauda_ids?: string[]; // Array of sauda IDs to link (replaces existing links)
+  godown_id?: string;
   slip_number?: string;
   date?: string;
   vehicle_id?: string;
@@ -83,6 +86,7 @@ export interface UpdateInwardSlipPassDTO {
 
 export interface InwardSlipPassResponse {
   id: string;
+  godown_id: string;
   sauda_ids: string[]; // Array of linked sauda IDs
   slip_number: string;
   date: string;
