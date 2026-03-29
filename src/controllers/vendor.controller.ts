@@ -35,7 +35,10 @@ import { bankDetailsForVerifySchema } from '../utils/validators';
 const LENIENT_BANK_VERIFY_FAIL_MESSAGE =
   'Vendor created but bank could not be verified.';
 
-/** Returned in `verification_message` when Surepass bank check + DB mark succeed at create */
+const LENIENT_BANK_VERIFY_FAIL_MESSAGE_UPDATE =
+  'Vendor updated but bank could not be verified.';
+
+/** Returned in `verification_message` when Surepass bank check + DB mark succeed at create/update */
 const BANK_VERIFY_SUCCESS_MESSAGE = 'Bank details verified successfully.';
 
 function verificationErrorFromUnknown(err: unknown): string {
@@ -44,15 +47,15 @@ function verificationErrorFromUnknown(err: unknown): string {
 }
 
 /**
- * After insert: Surepass + mark verified. Throws only for missing auth (caller should pre-check).
+ * After insert or bank_details update: Surepass + mark verified. Throws only for missing auth (caller should pre-check).
  */
-async function tryVerifyBankOnCreate(
+async function tryVerifyBankAfterSave(
   vendorId: string,
   bankDetails: BankDetails,
   userId: string | undefined
 ): Promise<void> {
   if (!userId) {
-    throw new ValidationError('Bank verification at creation requires an authenticated user');
+    throw new ValidationError('Bank verification requires an authenticated user');
   }
   const accountDigits = (bankDetails.account_number ?? '').replace(/\D/g, '');
   const ifsc = (bankDetails.ifsc_code ?? '').trim().toUpperCase();
@@ -220,7 +223,7 @@ export class VendorController {
 
       if (verifyBank && vendor.bank_details) {
         try {
-          await tryVerifyBankOnCreate(vendor.id, vendor.bank_details, req.user?.userId);
+          await tryVerifyBankAfterSave(vendor.id, vendor.bank_details, req.user?.userId);
           const refreshed = await vendorDAO.findById(vendor.id);
           return ResponseHandler.created(
             res,
@@ -278,14 +281,50 @@ export class VendorController {
         }
       }
 
+      const verifyBank = vendorData.verify_bank === true;
+      if (verifyBank && !req.user?.userId) {
+        throw new ValidationError('verify_bank requires an authenticated user');
+      }
+
       // Set updated_by from authenticated user
       if (req.user) {
         vendorData.updated_by = req.user.userId;
       }
 
-      const vendor = await vendorDAO.update(id, vendorData);
+      const { verify_bank: _verifyBank, ...updatePayload } = vendorData;
+
+      const vendor = await vendorDAO.update(id, updatePayload);
       if (!vendor) {
         throw new NotFoundError('Vendor not found after update');
+      }
+
+      if (verifyBank && vendor.bank_details) {
+        try {
+          await tryVerifyBankAfterSave(vendor.id, vendor.bank_details, req.user?.userId);
+          const refreshed = await vendorDAO.findById(vendor.id);
+          return ResponseHandler.success(
+            res,
+            toVendorResponse(refreshed ?? vendor),
+            'Vendor updated successfully',
+            200,
+            { verification_message: BANK_VERIFY_SUCCESS_MESSAGE }
+          );
+        } catch (verifyErr) {
+          const errMsg = verificationErrorFromUnknown(verifyErr);
+          logger.warn('Bank verification failed after vendor update (lenient)', {
+            vendorId: vendor.id,
+            error: errMsg,
+          });
+          await vendorDAO.setBankVerificationError(vendor.id, errMsg);
+          const refreshed = await vendorDAO.findById(vendor.id);
+          return ResponseHandler.success(
+            res,
+            toVendorResponse(refreshed ?? vendor),
+            LENIENT_BANK_VERIFY_FAIL_MESSAGE_UPDATE,
+            200,
+            { verification_error: errMsg }
+          );
+        }
       }
 
       return ResponseHandler.success(res, toVendorResponse(vendor), 'Vendor updated successfully');
@@ -455,7 +494,7 @@ export class VendorController {
 
       if (verifyBank && vendor.bank_details) {
         try {
-          await tryVerifyBankOnCreate(vendor.id, vendor.bank_details, req.user?.userId);
+          await tryVerifyBankAfterSave(vendor.id, vendor.bank_details, req.user?.userId);
           const refreshed = await vendorDAO.findById(vendor.id);
           return ResponseHandler.created(
             res,
@@ -580,7 +619,7 @@ export class VendorController {
 
       if (verifyBank && vendor.bank_details) {
         try {
-          await tryVerifyBankOnCreate(vendor.id, vendor.bank_details, req.user?.userId);
+          await tryVerifyBankAfterSave(vendor.id, vendor.bank_details, req.user?.userId);
           const refreshed = await vendorDAO.findById(vendor.id);
           return ResponseHandler.created(
             res,

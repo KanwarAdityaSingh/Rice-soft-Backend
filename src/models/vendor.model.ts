@@ -87,6 +87,8 @@ export interface UpdateVendorDTO {
   updated_by?: string;
   google_location_link?: string;
   business_card_url?: string;
+  /** If true, attempt Surepass verification after bank_details update; on failure vendor is kept unverified (lenient). */
+  verify_bank?: boolean;
 }
 
 export interface VendorResponse {

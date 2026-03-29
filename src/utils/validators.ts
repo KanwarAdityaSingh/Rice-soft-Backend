@@ -154,7 +154,7 @@ const bankDetailsSchema = Joi.object({
 });
 
 // Vendor validation schemas
-/** Stricter bank_details when verify_bank is true (create vendor / quick create). */
+/** Stricter bank_details when verify_bank is true (create/update vendor / quick create). */
 export const bankDetailsForVerifySchema = Joi.object({
   account_holder_name: Joi.string().required().min(2).max(255),
   account_number: Joi.string().required().min(9).max(50),
@@ -196,7 +196,12 @@ export const updateVendorSchema = Joi.object({
   ).optional().min(1),
   address: addressSchema.optional(),
   business_details: businessDetailsSchema.optional(),
-  bank_details: bankDetailsSchema.optional(),
+  bank_details: Joi.when('verify_bank', {
+    is: true,
+    then: bankDetailsForVerifySchema.required(),
+    otherwise: bankDetailsSchema.optional(),
+  }),
+  verify_bank: Joi.boolean().optional(),
   type: Joi.string().optional().valid('purchaser', 'seller', 'both'),
   is_active: Joi.boolean().optional(),
   google_location_link: Joi.string().optional().allow(null, '').max(500),
@@ -284,7 +289,12 @@ export const updateBrokerSchema = Joi.object({
   ).optional().min(1),
   address: addressSchema.optional(),
   business_details: brokerBusinessDetailsSchema.optional(),
-  bank_details: bankDetailsSchema.optional(),
+  bank_details: Joi.when('verify_bank', {
+    is: true,
+    then: bankDetailsForVerifySchema.required(),
+    otherwise: bankDetailsSchema.optional(),
+  }),
+  verify_bank: Joi.boolean().optional(),
   broker_details: brokerDetailsSchema.optional(),
   type: Joi.string().optional().valid('purchase', 'sale', 'both'),
   is_active: Joi.boolean().optional(),
@@ -474,6 +484,7 @@ export const updateTransporterSchema = Joi.object({
 export const createSaudaSchema = Joi.object({
   sauda_type: Joi.string().required().valid('exgodown', 'for'),
   rice_type: Joi.string().required().valid('basmati', 'non_basmati', 'parboiled', 'raw', 'raw_basmati', 'steam_basmati', 'white_sella', 'golden_sella'),
+  rice_length: Joi.string().optional().valid('dubar', 'tibar', 'wand').allow(null),
   rice_code_id: Joi.string().optional().uuid().allow(null),
   rate: Joi.number().required().min(0).precision(2),
   broker_id: Joi.string().optional().uuid().allow(null),
@@ -496,6 +507,7 @@ export const createSaudaSchema = Joi.object({
 export const updateSaudaSchema = Joi.object({
   sauda_type: Joi.string().optional().valid('exgodown', 'for'),
   rice_type: Joi.string().optional().valid('basmati', 'non_basmati', 'parboiled', 'raw', 'raw_basmati', 'steam_basmati', 'white_sella', 'golden_sella'),
+  rice_length: Joi.string().optional().valid('dubar', 'tibar', 'wand').allow(null),
   rice_code_id: Joi.string().optional().uuid().allow(null),
   rate: Joi.number().optional().min(0).precision(2),
   broker_id: Joi.string().optional().uuid().allow(null),

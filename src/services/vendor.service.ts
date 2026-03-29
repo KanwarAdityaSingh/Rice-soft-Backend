@@ -92,7 +92,8 @@ export class VendorService {
 
     logger.info('Updating vendor', { vendorId: id });
 
-    const vendor = await vendorDAO.update(id, vendorData);
+    const { verify_bank: _verifyBank, ...updatePayload } = vendorData;
+    const vendor = await vendorDAO.update(id, updatePayload);
     if (!vendor) {
       throw new NotFoundError('Vendor not found after update');
     }

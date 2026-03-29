@@ -1,4 +1,5 @@
 import { RiceType } from './lead.model';
+import type { RiceLength } from '../constants/rice-lengths';
 
 export interface PurchaseSummary {
   // Identifiers
@@ -49,6 +50,7 @@ export interface SaudaSummaryDetails {
   display_id: string;
   sauda_type: string;
   rice_type: RiceType;
+  rice_length: RiceLength | null;
   rice_code_id: string | null;
   rate: number;
   broker_id: string | null;
@@ -127,5 +129,84 @@ export interface BrokerCommissionSummary {
   broker_id: string;
   lines: BrokerCommissionSummaryLine[];
   total_broker_commission: number;
+}
+
+/** Kaanta-only purchase overview (no sauda object in response). */
+export interface KaantaMetricSummary {
+  total_isps: number;
+  total_kaantas: number;
+  total_lots: number;
+  total_bags: number;
+  total_weight_kg: number;
+  base_amount: number;
+  cash_discount_amount: number;
+  amount_after_discount: number;
+  broker_commission_amount: number;
+  amount_after_commission: number;
+  transportation_cost: number;
+  amount_after_transportation: number;
+  net_payable: number;
+}
+
+export interface KaantaIspOverviewRow {
+  id: string;
+  slip_number: string;
+  date: string;
+  vehicle_number: string | null;
+  party_name: string;
+  transporter_id: string | null;
+  transportation_cost: number | null;
+  kaanta_count: number;
+  lot_count: number;
+}
+
+export interface KaantaPurchaseOverview {
+  summary: KaantaMetricSummary;
+  isps: KaantaIspOverviewRow[];
+}
+
+export interface KaantaIspDetailHeader {
+  id: string;
+  slip_number: string;
+  date: string;
+  vehicle_number: string | null;
+  party_name: string;
+  transporter_id: string | null;
+  transportation_cost: number | null;
+  godown_id: string;
+}
+
+/** Kaanta row in purchase drill-down (no sauda_id / inward_slip_pass_id in response). */
+export interface KaantaPurchaseKaantaRow {
+  id: string;
+  kaanta_id: string;
+  full_truck_weight: number;
+  empty_truck_weight: number;
+  kaanta_weight: number | null;
+  said_sent_weight: number | null;
+  bag_weight: number;
+  no_of_bags: number;
+  bag_type: string;
+  khaali_kaanta_parchi_url: string | null;
+  bhara_kaanta_parchi_url: string | null;
+}
+
+export interface KaantaPurchaseLotRow {
+  id: string;
+  lot_number: string;
+  rice_type: RiceType | null;
+  no_of_bags: number;
+  bag_weight: number | null;
+  total_weight: number | null;
+  bill_weight: number;
+  received_weight: number;
+  rate: number;
+  amount: number | null;
+}
+
+export interface KaantaPurchaseIspDetail {
+  isp: KaantaIspDetailHeader;
+  kaantas: KaantaPurchaseKaantaRow[];
+  lots: KaantaPurchaseLotRow[];
 }
 

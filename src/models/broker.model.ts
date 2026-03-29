@@ -85,6 +85,8 @@ export interface UpdateBrokerDTO {
   type?: BrokerType;
   is_active?: boolean;
   updated_by?: string;
+  /** If true, run Surepass verification after update (lenient on failure). */
+  verify_bank?: boolean;
 }
 
 export interface BrokerResponse {

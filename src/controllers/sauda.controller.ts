@@ -40,12 +40,48 @@ function formatDateToLocalString(date: Date | string | null | undefined): string
   return `${year}-${month}-${day}`;
 }
 
+/** Matches DB trigger: ROUND((received_until_now / quantity) * 100, 2); NULL if quantity missing or zero */
+const MIN_COMPLETION_PERCENT_FOR_COMPLETED_STATUS = 95;
+
+function computeSaudaCompletionPercentage(
+  receivedUntilNow: number,
+  quantity: number | string | null | undefined
+): number | null {
+  const q = quantity === null || quantity === undefined ? NaN : parseFloat(String(quantity));
+  if (Number.isNaN(q) || q === 0) return null;
+  const received = parseFloat(String(receivedUntilNow ?? 0));
+  return Math.round((received / q) * 100 * 100) / 100;
+}
+
+/**
+ * Enforces that workflow "completed" is only allowed when physical completion is at least 95%.
+ * When updating quantity in the same request, uses the post-update quantity with current received_until_now.
+ */
+function assertCanSetSaudaStatusCompleted(existing: Sauda, quantityAfterUpdate?: number | null): void {
+  const q =
+    quantityAfterUpdate !== undefined ? quantityAfterUpdate : existing.quantity;
+  const pct = computeSaudaCompletionPercentage(
+    parseFloat(String(existing.received_until_now ?? 0)),
+    q
+  );
+  if (pct === null || pct < MIN_COMPLETION_PERCENT_FOR_COMPLETED_STATUS) {
+    const detail =
+      pct === null
+        ? 'Quantity is missing or zero, so completion cannot be determined.'
+        : `Current completion is ${pct}%.`;
+    throw new ValidationError(
+      `Cannot set status to completed unless completion is at least ${MIN_COMPLETION_PERCENT_FOR_COMPLETED_STATUS}%. ${detail}`
+    );
+  }
+}
+
 function toSaudaResponse(sauda: Sauda): SaudaResponse {
   return {
     id: sauda.id,
     display_id: formatSaudaDisplayId(sauda.id),
     sauda_type: sauda.sauda_type,
     rice_type: sauda.rice_type,
+    rice_length: sauda.rice_length,
     rice_code_id: sauda.rice_code_id,
     rate: parseFloat(sauda.rate.toString()),
     broker_id: sauda.broker_id,
@@ -194,6 +230,13 @@ export class SaudaController {
         saudaData.updated_by = req.user.userId;
       }
 
+      if (saudaData.status === 'completed') {
+        assertCanSetSaudaStatusCompleted(
+          existingSauda,
+          saudaData.quantity !== undefined ? saudaData.quantity : undefined
+        );
+      }
+
       let sauda;
       try {
         sauda = await saudaDAO.update(id, saudaData);
@@ -227,6 +270,15 @@ export class SaudaController {
 
       if (!status || !['draft', 'active', 'completed', 'cancelled'].includes(status)) {
         throw new ValidationError('Invalid status. Must be one of: draft, active, completed, cancelled');
+      }
+
+      const existingSauda = await saudaDAO.findById(id);
+      if (!existingSauda) {
+        throw new NotFoundError('Sauda not found');
+      }
+
+      if (status === 'completed') {
+        assertCanSetSaudaStatusCompleted(existingSauda);
       }
 
       const sauda = await saudaDAO.update(id, { 
@@ -399,6 +451,7 @@ export class SaudaController {
         saudaId: formatSaudaDisplayId(sauda.id),
         saudaType: sauda.sauda_type,
         riceType: sauda.rice_type,
+        riceLength: sauda.rice_length ?? undefined,
         rate: parseFloat(sauda.rate.toString()),
         quantity: sauda.quantity ? parseFloat(sauda.quantity.toString()) : undefined,
         cashDiscount: sauda.cash_discount ? parseFloat(sauda.cash_discount.toString()) : undefined,

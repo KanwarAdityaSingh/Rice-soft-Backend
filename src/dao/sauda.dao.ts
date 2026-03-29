@@ -24,7 +24,7 @@ export class SaudaDAO {
     purchaserId?: string
   ): Promise<Sauda[]> {
     let query = `
-      SELECT id, sauda_type, rice_type, rice_code_id, rate, broker_id, broker_commission, broker_commission_type,
+      SELECT id, sauda_type, rice_type, rice_length, rice_code_id, rate, broker_id, broker_commission, broker_commission_type,
              quantity, received_until_now, completion_percentage, cash_discount, cash_discount_type, estimated_delivery_time,
              purchaser_id, cooked_rice_image_url, uncooked_rice_image_url, status, notes, is_dana_required, 
              TO_CHAR(sauda_date, 'YYYY-MM-DD') as sauda_date,
@@ -63,7 +63,7 @@ export class SaudaDAO {
 
   async findById(id: string): Promise<Sauda | null> {
     const query = `
-      SELECT id, sauda_type, rice_type, rice_code_id, rate, broker_id, broker_commission, broker_commission_type,
+      SELECT id, sauda_type, rice_type, rice_length, rice_code_id, rate, broker_id, broker_commission, broker_commission_type,
              quantity, received_until_now, completion_percentage, cash_discount, cash_discount_type, estimated_delivery_time,
              purchaser_id, cooked_rice_image_url, uncooked_rice_image_url, status, notes, is_dana_required, 
              TO_CHAR(sauda_date, 'YYYY-MM-DD') as sauda_date,
@@ -77,11 +77,11 @@ export class SaudaDAO {
 
   async create(saudaData: CreateSaudaDTO): Promise<Sauda> {
     const query = `
-      INSERT INTO saudas (sauda_type, rice_type, rice_code_id, rate, broker_id, broker_commission, broker_commission_type,
+      INSERT INTO saudas (sauda_type, rice_type, rice_length, rice_code_id, rate, broker_id, broker_commission, broker_commission_type,
                          quantity, cash_discount, cash_discount_type, estimated_delivery_time,
                          purchaser_id, cooked_rice_image_url, uncooked_rice_image_url, status, notes, is_dana_required, sauda_date, created_by)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
-      RETURNING id, sauda_type, rice_type, rice_code_id, rate, broker_id, broker_commission, broker_commission_type,
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+      RETURNING id, sauda_type, rice_type, rice_length, rice_code_id, rate, broker_id, broker_commission, broker_commission_type,
                 quantity, received_until_now, completion_percentage, cash_discount, cash_discount_type, estimated_delivery_time,
                 purchaser_id, cooked_rice_image_url, uncooked_rice_image_url, status, notes, is_dana_required, 
                 TO_CHAR(sauda_date, 'YYYY-MM-DD') as sauda_date,
@@ -91,6 +91,7 @@ export class SaudaDAO {
     const values = [
       saudaData.sauda_type,
       saudaData.rice_type,
+      saudaData.rice_length ?? null,
       saudaData.rice_code_id || null,
       saudaData.rate,
       saudaData.broker_id || null,
@@ -136,6 +137,10 @@ export class SaudaDAO {
     if (saudaData.rice_type !== undefined) {
       fields.push(`rice_type = $${paramCount++}`);
       values.push(saudaData.rice_type);
+    }
+    if (saudaData.rice_length !== undefined) {
+      fields.push(`rice_length = $${paramCount++}`);
+      values.push(saudaData.rice_length ?? null);
     }
     if (saudaData.rice_code_id !== undefined) {
       fields.push(`rice_code_id = $${paramCount++}`);
@@ -227,7 +232,7 @@ export class SaudaDAO {
       UPDATE saudas
       SET ${fields.join(', ')}
       WHERE id = $${paramCount}
-      RETURNING id, sauda_type, rice_type, rice_code_id, rate, broker_id, broker_commission, broker_commission_type,
+      RETURNING id, sauda_type, rice_type, rice_length, rice_code_id, rate, broker_id, broker_commission, broker_commission_type,
                 quantity, received_until_now, completion_percentage, cash_discount, cash_discount_type, estimated_delivery_time,
                 purchaser_id, cooked_rice_image_url, uncooked_rice_image_url, status, notes, is_dana_required, 
                 TO_CHAR(sauda_date, 'YYYY-MM-DD') as sauda_date,

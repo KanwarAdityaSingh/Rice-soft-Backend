@@ -35,6 +35,9 @@ import Joi from 'joi';
 const LENIENT_BANK_VERIFY_FAIL_MESSAGE =
   'Broker created but bank could not be verified.';
 
+const LENIENT_BANK_VERIFY_FAIL_MESSAGE_UPDATE =
+  'Broker updated but bank could not be verified.';
+
 const BANK_VERIFY_SUCCESS_MESSAGE = 'Bank details verified successfully.';
 
 function verificationErrorFromUnknown(err: unknown): string {
@@ -43,15 +46,15 @@ function verificationErrorFromUnknown(err: unknown): string {
 }
 
 /**
- * After insert: Surepass + mark verified. Throws only for missing auth (caller should pre-check).
+ * After insert/update: Surepass + mark verified. Throws only for missing auth (caller should pre-check).
  */
-async function tryVerifyBankOnCreate(
+async function tryVerifyBankAfterSave(
   brokerId: string,
   bankDetails: BankDetails,
   userId: string | undefined
 ): Promise<void> {
   if (!userId) {
-    throw new ValidationError('Bank verification at creation requires an authenticated user');
+    throw new ValidationError('Bank verification requires an authenticated user');
   }
   const accountDigits = (bankDetails.account_number ?? '').replace(/\D/g, '');
   const ifsc = (bankDetails.ifsc_code ?? '').trim().toUpperCase();
@@ -283,7 +286,7 @@ export class BrokerController {
 
       if (verifyBank && broker.bank_details) {
         try {
-          await tryVerifyBankOnCreate(broker.id, broker.bank_details, req.user?.userId);
+          await tryVerifyBankAfterSave(broker.id, broker.bank_details, req.user?.userId);
           const refreshed = await brokerDAO.findById(broker.id);
           return ResponseHandler.created(
             res,
@@ -357,14 +360,21 @@ export class BrokerController {
         }
       }
 
+      const verifyBank = brokerData.verify_bank === true;
+      if (verifyBank && !req.user?.userId) {
+        throw new ValidationError('verify_bank requires an authenticated user');
+      }
+
       // Set updated_by from authenticated user
       if (req.user) {
         brokerData.updated_by = req.user.userId;
       }
 
+      const { verify_bank: _verifyBank, ...updatePayload } = brokerData;
+
       let broker;
       try {
-        broker = await brokerDAO.update(id, brokerData);
+        broker = await brokerDAO.update(id, updatePayload);
         if (!broker) {
           throw new NotFoundError('Broker not found after update');
         }
@@ -376,6 +386,35 @@ export class BrokerController {
           throw dbError;
         }
         throw new InternalServerError('Failed to update broker. Please try again.');
+      }
+
+      if (verifyBank && broker.bank_details) {
+        try {
+          await tryVerifyBankAfterSave(broker.id, broker.bank_details, req.user?.userId);
+          const refreshed = await brokerDAO.findById(broker.id);
+          return ResponseHandler.success(
+            res,
+            toBrokerResponse(refreshed ?? broker),
+            'Broker updated successfully',
+            200,
+            { verification_message: BANK_VERIFY_SUCCESS_MESSAGE }
+          );
+        } catch (verifyErr) {
+          const errMsg = verificationErrorFromUnknown(verifyErr);
+          logger.warn('Bank verification failed after broker update (lenient)', {
+            brokerId: broker.id,
+            error: errMsg,
+          });
+          await brokerDAO.setBankVerificationError(broker.id, errMsg);
+          const refreshed = await brokerDAO.findById(broker.id);
+          return ResponseHandler.success(
+            res,
+            toBrokerResponse(refreshed ?? broker),
+            LENIENT_BANK_VERIFY_FAIL_MESSAGE_UPDATE,
+            200,
+            { verification_error: errMsg }
+          );
+        }
       }
 
       return ResponseHandler.success(res, toBrokerResponse(broker), 'Broker updated successfully');
@@ -686,7 +725,7 @@ export class BrokerController {
 
       if (verifyBank && broker.bank_details) {
         try {
-          await tryVerifyBankOnCreate(broker.id, broker.bank_details, req.user?.userId);
+          await tryVerifyBankAfterSave(broker.id, broker.bank_details, req.user?.userId);
           const refreshed = await brokerDAO.findById(broker.id);
           return ResponseHandler.created(
             res,
@@ -857,7 +896,7 @@ export class BrokerController {
 
       if (verifyBank && broker.bank_details) {
         try {
-          await tryVerifyBankOnCreate(broker.id, broker.bank_details, req.user?.userId);
+          await tryVerifyBankAfterSave(broker.id, broker.bank_details, req.user?.userId);
           const refreshed = await brokerDAO.findById(broker.id);
           return ResponseHandler.created(
             res,

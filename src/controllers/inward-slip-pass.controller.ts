@@ -22,6 +22,7 @@ import { AuthRequest } from '../middleware/auth.middleware';
 import { uploadToS3, validateFileSize, validateFileType } from '../utils/s3-upload';
 import { appConfig } from '../config/app.config';
 import { godownService } from '../services/godown.service';
+import { inwardSlipPassService } from '../services/inward-slip-pass.service';
 
 export class InwardSlipPassController {
   async getAll(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
@@ -659,17 +660,16 @@ export class InwardSlipPassController {
       }
 
       try {
-        const deleted = await inwardSlipPassDAO.delete(id);
-        if (!deleted) {
-          throw new NotFoundError('Inward slip pass not found or could not be deleted');
-        }
-      } catch (dbError: any) {
-        if (dbError instanceof NotFoundError) {
+        await inwardSlipPassService.deleteById(id);
+      } catch (dbError: unknown) {
+        if (dbError instanceof NotFoundError || dbError instanceof ConflictError) {
           throw dbError;
         }
-        // Check for foreign key constraint violations (ISP might be referenced elsewhere)
-        if (dbError?.code === '23503') {
-          throw new ConflictError('Cannot delete inward slip pass. It is being used in other records (lots, purchases, etc.).');
+        const err = dbError as { code?: string };
+        if (err?.code === '23503') {
+          throw new ConflictError(
+            'Cannot delete inward slip pass. It is still referenced by another record (e.g. payment or foreign link).'
+          );
         }
         throw new InternalServerError('Failed to delete inward slip pass. Please try again.');
       }

@@ -8,6 +8,7 @@ import {
   createRiceCodeSchema,
   updateRiceCodeSchema,
 } from '../utils/validators';
+import { RICE_LENGTH_OPTIONS } from '../constants/rice-lengths';
 
 export class RiceCodeController {
   async getAll(_req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
@@ -149,6 +150,14 @@ export class RiceCodeController {
       ];
 
       return ResponseHandler.success(res, riceTypes);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getRiceLengths(_req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      return ResponseHandler.success(res, [...RICE_LENGTH_OPTIONS]);
     } catch (error) {
       next(error);
     }

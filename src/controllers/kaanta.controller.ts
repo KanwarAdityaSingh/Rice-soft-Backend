@@ -9,6 +9,7 @@ import { ResponseHandler } from '../utils/response';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { uploadToS3, validateFileSize, validateFileType } from '../utils/s3-upload';
 import { appConfig } from '../config/app.config';
+import { inwardSlipPassService } from '../services/inward-slip-pass.service';
 
 export class KaantaController {
   async getAll(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
@@ -98,6 +99,8 @@ export class KaantaController {
       }
       kaantaData.godown_id = isp.godown_id;
 
+      await inwardSlipPassService.assertPriorKaantaExistsForSequentialIsp(isp.slip_number);
+
       // Set created_by from authenticated user
       if (req.user) {
         kaantaData.created_by = req.user.userId;
@@ -134,6 +137,16 @@ export class KaantaController {
     try {
       const { id } = req.params;
       const kaantaData = validate<UpdateKaantaDTO>(updateKaantaSchema, req.body);
+
+      const existing = await kaantaDAO.findById(id);
+      if (!existing) {
+        throw new NotFoundError('Kaanta not found');
+      }
+      const ispForKaanta = await inwardSlipPassDAO.findById(existing.inward_slip_pass_id);
+      if (!ispForKaanta) {
+        throw new NotFoundError('Inward slip pass not found');
+      }
+      await inwardSlipPassService.assertPriorKaantaExistsForSequentialIsp(ispForKaanta.slip_number);
 
       // Set updated_by from authenticated user
       if (req.user) {
@@ -174,6 +187,16 @@ export class KaantaController {
     try {
       const { id } = req.params;
 
+      const existing = await kaantaDAO.findById(id);
+      if (!existing) {
+        throw new NotFoundError('Kaanta not found');
+      }
+      const ispForKaanta = await inwardSlipPassDAO.findById(existing.inward_slip_pass_id);
+      if (!ispForKaanta) {
+        throw new NotFoundError('Inward slip pass not found');
+      }
+      await inwardSlipPassService.assertNoHigherSlipKaantaAfterThisIsp(ispForKaanta.slip_number);
+
       const deleted = await kaantaDAO.delete(id);
       if (!deleted) {
         throw new NotFoundError('Kaanta not found');
@@ -198,6 +221,16 @@ export class KaantaController {
 
       // Validate file size (max 5MB for images)
       validateFileSize(req.file.size, 5);
+
+      const existing = await kaantaDAO.findById(id);
+      if (!existing) {
+        throw new NotFoundError('Kaanta not found');
+      }
+      const ispForKaanta = await inwardSlipPassDAO.findById(existing.inward_slip_pass_id);
+      if (!ispForKaanta) {
+        throw new NotFoundError('Inward slip pass not found');
+      }
+      await inwardSlipPassService.assertPriorKaantaExistsForSequentialIsp(ispForKaanta.slip_number);
 
       // Upload to S3
       const uploadResult = await uploadToS3(
@@ -235,6 +268,16 @@ export class KaantaController {
 
       // Validate file size (max 5MB for images)
       validateFileSize(req.file.size, 5);
+
+      const existing = await kaantaDAO.findById(id);
+      if (!existing) {
+        throw new NotFoundError('Kaanta not found');
+      }
+      const ispForKaanta = await inwardSlipPassDAO.findById(existing.inward_slip_pass_id);
+      if (!ispForKaanta) {
+        throw new NotFoundError('Inward slip pass not found');
+      }
+      await inwardSlipPassService.assertPriorKaantaExistsForSequentialIsp(ispForKaanta.slip_number);
 
       // Upload to S3
       const uploadResult = await uploadToS3(

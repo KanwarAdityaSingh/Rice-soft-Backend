@@ -387,6 +387,21 @@ export class PaymentAdviceController {
         }
       }
 
+      // Recalculate amount from summary if sauda/ISP reference changes and amount is not explicitly provided.
+      // This keeps amount in sync with dana-adjusted pricing logic from purchase summary.
+      if ((paymentAdviceData.sauda_id || paymentAdviceData.inward_slip_pass_id) && paymentAdviceData.amount === undefined) {
+        const summarySaudaId = paymentAdviceData.sauda_id || existingAdvice.sauda_id || undefined;
+        const summaryIspId = paymentAdviceData.inward_slip_pass_id || existingAdvice.inward_slip_pass_id || undefined;
+
+        if (summarySaudaId) {
+          const summary = await purchaseSummaryDAO.getSaudaSummary(summarySaudaId);
+          paymentAdviceData.amount = summary.final_total_amount;
+        } else if (summaryIspId) {
+          const summary = await purchaseSummaryDAO.getIspSummary(summaryIspId);
+          paymentAdviceData.amount = summary.final_total_amount;
+        }
+      }
+
       // Recalculate dana_deduction and final_weight if sauda_id or inward_slip_pass_id is being updated
       if (paymentAdviceData.sauda_id || paymentAdviceData.inward_slip_pass_id) {
         let totalKaantaWeight = 0;

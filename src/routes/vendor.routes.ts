@@ -109,7 +109,7 @@ router.post(
 
 /**
  * @route   POST /api/v1/vendors/updateVendor/:id
- * @desc    Update vendor
+ * @desc    Update vendor (optional verify_bank + bank_details for one-step Surepass verification, same semantics as create)
  * @access  Private
  */
 router.post(
