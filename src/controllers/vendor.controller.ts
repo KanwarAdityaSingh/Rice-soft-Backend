@@ -298,6 +298,10 @@ export class VendorController {
         throw new NotFoundError('Vendor not found after update');
       }
 
+      if (updatePayload.bank_details !== undefined) {
+        await vendorDAO.deactivatePurchaserVendorIfBankUnverified(vendor.id);
+      }
+
       if (verifyBank && vendor.bank_details) {
         try {
           await tryVerifyBankAfterSave(vendor.id, vendor.bank_details, req.user?.userId);

@@ -184,6 +184,8 @@ export class SaudaController {
         throw new InternalServerError('Failed to create sauda. Please try again.');
       }
 
+      await vendorDAO.deactivatePurchaserVendorIfBankUnverified(saudaData.purchaser_id);
+
       return ResponseHandler.created(res, toSaudaResponse(sauda), 'Sauda created successfully');
     } catch (error) {
       next(error);
@@ -256,6 +258,8 @@ export class SaudaController {
         }
         throw new InternalServerError('Failed to update sauda. Please try again.');
       }
+
+      await vendorDAO.deactivatePurchaserVendorIfBankUnverified(sauda.purchaser_id);
 
       return ResponseHandler.success(res, toSaudaResponse(sauda), 'Sauda updated successfully');
     } catch (error) {

@@ -7,6 +7,8 @@ import {
   SaudaBreakdown,
   BrokerCommissionSummary,
   BrokerCommissionSummaryLine,
+  BrokerCommissionParty,
+  BrokerCommissionPaymentAdviceRow,
   KaantaPurchaseOverview,
   KaantaMetricSummary,
   KaantaIspOverviewRow,
@@ -41,7 +43,7 @@ type LotRowForMetrics = {
 export class PurchaseSummaryDAO {
   /**
    * Step totals from sauda commercial rules + lot lines + transportation.
-   * Broker commission is deducted from the vendor-facing amount (net after discount).
+   * Percentage broker commission is computed on base_amount; the amount is then deducted from amount_after_discount.
    */
   private computeStepTotalsFromSaudaAndLots(
     sauda: SaudaRowForMetrics,
@@ -91,7 +93,8 @@ export class PurchaseSummaryDAO {
     const brokerCommissionType = sauda.broker_commission_type || 'percentage';
     if (brokerCommission > 0) {
       if (brokerCommissionType === 'percentage') {
-        brokerCommissionAmount = amountAfterDiscount * (brokerCommission / 100);
+        // Percentage is applied to pre-discount commercial base (lot totals / kaanta×rate override).
+        brokerCommissionAmount = baseAmount * (brokerCommission / 100);
       } else if (brokerCommissionType === 'weight') {
         const weightForCommission = isPartialSauda ? receivedUntilNow : totalWeight;
         brokerCommissionAmount = brokerCommission * weightForCommission;
@@ -670,6 +673,7 @@ export class PurchaseSummaryDAO {
   /**
    * Purchase saudas for this broker: computed broker_commission_amount per sauda (via getSaudaSummary)
    * and sum. Optional godown_id scopes lots/ISPs like GET /purchase-summary/sauda/:id?godown_id=
+   * Each line includes purchaser party, ISPs linked via kaantas, and payment advices for the sauda or those ISPs.
    */
   async getBrokerCommissionSummary(
     brokerId: string,
@@ -698,19 +702,106 @@ export class PurchaseSummaryDAO {
     }
 
     const listQuery = `
-      SELECT id, sauda_date, status
+      SELECT id, sauda_date, status, purchaser_id
       FROM saudas
       WHERE ${conditions.join(' AND ')}
       ORDER BY sauda_date DESC NULLS LAST, created_at DESC
     `;
-    const listResult = await db.query<{ id: string; sauda_date: Date | null; status: string }>(listQuery, params);
+    const listResult = await db.query<{
+      id: string;
+      sauda_date: Date | null;
+      status: string;
+      purchaser_id: string;
+    }>(listQuery, params);
     const rows = listResult.rows;
+
+    const purchaserIds = [...new Set(rows.map((r) => r.purchaser_id))];
+    const partyByPurchaserId = new Map<string, BrokerCommissionParty>();
+
+    if (purchaserIds.length > 0) {
+      const vendorResult = await db.query<{
+        id: string;
+        business_name: string;
+        gst_number: string | null;
+      }>(
+        `
+        SELECT id, business_name, business_details->>'gst_number' AS gst_number
+        FROM vendors
+        WHERE id = ANY($1::uuid[])
+      `,
+        [purchaserIds]
+      );
+      for (const v of vendorResult.rows) {
+        partyByPurchaserId.set(v.id, {
+          purchaser_id: v.id,
+          business_name: v.business_name ?? null,
+          gst_number: v.gst_number?.trim() || null,
+        });
+      }
+    }
+
+    type LineBuild = {
+      row: (typeof rows)[0];
+      summary: PurchaseSummary;
+      ispIds: Set<string>;
+    };
+    const lineBuilds: LineBuild[] = [];
+    const allSaudaIds: string[] = [];
+    const allIspIds = new Set<string>();
+
+    for (const row of rows) {
+      const summary = await this.getSaudaSummary(row.id, options?.godownId);
+      const ispIds = new Set<string>();
+      for (const isp of summary.isp_details ?? []) {
+        ispIds.add(isp.id);
+        allIspIds.add(isp.id);
+      }
+      allSaudaIds.push(row.id);
+      lineBuilds.push({ row, summary, ispIds });
+    }
+
+    type PaRow = {
+      id: string;
+      sr_number: string | null;
+      amount: unknown;
+      date_of_payment: Date | string;
+      status: string;
+      sauda_id: string | null;
+      inward_slip_pass_id: string | null;
+    };
+
+    const paymentAdviceRows: PaRow[] = [];
+    if (allSaudaIds.length > 0 || allIspIds.size > 0) {
+      const saudaArr = allSaudaIds.length > 0 ? allSaudaIds : ([] as string[]);
+      const ispArr = allIspIds.size > 0 ? [...allIspIds] : ([] as string[]);
+      const paResult = await db.query<PaRow>(
+        `
+        SELECT id, sr_number, amount, date_of_payment, status, sauda_id, inward_slip_pass_id
+        FROM payment_advices
+        WHERE (
+          cardinality($1::uuid[]) > 0 AND sauda_id IS NOT NULL AND sauda_id = ANY($1::uuid[])
+        )
+        OR (
+          cardinality($2::uuid[]) > 0 AND inward_slip_pass_id IS NOT NULL AND inward_slip_pass_id = ANY($2::uuid[])
+        )
+        ORDER BY date_of_payment DESC NULLS LAST, created_at DESC
+      `,
+        [saudaArr, ispArr]
+      );
+      paymentAdviceRows.push(...paResult.rows);
+    }
+
+    const formatPaymentDate = (d: Date | string): string => {
+      if (d instanceof Date) {
+        return d.toISOString().split('T')[0];
+      }
+      return String(d).split('T')[0];
+    };
 
     const lines: BrokerCommissionSummaryLine[] = [];
     let totalBrokerCommission = 0;
 
-    for (const row of rows) {
-      const summary = await this.getSaudaSummary(row.id, options?.godownId);
+    for (const { row, summary, ispIds } of lineBuilds) {
       const details = summary.sauda_details;
       const saudaDateStr =
         row.sauda_date instanceof Date
@@ -718,6 +809,32 @@ export class PurchaseSummaryDAO {
           : row.sauda_date
             ? String(row.sauda_date).split('T')[0]
             : null;
+
+      const seenPaIds = new Set<string>();
+      const payment_advices: BrokerCommissionPaymentAdviceRow[] = [];
+      for (const pa of paymentAdviceRows) {
+        const matchesSauda = pa.sauda_id === row.id;
+        const matchesIsp =
+          pa.inward_slip_pass_id != null && ispIds.has(pa.inward_slip_pass_id);
+        if (!matchesSauda && !matchesIsp) continue;
+        if (seenPaIds.has(pa.id)) continue;
+        seenPaIds.add(pa.id);
+        payment_advices.push({
+          id: pa.id,
+          sr_number: pa.sr_number,
+          amount: parseFloat(String(pa.amount)),
+          date_of_payment: formatPaymentDate(pa.date_of_payment),
+          status: pa.status,
+          sauda_id: pa.sauda_id,
+          inward_slip_pass_id: pa.inward_slip_pass_id,
+        });
+      }
+
+      const party = partyByPurchaserId.get(row.purchaser_id) ?? {
+        purchaser_id: row.purchaser_id,
+        business_name: null,
+        gst_number: null,
+      };
 
       lines.push({
         sauda_id: row.id,
@@ -728,6 +845,9 @@ export class PurchaseSummaryDAO {
         broker_commission_type: details?.broker_commission_type ?? 'percentage',
         amount_after_discount: summary.amount_after_discount,
         broker_commission_amount: summary.broker_commission_amount,
+        party,
+        isps: summary.isp_details ?? [],
+        payment_advices,
       });
       totalBrokerCommission += summary.broker_commission_amount;
     }
@@ -738,6 +858,8 @@ export class PurchaseSummaryDAO {
       broker_id: brokerId,
       lines,
       total_broker_commission: floorToMoneyStep(totalBrokerCommission),
+      period_from: options?.fromDate ?? null,
+      period_to: options?.toDate ?? null,
     };
   }
 }

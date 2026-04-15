@@ -128,9 +128,10 @@ export class BrokerController {
 
   /**
    * Purchase saudas for this broker: computed brokerage per sauda (same engine as purchase summary) + total.
+   * Each line includes purchaser party, ISPs (kaanta-linked), and payment advices for the sauda or those ISPs.
    * @query godown_id — optional; scopes lots/ISPs like GET /purchase-summary/sauda/:id
    * @query status — optional filter: draft|active|completed|cancelled
-   * @query from_date, to_date — optional YYYY-MM-DD filter on sauda_date
+   * @query from_date, to_date — optional YYYY-MM-DD filter on sauda_date (returned as period_from / period_to)
    */
   async getBrokerageCommissionSummary(
     req: AuthRequest,

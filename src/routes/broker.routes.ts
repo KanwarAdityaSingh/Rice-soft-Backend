@@ -83,9 +83,9 @@ router.get('/getAllBrokers', authenticate, brokerController.getAll.bind(brokerCo
 
 /**
  * @route   GET /api/v1/brokers/:brokerId/brokerage-commission-summary
- * @desc    Brokerage commission per purchase sauda + total (same computation as purchase summary)
+ * @desc    Brokerage commission per purchase sauda + total; each line includes party (vendor), ISPs, payment advices
  * @access  Private
- * @query   godown_id, status, from_date, to_date (all optional)
+ * @query   godown_id, status, from_date, to_date (all optional; period echoed as period_from / period_to)
  */
 router.get(
   '/:brokerId/brokerage-commission-summary',

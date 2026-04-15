@@ -115,6 +115,24 @@ export interface GetSummaryOptions {
   // IGST removed - this interface kept for backward compatibility but igst_percentage is ignored
 }
 
+/** Vendor (purchaser) on the sauda — for broker-facing statement context. */
+export interface BrokerCommissionParty {
+  purchaser_id: string;
+  business_name: string | null;
+  gst_number: string | null;
+}
+
+/** Payment advice rows linked to the sauda or to any ISP on that sauda (deduped by id per line). */
+export interface BrokerCommissionPaymentAdviceRow {
+  id: string;
+  sr_number: string | null;
+  amount: number;
+  date_of_payment: string;
+  status: string;
+  sauda_id: string | null;
+  inward_slip_pass_id: string | null;
+}
+
 /** Per purchase sauda: computed broker commission (same rules as GET /purchase-summary/sauda/:id). */
 export interface BrokerCommissionSummaryLine {
   sauda_id: string;
@@ -125,12 +143,19 @@ export interface BrokerCommissionSummaryLine {
   broker_commission_type: string;
   amount_after_discount: number;
   broker_commission_amount: number;
+  party: BrokerCommissionParty;
+  isps: IspSummaryDetails[];
+  payment_advices: BrokerCommissionPaymentAdviceRow[];
 }
 
 export interface BrokerCommissionSummary {
   broker_id: string;
   lines: BrokerCommissionSummaryLine[];
   total_broker_commission: number;
+  /** Echo of `from_date` query filter when provided (YYYY-MM-DD). */
+  period_from?: string | null;
+  /** Echo of `to_date` query filter when provided (YYYY-MM-DD). */
+  period_to?: string | null;
 }
 
 /** Kaanta-only purchase overview (no sauda object in response). */

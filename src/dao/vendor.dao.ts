@@ -239,6 +239,7 @@ export class VendorDAO {
       SET bank_details_verified_at = CURRENT_TIMESTAMP,
           bank_details_verified_by = $2,
           bank_verification_error = NULL,
+          is_active = true,
           updated_at = CURRENT_TIMESTAMP
       WHERE id = $1
       RETURNING ${VENDOR_SELECT_COLUMNS}
@@ -251,17 +252,54 @@ export class VendorDAO {
     return row || null;
   }
 
-  /** Persist last bank verification failure (lenient create / future retries). Pass null to clear. */
+  /**
+   * Persist last bank verification failure (lenient create / update flows).
+   * Non-null message also sets is_active = false so failed bank checks cannot trade as active vendors.
+   * Pass null to clear the error only (does not change is_active).
+   */
   async setBankVerificationError(id: string, message: string | null): Promise<Vendor | null> {
-    const query = `
+    const query =
+      message === null
+        ? `
       UPDATE vendors
       SET bank_verification_error = $2,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = $1
+      RETURNING ${VENDOR_SELECT_COLUMNS}
+    `
+        : `
+      UPDATE vendors
+      SET bank_verification_error = $2,
+          is_active = false,
           updated_at = CURRENT_TIMESTAMP
       WHERE id = $1
       RETURNING ${VENDOR_SELECT_COLUMNS}
     `;
     const result = await db.query<Vendor>(query, [id, message]);
     return result.rows[0] || null;
+  }
+
+  /**
+   * If this vendor is (or will be treated as) a purchase party on any sauda, has bank_details on file,
+   * and bank has never been verified (verified_at / verified_by null), mark inactive.
+   */
+  async deactivatePurchaserVendorIfBankUnverified(vendorId: string): Promise<Vendor | null> {
+    const query = `
+      UPDATE vendors v
+      SET is_active = false,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE v.id = $1
+        AND v.bank_details IS NOT NULL
+        AND v.bank_details_verified_at IS NULL
+        AND EXISTS (SELECT 1 FROM saudas s WHERE s.purchaser_id = v.id)
+      RETURNING ${VENDOR_SELECT_COLUMNS}
+    `;
+    const result = await db.query<Vendor>(query, [vendorId]);
+    const row = result.rows[0];
+    if (row) {
+      logger.info('Purchaser vendor deactivated: bank on file but not verified', { vendorId });
+    }
+    return row || null;
   }
 
   async delete(id: string): Promise<void> {
