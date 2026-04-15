@@ -17,6 +17,8 @@ import {
 } from '../models/purchase-summary.model';
 import { logger } from '../utils/logger';
 import { formatSaudaDisplayId } from '../utils/sauda-display';
+import { danaDeductionKgFromSaidSentWeight, floorToMoneyStep } from '../utils/money';
+import { ValidationError } from '../utils/errors';
 import type { RiceType } from '../models/lead.model';
 
 type SaudaRowForMetrics = {
@@ -38,7 +40,8 @@ type LotRowForMetrics = {
 
 export class PurchaseSummaryDAO {
   /**
-   * Step totals from sauda commercial rules + lot lines + transportation (same rules as legacy sauda summary).
+   * Step totals from sauda commercial rules + lot lines + transportation.
+   * Broker commission is deducted from the vendor-facing amount (net after discount).
    */
   private computeStepTotalsFromSaudaAndLots(
     sauda: SaudaRowForMetrics,
@@ -96,26 +99,33 @@ export class PurchaseSummaryDAO {
         brokerCommissionAmount = brokerCommission;
       }
     }
-    const amountAfterCommission = amountAfterDiscount + brokerCommissionAmount;
+    const COMMISSION_EXCESS_EPS = 1e-6;
+    if (brokerCommissionAmount - amountAfterDiscount > COMMISSION_EXCESS_EPS) {
+      throw new ValidationError(
+        'Broker commission exceeds amount after cash discount; reduce commission or adjust discount.'
+      );
+    }
+    const amountAfterCommission = amountAfterDiscount - brokerCommissionAmount;
     const amountAfterTransportation = amountAfterCommission + transportationCost;
     const igstAmount = 0;
     const igstPercentage = 0;
-    const finalTotalAmount = amountAfterTransportation;
+    const finalTotalAmount = amountAfterTransportation + igstAmount;
+    const f = floorToMoneyStep;
     return {
       totalLots,
       totalBags,
       totalWeight,
-      baseAmount,
-      cashDiscountAmount,
-      amountAfterDiscount,
-      brokerCommissionAmount,
-      amountAfterCommission,
-      transportationCost,
-      amountAfterTransportation,
-      igstAmount,
+      baseAmount: f(baseAmount),
+      cashDiscountAmount: f(cashDiscountAmount),
+      amountAfterDiscount: f(amountAfterDiscount),
+      brokerCommissionAmount: f(brokerCommissionAmount),
+      amountAfterCommission: f(amountAfterCommission),
+      transportationCost: f(transportationCost),
+      amountAfterTransportation: f(amountAfterTransportation),
+      igstAmount: f(igstAmount),
       igstPercentage,
-      finalTotalAmount,
-      netPayable: finalTotalAmount,
+      finalTotalAmount: f(finalTotalAmount),
+      netPayable: f(finalTotalAmount),
     };
   }
 
@@ -144,7 +154,7 @@ export class PurchaseSummaryDAO {
     const lotsParams: unknown[] = [saudaId];
     let lotsQuery = `
       SELECT id, lot_number, sauda_id, rice_type, no_of_bags, bag_weight, total_weight,
-             bill_weight, received_weight, rate, amount
+             bill_weight, received_weight, rate, amount, inward_slip_pass_created_at
       FROM inward_slip_lots
       WHERE sauda_id = $1
     `;
@@ -177,7 +187,7 @@ export class PurchaseSummaryDAO {
     const transportationCost = isps.reduce((sum, isp) => sum + parseFloat(isp.transportation_cost || '0'), 0);
 
     // Price calculation uses net receivable weight when dana applies:
-    // net weight = total kaanta weight - dana deduction (300gm per quintal on said_sent_weight).
+    // net weight = total kaanta weight - dana deduction (300gm per quintal on said_sent_weight, ceiled to whole kg).
     const kaantaParams: unknown[] = [saudaId];
     let kaantaQuery = `
       SELECT kaanta_weight, said_sent_weight
@@ -196,7 +206,7 @@ export class PurchaseSummaryDAO {
     if (totalKaantaWeight > 0) {
       const shouldApplyDana = sauda.is_dana_required ?? false;
       const danaDeduction = shouldApplyDana && totalSaidSentWeight > 0
-        ? (totalSaidSentWeight * 300 / 1000) / 100
+        ? danaDeductionKgFromSaidSentWeight(totalSaidSentWeight)
         : 0;
       const netWeightForPricing = Math.max(totalKaantaWeight - danaDeduction, 0);
       const saudaRate = parseFloat(String(sauda.rate || '0'));
@@ -245,6 +255,9 @@ export class PurchaseSummaryDAO {
       received_weight: parseFloat(lot.received_weight),
       rate: parseFloat(lot.rate),
       amount: lot.amount ? parseFloat(lot.amount) : null,
+      inward_slip_pass_created_at: lot.inward_slip_pass_created_at
+        ? new Date(lot.inward_slip_pass_created_at as string | Date).toISOString()
+        : null,
     }));
 
     // Format ISP details
@@ -412,22 +425,23 @@ export class PurchaseSummaryDAO {
 
     logger.info('ISP summary calculated', { ispId, totalFinalAmount, saudaCount: saudaIds.length });
 
+    const agg = floorToMoneyStep;
     return {
       inward_slip_pass_id: ispId,
       total_lots: totalLots,
       total_bags: totalBags,
       total_weight: totalWeight,
-      base_amount: totalBaseAmount,
-      cash_discount_amount: totalCashDiscountAmount,
-      amount_after_discount: totalAmountAfterDiscount,
-      broker_commission_amount: totalBrokerCommissionAmount,
-      amount_after_commission: totalAmountAfterCommission,
-      transportation_cost: totalTransportationCost,
-      amount_after_transportation: totalAmountAfterTransportation,
-      igst_amount: totalIgstAmount,
+      base_amount: agg(totalBaseAmount),
+      cash_discount_amount: agg(totalCashDiscountAmount),
+      amount_after_discount: agg(totalAmountAfterDiscount),
+      broker_commission_amount: agg(totalBrokerCommissionAmount),
+      amount_after_commission: agg(totalAmountAfterCommission),
+      transportation_cost: agg(totalTransportationCost),
+      amount_after_transportation: agg(totalAmountAfterTransportation),
+      igst_amount: agg(totalIgstAmount),
       igst_percentage: igstPercentage,
-      final_total_amount: totalFinalAmount,
-      net_payable: totalFinalAmount,
+      final_total_amount: agg(totalFinalAmount),
+      net_payable: agg(totalFinalAmount),
       isp_details: [ispDetails],
       saudas: saudaBreakdowns,
     };
@@ -454,7 +468,7 @@ export class PurchaseSummaryDAO {
     const lotsParams: unknown[] = [saudaId];
     let lotsQuery = `
       SELECT l.id, l.lot_number, l.sauda_id, l.rice_type, l.no_of_bags, l.bag_weight, l.total_weight,
-             l.bill_weight, l.received_weight, l.rate, l.amount
+             l.bill_weight, l.received_weight, l.rate, l.amount, l.inward_slip_pass_created_at
       FROM inward_slip_lots l
       INNER JOIN kaantas k ON k.sauda_id = l.sauda_id AND l.lot_number = 'LOT-' || k.kaanta_id
       WHERE l.sauda_id = $1
@@ -595,7 +609,7 @@ export class PurchaseSummaryDAO {
     const lotsParams: unknown[] = [saudaId, ispId];
     let lotsQuery = `
       SELECT l.id, l.lot_number, l.rice_type, l.no_of_bags, l.bag_weight, l.total_weight,
-             l.bill_weight, l.received_weight, l.rate, l.amount
+             l.bill_weight, l.received_weight, l.rate, l.amount, l.inward_slip_pass_created_at
       FROM inward_slip_lots l
       INNER JOIN kaantas k ON k.sauda_id = l.sauda_id AND l.lot_number = 'LOT-' || k.kaanta_id
       WHERE k.sauda_id = $1 AND k.inward_slip_pass_id = $2
@@ -643,6 +657,9 @@ export class PurchaseSummaryDAO {
       received_weight: parseFloat(String(l.received_weight)),
       rate: parseFloat(String(l.rate)),
       amount: l.amount != null ? parseFloat(String(l.amount)) : null,
+      inward_slip_pass_created_at: l.inward_slip_pass_created_at
+        ? new Date(l.inward_slip_pass_created_at as string | Date).toISOString()
+        : null,
     }));
 
     logger.info('Kaanta purchase ISP detail retrieved', { saudaId, ispId, kaantaCount: kaantas.length });
@@ -720,7 +737,7 @@ export class PurchaseSummaryDAO {
     return {
       broker_id: brokerId,
       lines,
-      total_broker_commission: totalBrokerCommission,
+      total_broker_commission: floorToMoneyStep(totalBrokerCommission),
     };
   }
 }

@@ -1,6 +1,7 @@
 import { db } from '../database/connection';
 import { PaymentAdviceCharge, CreatePaymentAdviceChargeDTO, UpdatePaymentAdviceChargeDTO } from '../models/payment-advice-charge.model';
 import { logger } from '../utils/logger';
+import { floorToMoneyStep } from '../utils/money';
 
 export class PaymentAdviceChargeDAO {
   async findByPaymentAdviceId(paymentAdviceId: string): Promise<PaymentAdviceCharge[]> {
@@ -127,10 +128,14 @@ export class PaymentAdviceChargeDAO {
     }
 
     const charges = await this.findByPaymentAdviceId(paymentAdviceId);
-    const totalCharges = charges.reduce((sum, charge) => sum + parseFloat(charge.charge_value.toString()), 0);
-    const netPayable = parseFloat(paymentAdvice.rows[0].amount.toString()) - totalCharges;
+    const totalCharges = charges.reduce(
+      (sum, charge) => sum + floorToMoneyStep(parseFloat(charge.charge_value.toString())),
+      0
+    );
+    const netPayable =
+      parseFloat(paymentAdvice.rows[0].amount.toString()) - totalCharges;
 
-    return netPayable;
+    return floorToMoneyStep(netPayable);
   }
 }
 

@@ -80,6 +80,7 @@ export const appConfig = {
       riceImagesFolder: process.env.AWS_S3_RICE_IMAGES_FOLDER || 'rice-images',
       inwardSlipBillsFolder: process.env.AWS_S3_INWARD_SLIP_BILLS_FOLDER || 'inward-slip-bills',
       kaantaParchisFolder: process.env.AWS_S3_KAANTA_PARCHIS_FOLDER || 'kaanta-parchis',
+      packagingBillsFolder: process.env.AWS_S3_PACKAGING_BILLS_FOLDER || 'packaging-bills',
     },
     ses: {
       fromEmail: process.env.AWS_SES_FROM_EMAIL || 'noreply@santkripa.com',

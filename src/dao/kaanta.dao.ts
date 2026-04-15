@@ -119,6 +119,7 @@ export class KaantaDAO {
         bill_weight: sauda.quantity || 0, // Expected weight from sauda
         received_weight: createdKaanta.kaanta_weight || 0, // Actual weight from kaanta
         rate: sauda.rate,
+        inward_slip_pass_created_at: isp.created_at,
         created_by: createdKaanta.created_by || undefined,
       };
 
@@ -126,11 +127,11 @@ export class KaantaDAO {
       const lotQuery = `
         INSERT INTO inward_slip_lots (sauda_id, godown_id, lot_number, rice_code_id, rice_type, 
                                      no_of_bags, bag_weight, bill_weight, received_weight, 
-                                     rate, created_by)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                                     rate, inward_slip_pass_created_at, created_by)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
         RETURNING id, sauda_id, godown_id, lot_number, rice_code_id, rice_type, no_of_bags, 
                   bag_weight, total_weight, bill_weight, received_weight, rate, amount, 
-                  created_at, updated_at, created_by, updated_by
+                  inward_slip_pass_created_at, created_at, updated_at, created_by, updated_by
       `;
       
       const lotValues = [
@@ -144,6 +145,7 @@ export class KaantaDAO {
         lotData.bill_weight,
         lotData.received_weight,
         lotData.rate,
+        lotData.inward_slip_pass_created_at ?? null,
         lotData.created_by || null,
       ];
 

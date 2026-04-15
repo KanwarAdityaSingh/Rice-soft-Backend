@@ -7,6 +7,7 @@ const PACKAGING_SELECT_COLUMNS = `
       id, packaging_number, product_id, holding_capacity, packet_type, packaging_vendor_id, ordered_weight,
       empty_bag_weight_kg, empty_bag_rate_per_kg, empty_bag_gst_percent,
       empty_bags_total_weight_kg, empty_bags_taxable_amount, empty_bags_gst_amount, empty_bags_total_amount,
+      bill_number, bill_date, packaging_bill_url,
       created_at, updated_at, created_by, updated_by`;
 
 /** Row passed to INSERT; `packaging_number` is optional (DB trigger fills if omitted). */
@@ -94,6 +95,9 @@ export class PackagingDAO {
       empty_bags_taxable_amount,
       empty_bags_gst_amount,
       empty_bags_total_amount,
+      bill_number,
+      bill_date,
+      packaging_bill_url,
       created_by,
     } = packagingData;
 
@@ -102,9 +106,10 @@ export class PackagingDAO {
         packaging_number, product_id, holding_capacity, packet_type, packaging_vendor_id, ordered_weight,
         empty_bag_weight_kg, empty_bag_rate_per_kg, empty_bag_gst_percent,
         empty_bags_total_weight_kg, empty_bags_taxable_amount, empty_bags_gst_amount, empty_bags_total_amount,
+        bill_number, bill_date, packaging_bill_url,
         created_by
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
       RETURNING ${PACKAGING_SELECT_COLUMNS}
     `;
 
@@ -122,6 +127,11 @@ export class PackagingDAO {
       empty_bags_taxable_amount ?? null,
       empty_bags_gst_amount ?? null,
       empty_bags_total_amount ?? null,
+      bill_number && String(bill_number).trim() !== '' ? String(bill_number).trim() : null,
+      bill_date && String(bill_date).trim() !== '' ? String(bill_date).trim() : null,
+      packaging_bill_url && String(packaging_bill_url).trim() !== ''
+        ? String(packaging_bill_url).trim()
+        : null,
       created_by || null,
     ];
     
@@ -167,6 +177,18 @@ export class PackagingDAO {
     if (packagingData.empty_bag_gst_percent !== undefined) {
       fields.push(`empty_bag_gst_percent = $${paramCount++}`);
       values.push(packagingData.empty_bag_gst_percent);
+    }
+    if (packagingData.bill_number !== undefined) {
+      fields.push(`bill_number = $${paramCount++}`);
+      values.push(packagingData.bill_number || null);
+    }
+    if (packagingData.bill_date !== undefined) {
+      fields.push(`bill_date = $${paramCount++}`);
+      values.push(packagingData.bill_date || null);
+    }
+    if (packagingData.packaging_bill_url !== undefined) {
+      fields.push(`packaging_bill_url = $${paramCount++}`);
+      values.push(packagingData.packaging_bill_url || null);
     }
     if (packagingData.updated_by !== undefined) {
       fields.push(`updated_by = $${paramCount++}`);

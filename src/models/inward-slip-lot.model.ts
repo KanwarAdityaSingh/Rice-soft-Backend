@@ -14,6 +14,8 @@ export interface InwardSlipLot {
   received_weight: number;
   rate: number;
   amount: number | null;
+  /** Mirrors inward_slip_passes.created_at when lot came from kaanta; null for manual lots */
+  inward_slip_pass_created_at: Date | null;
   created_at: Date;
   updated_at: Date;
   created_by: string | null;
@@ -31,6 +33,8 @@ export interface CreateInwardSlipLotDTO {
   bill_weight: number;
   received_weight: number;
   rate: number;
+  /** If set (e.g. kaanta flow), stored on insert; otherwise null */
+  inward_slip_pass_created_at?: Date | null;
   created_by?: string;
 }
 
@@ -61,6 +65,7 @@ export interface InwardSlipLotResponse {
   received_weight: number;
   rate: number;
   amount: number | null;
+  inward_slip_pass_created_at: string | null;
   created_at: string;
   updated_at: string;
 }

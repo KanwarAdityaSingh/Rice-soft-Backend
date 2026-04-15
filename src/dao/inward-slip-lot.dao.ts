@@ -6,7 +6,8 @@ export class InwardSlipLotDAO {
   async findAll(saudaId?: string, godownId?: string): Promise<InwardSlipLot[]> {
     let query = `
       SELECT id, sauda_id, godown_id, lot_number, rice_code_id, rice_type, no_of_bags, bag_weight, total_weight,
-             bill_weight, received_weight, rate, amount, created_at, updated_at, created_by, updated_by
+             bill_weight, received_weight, rate, amount, inward_slip_pass_created_at,
+             created_at, updated_at, created_by, updated_by
       FROM inward_slip_lots
       WHERE 1=1
     `;
@@ -36,7 +37,8 @@ export class InwardSlipLotDAO {
   async findById(id: string): Promise<InwardSlipLot | null> {
     const query = `
       SELECT id, sauda_id, godown_id, lot_number, rice_code_id, rice_type, no_of_bags, bag_weight, total_weight,
-             bill_weight, received_weight, rate, amount, created_at, updated_at, created_by, updated_by
+             bill_weight, received_weight, rate, amount, inward_slip_pass_created_at,
+             created_at, updated_at, created_by, updated_by
       FROM inward_slip_lots
       WHERE id = $1
     `;
@@ -47,10 +49,11 @@ export class InwardSlipLotDAO {
   async create(inwardSlipLotData: CreateInwardSlipLotDTO): Promise<InwardSlipLot> {
     const query = `
       INSERT INTO inward_slip_lots (sauda_id, godown_id, lot_number, rice_code_id, rice_type, no_of_bags, bag_weight,
-                                   bill_weight, received_weight, rate, created_by)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                                   bill_weight, received_weight, rate, inward_slip_pass_created_at, created_by)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
       RETURNING id, sauda_id, godown_id, lot_number, rice_code_id, rice_type, no_of_bags, bag_weight, total_weight,
-                bill_weight, received_weight, rate, amount, created_at, updated_at, created_by, updated_by
+                bill_weight, received_weight, rate, amount, inward_slip_pass_created_at,
+                created_at, updated_at, created_by, updated_by
     `;
     
     const values = [
@@ -64,6 +67,7 @@ export class InwardSlipLotDAO {
       inwardSlipLotData.bill_weight,
       inwardSlipLotData.received_weight,
       inwardSlipLotData.rate,
+      inwardSlipLotData.inward_slip_pass_created_at ?? null,
       inwardSlipLotData.created_by || null,
     ];
 
@@ -148,7 +152,8 @@ export class InwardSlipLotDAO {
       SET ${fields.join(', ')}
       WHERE id = $${paramCount}
       RETURNING id, sauda_id, godown_id, lot_number, rice_code_id, rice_type, no_of_bags, bag_weight, total_weight,
-                bill_weight, received_weight, rate, amount, created_at, updated_at, created_by, updated_by
+                bill_weight, received_weight, rate, amount, inward_slip_pass_created_at,
+                created_at, updated_at, created_by, updated_by
     `;
 
     try {

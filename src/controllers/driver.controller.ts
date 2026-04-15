@@ -1,0 +1,148 @@
+import { Response, NextFunction } from 'express';
+import { driverDAO } from '../dao/driver.dao';
+import { ResponseHandler } from '../utils/response';
+import {
+  validate,
+  createDriverSchema,
+  updateDriverSchema,
+  uuidSchema,
+} from '../utils/validators';
+import { NotFoundError, ConflictError } from '../utils/errors';
+import { CreateDriverDTO, DriverResponse, UpdateDriverDTO } from '../models/driver.model';
+import { AuthRequest } from '../middleware/auth.middleware';
+
+function toResponse(driver: {
+  id: string;
+  license_number: string;
+  phone: string;
+  name: string | null;
+  is_verified: boolean;
+  verified_at: Date | null;
+  verification_details: unknown;
+  is_active: boolean;
+  created_at: Date;
+  updated_at: Date;
+}): DriverResponse {
+  return {
+    id: driver.id,
+    license_number: driver.license_number,
+    phone: driver.phone,
+    name: driver.name,
+    is_verified: driver.is_verified,
+    verified_at: driver.verified_at?.toISOString() || null,
+    verification_details: (driver.verification_details as DriverResponse['verification_details']) ?? null,
+    is_active: driver.is_active,
+    created_at: driver.created_at.toISOString(),
+    updated_at: driver.updated_at.toISOString(),
+  };
+}
+
+export class DriverController {
+  async getAll(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const includeInactive = req.query.include_inactive === 'true';
+      const drivers = await driverDAO.findAll(includeInactive);
+      return ResponseHandler.success(res, drivers.map(toResponse));
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getById(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const id = validate<string>(uuidSchema, req.params.id);
+      const driver = await driverDAO.findById(id);
+      if (!driver) {
+        throw new NotFoundError('Driver not found');
+      }
+      return ResponseHandler.success(res, toResponse(driver));
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getByLicenseNumber(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const raw = req.params.licenseNumber;
+      if (!raw || typeof raw !== 'string') {
+        throw new NotFoundError('Driver not found');
+      }
+      const driver = await driverDAO.findByLicenseNumber(decodeURIComponent(raw));
+      if (!driver) {
+        throw new NotFoundError('Driver not found');
+      }
+      return ResponseHandler.success(res, toResponse(driver));
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async create(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const body = validate<CreateDriverDTO>(createDriverSchema, req.body);
+
+      const exists = await driverDAO.licenseNumberExists(body.license_number);
+      if (exists) {
+        throw new ConflictError('Driving license number already exists');
+      }
+
+      if (req.user) {
+        body.created_by = req.user.userId;
+      }
+
+      const created = await driverDAO.create(body);
+      return ResponseHandler.created(res, toResponse(created), 'Driver created successfully');
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async update(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const id = validate<string>(uuidSchema, req.params.id);
+      const body = validate<UpdateDriverDTO>(updateDriverSchema, req.body);
+
+      const existing = await driverDAO.findById(id);
+      if (!existing) {
+        throw new NotFoundError('Driver not found');
+      }
+
+      if (body.license_number !== undefined) {
+        const taken = await driverDAO.licenseNumberExists(body.license_number, id);
+        if (taken) {
+          throw new ConflictError('Driving license number already exists');
+        }
+      }
+
+      if (req.user) {
+        body.updated_by = req.user.userId;
+      }
+
+      const updated = await driverDAO.update(id, body);
+      if (!updated) {
+        throw new NotFoundError('Driver not found');
+      }
+      return ResponseHandler.success(res, toResponse(updated), 'Driver updated successfully');
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async delete(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const id = validate<string>(uuidSchema, req.params.id);
+
+      const existing = await driverDAO.findById(id);
+      if (!existing) {
+        throw new NotFoundError('Driver not found');
+      }
+
+      await driverDAO.softDelete(id);
+      return ResponseHandler.success(res, { id }, 'Driver deleted successfully');
+    } catch (error) {
+      next(error);
+    }
+  }
+}
+
+export const driverController = new DriverController();

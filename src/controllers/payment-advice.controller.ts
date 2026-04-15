@@ -23,6 +23,7 @@ import { CreatePaymentAdviceChargeDTO, PaymentAdviceChargeResponse } from '../mo
 import { AuthRequest } from '../middleware/auth.middleware';
 import { uploadToS3, validateFileSize, validateFileType } from '../utils/s3-upload';
 import { appConfig } from '../config/app.config';
+import { danaDeductionKgFromSaidSentWeight, floorToMoneyStep } from '../utils/money';
 
 export class PaymentAdviceController {
   async getAll(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
@@ -189,8 +190,12 @@ export class PaymentAdviceController {
         }
       }
 
-      // Set the calculated amount
-      paymentAdviceData.amount = calculatedAmount;
+      // Set the calculated amount (floor to whole rupees; same rule as purchase summary)
+      if (calculatedAmount !== undefined && calculatedAmount !== null) {
+        paymentAdviceData.amount = floorToMoneyStep(Number(calculatedAmount));
+      } else {
+        paymentAdviceData.amount = calculatedAmount;
+      }
 
       // Calculate dana_deduction and final_weight from kaanta data
       let totalKaantaWeight = 0;
@@ -211,7 +216,7 @@ export class PaymentAdviceController {
           
           // Calculate dana deduction only if is_dana_required is true
           if (shouldCalculateDana && totalSaidSentWeight > 0) {
-            danaDeduction = (totalSaidSentWeight * 300 / 1000) / 100;
+            danaDeduction = danaDeductionKgFromSaidSentWeight(totalSaidSentWeight);
           }
           
           // Calculate final weight: kaanta_weight - dana_deduction
@@ -269,8 +274,7 @@ export class PaymentAdviceController {
             
             // Calculate dana deduction only for this sauda if is_dana_required is true
             if (isDanaRequired && saudaSaidSentWeight > 0) {
-              const saudaDanaDeduction = (saudaSaidSentWeight * 300 / 1000) / 100;
-              totalDanaDeduction += saudaDanaDeduction;
+              totalDanaDeduction += danaDeductionKgFromSaidSentWeight(saudaSaidSentWeight);
             }
           }
           
@@ -424,7 +428,7 @@ export class PaymentAdviceController {
             
             // Calculate dana deduction only if is_dana_required is true
             if (shouldCalculateDana && totalSaidSentWeight > 0) {
-              danaDeduction = (totalSaidSentWeight * 300 / 1000) / 100;
+              danaDeduction = danaDeductionKgFromSaidSentWeight(totalSaidSentWeight);
             }
             
             netWeight = totalKaantaWeight - danaDeduction;
@@ -478,8 +482,7 @@ export class PaymentAdviceController {
               
               // Calculate dana deduction only for this sauda if is_dana_required is true
               if (isDanaRequired && saudaSaidSentWeight > 0) {
-                const saudaDanaDeduction = (saudaSaidSentWeight * 300 / 1000) / 100;
-                totalDanaDeduction += saudaDanaDeduction;
+                totalDanaDeduction += danaDeductionKgFromSaidSentWeight(saudaSaidSentWeight);
               }
             }
             
@@ -503,6 +506,10 @@ export class PaymentAdviceController {
       // Set updated_by from authenticated user
       if (req.user) {
         paymentAdviceData.updated_by = req.user.userId;
+      }
+
+      if (paymentAdviceData.amount !== undefined) {
+        paymentAdviceData.amount = floorToMoneyStep(paymentAdviceData.amount);
       }
 
       const paymentAdvice = await paymentAdviceDAO.update(id, paymentAdviceData);

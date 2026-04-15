@@ -15,7 +15,9 @@ import {
   PackagingResponse,
 } from '../models/packaging.model';
 import { createPackagingSchema, updatePackagingSchema, createPacketsInventorySchema } from '../utils/validators';
-import { NotFoundError, BadRequestError } from '../utils/errors';
+import { NotFoundError, BadRequestError, ValidationError, InternalServerError } from '../utils/errors';
+import { uploadToS3, validateFileSize, validateFileType } from '../utils/s3-upload';
+import { appConfig } from '../config/app.config';
 import { computeEmptyBagReceiptSnapshot } from '../utils/empty-bag-cost';
 import { godownDAO } from '../dao/godown.dao';
 import type { PackagingGodownInventoryRow } from '../dao/packets-inventory.dao';
@@ -48,6 +50,9 @@ export class PackagingController {
       empty_bags_taxable_amount: pkg.empty_bags_taxable_amount,
       empty_bags_gst_amount: pkg.empty_bags_gst_amount,
       empty_bags_total_amount: pkg.empty_bags_total_amount,
+      bill_number: pkg.bill_number,
+      bill_date: pkg.bill_date ? pkg.bill_date.toISOString().split('T')[0] : null,
+      packaging_bill_url: pkg.packaging_bill_url,
       created_at: pkg.created_at.toISOString(),
       updated_at: pkg.updated_at.toISOString(),
       packets_inventory,
@@ -191,6 +196,72 @@ export class PackagingController {
       const packagingResponse = this.toPackagingResponse(packaging, summaries);
 
       return ResponseHandler.success(res, packagingResponse, 'Packaging updated successfully');
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Upload packaging bill (PDF or image) to S3; optional bill_number and bill_date in multipart body.
+   */
+  async uploadPackagingBill(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const id = validate<string>(uuidSchema, req.params.id);
+
+      if (!req.file) {
+        throw new ValidationError('File is required');
+      }
+
+      validateFileSize(req.file.size, 10);
+      validateFileType(req.file.mimetype, [
+        'image/jpeg',
+        'image/jpg',
+        'image/png',
+        'image/gif',
+        'application/pdf',
+      ]);
+
+      const existing = await packagingDAO.findById(id);
+      if (!existing) {
+        throw new NotFoundError('Packaging not found');
+      }
+
+      let uploadResult;
+      try {
+        uploadResult = await uploadToS3(
+          req.file.buffer,
+          req.file.originalname,
+          appConfig.aws.s3.packagingBillsFolder
+        );
+      } catch {
+        throw new InternalServerError('Failed to upload packaging bill. Please try again.');
+      }
+
+      const updateData: UpdatePackagingDTO = {
+        packaging_bill_url: uploadResult.url,
+        updated_by: req.user?.userId,
+      };
+
+      if (req.body.bill_number !== undefined && req.body.bill_number !== '') {
+        updateData.bill_number = req.body.bill_number;
+      }
+      if (req.body.bill_date !== undefined && req.body.bill_date !== '') {
+        updateData.bill_date = req.body.bill_date;
+      }
+
+      const packaging = await packagingDAO.update(id, updateData);
+      if (!packaging) {
+        throw new NotFoundError('Packaging not found');
+      }
+
+      const summaries = await packetsInventoryDAO.findGodownSummariesByPackagingIds([packaging.id]);
+      const packagingResponse = this.toPackagingResponse(packaging, summaries);
+
+      return ResponseHandler.success(
+        res,
+        { url: uploadResult.url, packaging: packagingResponse },
+        'Packaging bill uploaded successfully'
+      );
     } catch (error) {
       next(error);
     }

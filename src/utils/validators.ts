@@ -84,7 +84,7 @@ export const updateSalesmanSchema = Joi.object({
 }).min(1);
 
 // Address validation schema (reusable)
-const addressSchema = Joi.object({
+export const addressSchema = Joi.object({
   street: Joi.string().required().max(255),
   city: Joi.string().required().max(100),
   state: Joi.string().required().max(100),
@@ -609,6 +609,8 @@ export const createLotSchema = Joi.object({
   bill_weight: Joi.number().required().min(0).precision(2),
   received_weight: Joi.number().required().min(0).precision(2),
   rate: Joi.number().required().min(0).precision(2),
+  /** Set only by server (kaanta flow); clients must not send */
+  inward_slip_pass_created_at: Joi.forbidden(),
   created_by: Joi.string().optional().uuid(),
 });
 
@@ -988,6 +990,11 @@ export const createPackagingSchema = Joi.object({
     then: Joi.number().required().min(0).max(100).precision(2),
     otherwise: Joi.number().optional().allow(null).min(0).max(100).precision(2),
   }),
+  bill_number: Joi.string().optional().allow(null, '').max(255),
+  bill_date: Joi.alternatives()
+    .try(Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/), Joi.valid(null, ''))
+    .optional(),
+  packaging_bill_url: Joi.string().optional().allow(null, '').uri(),
   created_by: Joi.string().optional().uuid(),
 });
 
@@ -999,6 +1006,11 @@ export const updatePackagingSchema = Joi.object({
   empty_bag_weight_kg: Joi.number().optional().positive().precision(4),
   empty_bag_rate_per_kg: Joi.number().optional().min(0).precision(4),
   empty_bag_gst_percent: Joi.number().optional().min(0).max(100).precision(2),
+  bill_number: Joi.string().optional().allow(null, '').max(255),
+  bill_date: Joi.alternatives()
+    .try(Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/), Joi.valid(null, ''))
+    .optional(),
+  packaging_bill_url: Joi.string().optional().allow(null, '').uri(),
   updated_by: Joi.string().optional().uuid(),
 }).min(1);
 
@@ -1111,6 +1123,76 @@ export const createPacketsInventorySchema = Joi.object({
 export const updatePacketsInventorySchema = Joi.object({
   available_quantity: Joi.number().optional().integer().min(0),
   updated_by: Joi.string().optional().uuid(),
+}).min(1);
+
+/** Additional addresses per vendor (table vendor_sites); shape matches vendors.address */
+export const createVendorSiteSchema = Joi.object({
+  vendor_id: Joi.string().required().uuid(),
+  name: Joi.string().optional().allow(null, '').max(255),
+  address: addressSchema.required(),
+  google_location_link: Joi.string().optional().allow(null, '').max(2000),
+  is_active: Joi.boolean().optional(),
+});
+
+export const updateVendorSiteSchema = Joi.object({
+  name: Joi.string().optional().allow(null, '').max(255),
+  address: addressSchema.optional(),
+  google_location_link: Joi.string().optional().allow(null, '').max(2000),
+  is_active: Joi.boolean().optional(),
+}).min(1);
+
+/** Additional addresses per sales party (table sales_party_sites); shape matches sales_parties.address */
+export const createSalesPartySiteSchema = Joi.object({
+  sales_party_id: Joi.string().required().uuid(),
+  name: Joi.string().optional().allow(null, '').max(255),
+  address: addressSchema.required(),
+  google_location_link: Joi.string().optional().allow(null, '').max(2000),
+  is_active: Joi.boolean().optional(),
+});
+
+export const updateSalesPartySiteSchema = Joi.object({
+  name: Joi.string().optional().allow(null, '').max(255),
+  address: addressSchema.optional(),
+  google_location_link: Joi.string().optional().allow(null, '').max(2000),
+  is_active: Joi.boolean().optional(),
+}).min(1);
+
+const driverLicenseSchema = Joi.string()
+  .required()
+  .trim()
+  .min(5)
+  .max(50)
+  .pattern(/^[A-Za-z0-9\-/\s]+$/, 'driving license number');
+
+const driverPhoneSchema = Joi.string()
+  .required()
+  .custom((value, helpers) => {
+    const digits = value.replace(/\D/g, '');
+    if ((digits.startsWith('91') && digits.length === 12) || digits.length === 10) {
+      return value;
+    }
+    return helpers.error('string.pattern.base', { name: 'phone' });
+  }, 'Indian phone validation');
+
+/** Drivers table — Surepass DL verification wired in a follow-up */
+export const createDriverSchema = Joi.object({
+  license_number: driverLicenseSchema,
+  phone: driverPhoneSchema,
+  name: Joi.string().optional().allow(null, '').min(1).max(255),
+  is_verified: Joi.boolean().optional(),
+  verified_at: Joi.string().optional().allow(null, ''),
+  verification_details: Joi.any().optional().allow(null),
+  is_active: Joi.boolean().optional(),
+});
+
+export const updateDriverSchema = Joi.object({
+  license_number: driverLicenseSchema.optional(),
+  phone: driverPhoneSchema.optional(),
+  name: Joi.string().optional().allow(null, '').min(1).max(255),
+  is_verified: Joi.boolean().optional(),
+  verified_at: Joi.string().optional().allow(null, ''),
+  verification_details: Joi.any().optional().allow(null),
+  is_active: Joi.boolean().optional(),
 }).min(1);
 
 

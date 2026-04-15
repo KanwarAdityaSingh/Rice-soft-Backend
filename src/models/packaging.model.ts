@@ -17,6 +17,9 @@ export interface Packaging {
   empty_bags_taxable_amount: number | null;
   empty_bags_gst_amount: number | null;
   empty_bags_total_amount: number | null;
+  bill_number: string | null;
+  bill_date: Date | null;
+  packaging_bill_url: string | null;
   created_at: Date;
   updated_at: Date;
   created_by: string | null;
@@ -40,6 +43,9 @@ export interface CreatePackagingDTO {
   empty_bag_rate_per_kg?: number;
   /** Required when initial_packets > 0 — GST % (0–100). */
   empty_bag_gst_percent?: number;
+  bill_number?: string | null;
+  bill_date?: string | null;
+  packaging_bill_url?: string | null;
   created_by?: string;
 }
 
@@ -51,6 +57,9 @@ export interface UpdatePackagingDTO {
   empty_bag_weight_kg?: number | null;
   empty_bag_rate_per_kg?: number | null;
   empty_bag_gst_percent?: number | null;
+  bill_number?: string | null;
+  bill_date?: string | null;
+  packaging_bill_url?: string | null;
   updated_by?: string;
 }
 
@@ -76,6 +85,9 @@ export interface PackagingResponse {
   empty_bags_taxable_amount: number | null;
   empty_bags_gst_amount: number | null;
   empty_bags_total_amount: number | null;
+  bill_number: string | null;
+  bill_date: string | null;
+  packaging_bill_url: string | null;
   created_at: string;
   updated_at: string;
   /** Empty-packet inventory per godown (one row per godown that holds stock). */

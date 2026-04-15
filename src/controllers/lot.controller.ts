@@ -12,9 +12,37 @@ import {
 import {
   NotFoundError,
 } from '../utils/errors';
-import { CreateInwardSlipLotDTO, UpdateInwardSlipLotDTO, InwardSlipLotResponse } from '../models/inward-slip-lot.model';
+import {
+  CreateInwardSlipLotDTO,
+  UpdateInwardSlipLotDTO,
+  InwardSlipLot,
+  InwardSlipLotResponse,
+} from '../models/inward-slip-lot.model';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { godownService } from '../services/godown.service';
+
+function toInwardSlipLotResponse(lot: InwardSlipLot): InwardSlipLotResponse {
+  return {
+    id: lot.id,
+    sauda_id: lot.sauda_id,
+    godown_id: lot.godown_id,
+    lot_number: lot.lot_number,
+    rice_code_id: lot.rice_code_id,
+    rice_type: lot.rice_type,
+    no_of_bags: lot.no_of_bags,
+    bag_weight: lot.bag_weight ? parseFloat(lot.bag_weight.toString()) : null,
+    total_weight: lot.total_weight ? parseFloat(lot.total_weight.toString()) : null,
+    bill_weight: parseFloat(lot.bill_weight.toString()),
+    received_weight: parseFloat(lot.received_weight.toString()),
+    rate: parseFloat(lot.rate.toString()),
+    amount: lot.amount ? parseFloat(lot.amount.toString()) : null,
+    inward_slip_pass_created_at: lot.inward_slip_pass_created_at
+      ? lot.inward_slip_pass_created_at.toISOString()
+      : null,
+    created_at: lot.created_at.toISOString(),
+    updated_at: lot.updated_at.toISOString(),
+  };
+}
 
 export class LotController {
   async getAll(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
@@ -24,23 +52,7 @@ export class LotController {
       
       const lots = await inwardSlipLotDAO.findAll(saudaId, godownId);
 
-      const lotResponses: InwardSlipLotResponse[] = lots.map((lot) => ({
-        id: lot.id,
-        sauda_id: lot.sauda_id,
-        godown_id: lot.godown_id,
-        lot_number: lot.lot_number,
-        rice_code_id: lot.rice_code_id,
-        rice_type: lot.rice_type,
-        no_of_bags: lot.no_of_bags,
-        bag_weight: lot.bag_weight ? parseFloat(lot.bag_weight.toString()) : null,
-        total_weight: lot.total_weight ? parseFloat(lot.total_weight.toString()) : null,
-        bill_weight: parseFloat(lot.bill_weight.toString()),
-        received_weight: parseFloat(lot.received_weight.toString()),
-        rate: parseFloat(lot.rate.toString()),
-        amount: lot.amount ? parseFloat(lot.amount.toString()) : null,
-        created_at: lot.created_at.toISOString(),
-        updated_at: lot.updated_at.toISOString(),
-      }));
+      const lotResponses: InwardSlipLotResponse[] = lots.map((lot) => toInwardSlipLotResponse(lot));
 
       return ResponseHandler.success(res, lotResponses);
     } catch (error) {
@@ -57,25 +69,7 @@ export class LotController {
         throw new NotFoundError('Lot not found');
       }
 
-      const lotResponse: InwardSlipLotResponse = {
-        id: lot.id,
-        sauda_id: lot.sauda_id,
-        godown_id: lot.godown_id,
-        lot_number: lot.lot_number,
-        rice_code_id: lot.rice_code_id,
-        rice_type: lot.rice_type,
-        no_of_bags: lot.no_of_bags,
-        bag_weight: lot.bag_weight ? parseFloat(lot.bag_weight.toString()) : null,
-        total_weight: lot.total_weight ? parseFloat(lot.total_weight.toString()) : null,
-        bill_weight: parseFloat(lot.bill_weight.toString()),
-        received_weight: parseFloat(lot.received_weight.toString()),
-        rate: parseFloat(lot.rate.toString()),
-        amount: lot.amount ? parseFloat(lot.amount.toString()) : null,
-        created_at: lot.created_at.toISOString(),
-        updated_at: lot.updated_at.toISOString(),
-      };
-
-      return ResponseHandler.success(res, lotResponse);
+      return ResponseHandler.success(res, toInwardSlipLotResponse(lot));
     } catch (error) {
       next(error);
     }
@@ -107,25 +101,7 @@ export class LotController {
 
       const lot = await inwardSlipLotDAO.create(lotData);
 
-      const lotResponse: InwardSlipLotResponse = {
-        id: lot.id,
-        sauda_id: lot.sauda_id,
-        godown_id: lot.godown_id,
-        lot_number: lot.lot_number,
-        rice_code_id: lot.rice_code_id,
-        rice_type: lot.rice_type,
-        no_of_bags: lot.no_of_bags,
-        bag_weight: lot.bag_weight ? parseFloat(lot.bag_weight.toString()) : null,
-        total_weight: lot.total_weight ? parseFloat(lot.total_weight.toString()) : null,
-        bill_weight: parseFloat(lot.bill_weight.toString()),
-        received_weight: parseFloat(lot.received_weight.toString()),
-        rate: parseFloat(lot.rate.toString()),
-        amount: lot.amount ? parseFloat(lot.amount.toString()) : null,
-        created_at: lot.created_at.toISOString(),
-        updated_at: lot.updated_at.toISOString(),
-      };
-
-      return ResponseHandler.created(res, lotResponse, 'Lot created successfully');
+      return ResponseHandler.created(res, toInwardSlipLotResponse(lot), 'Lot created successfully');
     } catch (error) {
       next(error);
     }
@@ -155,25 +131,7 @@ export class LotController {
         throw new NotFoundError('Lot not found after update');
       }
 
-      const lotResponse: InwardSlipLotResponse = {
-        id: lot.id,
-        sauda_id: lot.sauda_id,
-        godown_id: lot.godown_id,
-        lot_number: lot.lot_number,
-        rice_code_id: lot.rice_code_id,
-        rice_type: lot.rice_type,
-        no_of_bags: lot.no_of_bags,
-        bag_weight: lot.bag_weight ? parseFloat(lot.bag_weight.toString()) : null,
-        total_weight: lot.total_weight ? parseFloat(lot.total_weight.toString()) : null,
-        bill_weight: parseFloat(lot.bill_weight.toString()),
-        received_weight: parseFloat(lot.received_weight.toString()),
-        rate: parseFloat(lot.rate.toString()),
-        amount: lot.amount ? parseFloat(lot.amount.toString()) : null,
-        created_at: lot.created_at.toISOString(),
-        updated_at: lot.updated_at.toISOString(),
-      };
-
-      return ResponseHandler.success(res, lotResponse, 'Lot updated successfully');
+      return ResponseHandler.success(res, toInwardSlipLotResponse(lot), 'Lot updated successfully');
     } catch (error) {
       next(error);
     }

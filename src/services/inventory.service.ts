@@ -26,6 +26,9 @@ function mapPackagingForPacketsInventory(packaging: Packaging) {
     empty_bags_taxable_amount: packaging.empty_bags_taxable_amount,
     empty_bags_gst_amount: packaging.empty_bags_gst_amount,
     empty_bags_total_amount: packaging.empty_bags_total_amount,
+    bill_number: packaging.bill_number,
+    bill_date: packaging.bill_date ? packaging.bill_date.toISOString().split('T')[0] : null,
+    packaging_bill_url: packaging.packaging_bill_url,
   };
 }
 

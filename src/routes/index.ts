@@ -31,6 +31,9 @@ import inventoryLedgerRoutes from './inventory-ledger.routes';
 import creditNoteRoutes from './credit-note.routes';
 import suggestedRateRoutes from './suggested-rate.routes';
 import godownRoutes from './godown.routes';
+import vendorSiteRoutes from './vendor-site.routes';
+import salesPartySiteRoutes from './sales-party-site.routes';
+import driverRoutes from './driver.routes';
 
 const router = Router();
 
@@ -76,6 +79,9 @@ router.use('/inventory-ledger', inventoryLedgerRoutes);
 router.use('/credit-notes', creditNoteRoutes);
 router.use('/suggested-rate', suggestedRateRoutes);
 router.use('/godowns', godownRoutes);
+router.use('/sites', vendorSiteRoutes);
+router.use('/sales-party-sites', salesPartySiteRoutes);
+router.use('/drivers', driverRoutes);
 
 export default router;
 

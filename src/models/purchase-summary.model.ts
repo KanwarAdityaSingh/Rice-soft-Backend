@@ -20,9 +20,9 @@ export interface PurchaseSummary {
   cash_discount_amount: number;
   amount_after_discount: number; // base_amount - cash_discount
   
-  // Step 3: Broker commission
+  // Step 3: Broker commission (deducted from vendor payable)
   broker_commission_amount: number;
-  amount_after_commission: number; // amount_after_discount + broker_commission
+  amount_after_commission: number; // amount_after_discount - broker_commission (error if commission is larger)
   
   // Step 4: Transportation
   transportation_cost: number; // Sum from linked ISPs
@@ -88,6 +88,8 @@ export interface LotSummaryDetails {
   received_weight: number;
   rate: number;
   amount: number | null;
+  /** ISO timestamp from lot.inward_slip_pass_created_at when set */
+  inward_slip_pass_created_at: string | null;
 }
 
 export interface SaudaBreakdown {
@@ -202,6 +204,7 @@ export interface KaantaPurchaseLotRow {
   received_weight: number;
   rate: number;
   amount: number | null;
+  inward_slip_pass_created_at: string | null;
 }
 
 export interface KaantaPurchaseIspDetail {
