@@ -25,3 +25,37 @@ export function danaDeductionKgFromSaidSentWeight(saidSentWeight: number): numbe
   const rawKg = (saidSentWeight * 300 / 1000) / 100;
   return Math.ceil(rawKg - EPS);
 }
+
+export type KaantaPricingWeightInput = {
+  totalKaantaWeight: number;
+  /** Sum of lot bill_weight for the sauda (same scope as purchase summary lots). */
+  totalBillWeight: number;
+  totalSaidSentWeight: number;
+  isDanaRequired: boolean;
+};
+
+export type KaantaPricingWeightResult = {
+  /** Weight before dana: min(kaanta, bill) when bill > 0, else kaanta-only. */
+  grossWeightBeforeDana: number;
+  danaDeductionKg: number;
+  netWeightForPricing: number;
+};
+
+/**
+ * Commercial net weight for rate × weight pricing when kaanta exists.
+ * Uses min(kaanta, bill) then subtracts dana when required (same dana formula as {@link danaDeductionKgFromSaidSentWeight}).
+ * If totalBillWeight is 0 or missing, bill does not cap kaanta (backward compatible when lots have no bill yet).
+ */
+export function computeKaantaPricingNetWeight(input: KaantaPricingWeightInput): KaantaPricingWeightResult {
+  const kaanta = Number.isFinite(input.totalKaantaWeight) ? Math.max(input.totalKaantaWeight, 0) : 0;
+  const bill = Number.isFinite(input.totalBillWeight) ? Math.max(input.totalBillWeight, 0) : 0;
+  const said = Number.isFinite(input.totalSaidSentWeight) ? Math.max(input.totalSaidSentWeight, 0) : 0;
+
+  const danaDeductionKg =
+    input.isDanaRequired && said > 0 ? danaDeductionKgFromSaidSentWeight(said) : 0;
+
+  const grossWeightBeforeDana = bill > 0 ? Math.min(kaanta, bill) : kaanta;
+  const netWeightForPricing = Math.max(grossWeightBeforeDana - danaDeductionKg, 0);
+
+  return { grossWeightBeforeDana, danaDeductionKg, netWeightForPricing };
+}

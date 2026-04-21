@@ -1,9 +1,229 @@
+import type { PoolClient } from 'pg';
 import { db } from '../database/connection';
-import { Kaanta, CreateKaantaDTO, UpdateKaantaDTO } from '../models/kaanta.model';
+import { Kaanta, CreateKaantaDTO, UpdateKaantaDTO, type BagType } from '../models/kaanta.model';
 import { logger } from '../utils/logger';
+import { BadRequestError } from '../utils/errors';
 import { saudaDAO } from './sauda.dao';
 import { inwardSlipPassDAO } from './inward-slip-pass.dao';
 import { CreateInwardSlipLotDTO } from '../models/inward-slip-lot.model';
+
+function toNumber(value: unknown): number {
+  return parseFloat(String(value ?? 0));
+}
+
+/**
+ * Apply a delta to filled_bags for one (godown, bag_type, bag_capacity) bucket.
+ *
+ * Uses UPDATE-first so a negative delta never hits INSERT (which would create a "new row" with
+ * negative filled_bags and fail `bags_inventory_filled_bags_check` before ON CONFLICT UPDATE runs).
+ */
+async function applyBagsFilledDelta(
+  client: PoolClient,
+  godownId: string,
+  bagType: BagType,
+  bagCapacity: number,
+  filledDelta: number,
+  updatedBy: string | null
+): Promise<void> {
+  if (filledDelta === 0) {
+    return;
+  }
+
+  const updated = await client.query(
+    `
+    UPDATE bags_inventory SET
+      filled_bags = filled_bags + $1,
+      updated_at = CURRENT_TIMESTAMP,
+      updated_by = COALESCE($5, updated_by)
+    WHERE godown_id = $2 AND bag_type = $3 AND bag_capacity = $4
+      AND ($1 >= 0 OR filled_bags + $1 >= 0)
+    `,
+    [filledDelta, godownId, bagType, bagCapacity, updatedBy]
+  );
+
+  if ((updated.rowCount ?? 0) > 0) {
+    return;
+  }
+
+  if (filledDelta < 0) {
+    throw new BadRequestError(
+      `Cannot change kaanta bags: would remove ${Math.abs(filledDelta)} filled bag(s) from inventory ` +
+        `for godown ${godownId}, type ${bagType}, capacity ${bagCapacity} kg, but not enough (or no) ` +
+        `filled bags are recorded in bags_inventory. Reduce counts only as far as inventory allows, ` +
+        `or fix bags_inventory if it is out of sync.`
+    );
+  }
+
+  await client.query(
+    `
+    INSERT INTO bags_inventory (godown_id, bag_type, bag_capacity, filled_bags, empty_bags, created_by, updated_by)
+    VALUES ($1, $2, $3, $4, 0, $5, $5)
+    ON CONFLICT (godown_id, bag_type, bag_capacity)
+    DO UPDATE SET
+      filled_bags = bags_inventory.filled_bags + EXCLUDED.filled_bags,
+      updated_at = CURRENT_TIMESTAMP,
+      updated_by = COALESCE(EXCLUDED.updated_by, bags_inventory.updated_by)
+    `,
+    [godownId, bagType, bagCapacity, filledDelta, updatedBy]
+  );
+}
+
+/**
+ * Same net effect as create: undo what this kaanta’s prior row added to bags_inventory, then add the
+ * updated row’s bag count (two steps even when bag_type/capacity unchanged — equivalent to one delta).
+ */
+async function reconcileBagsInventoryOnKaantaEdit(
+  client: PoolClient,
+  previous: Kaanta,
+  updated: Kaanta,
+  updatedBy: string | null
+): Promise<void> {
+  const godownId = updated.godown_id;
+  await applyBagsFilledDelta(
+    client,
+    godownId,
+    previous.bag_type,
+    toNumber(previous.bag_weight),
+    -previous.no_of_bags,
+    updatedBy
+  );
+  await applyBagsFilledDelta(
+    client,
+    godownId,
+    updated.bag_type,
+    toNumber(updated.bag_weight),
+    updated.no_of_bags,
+    updatedBy
+  );
+}
+
+/** Keeps `LOT-{kaanta_id}` inward slip lot and lot_inventory aligned with kaanta + current sauda (same as create). */
+async function syncKaantaLinkedLotAndInventory(
+  client: PoolClient,
+  updated: Kaanta,
+  saudaRow: {
+    quantity: unknown;
+    rate: unknown;
+    rice_code_id: string | null;
+    rice_type: string | null;
+  },
+  updatedBy: string | null
+): Promise<void> {
+  const lotNumber = `LOT-${updated.kaanta_id}`;
+  const lotRes = await client.query<{ id: string; received_weight: string }>(
+    `SELECT id, received_weight FROM inward_slip_lots WHERE sauda_id = $1 AND lot_number = $2 FOR UPDATE`,
+    [updated.sauda_id, lotNumber]
+  );
+  if (lotRes.rows.length === 0) {
+    logger.warn('Kaanta updated but no kaanta-linked inward_slip_lots row', {
+      sauda_id: updated.sauda_id,
+      lotNumber,
+    });
+    return;
+  }
+
+  const lotId = lotRes.rows[0].id;
+  const oldReceived = toNumber(lotRes.rows[0].received_weight);
+  const newReceived = toNumber(updated.kaanta_weight);
+  const billWeight = toNumber(saudaRow.quantity);
+  const rate = toNumber(saudaRow.rate);
+  const weightDelta = newReceived - oldReceived;
+
+  await client.query(
+    `
+    UPDATE inward_slip_lots SET
+      no_of_bags = $1,
+      bag_weight = $2,
+      bill_weight = $3,
+      received_weight = $4,
+      rate = $5,
+      rice_code_id = $6,
+      rice_type = $7,
+      godown_id = $8,
+      updated_by = $9,
+      updated_at = CURRENT_TIMESTAMP
+    WHERE id = $10
+    `,
+    [
+      updated.no_of_bags,
+      updated.bag_weight,
+      billWeight,
+      newReceived,
+      rate,
+      saudaRow.rice_code_id,
+      saudaRow.rice_type,
+      updated.godown_id,
+      updatedBy,
+      lotId,
+    ]
+  );
+
+  const liRes = await client.query<{ id: string; available_quantity: string }>(
+    `SELECT id, available_quantity FROM lot_inventory WHERE lot_id = $1 FOR UPDATE`,
+    [lotId]
+  );
+
+  if (liRes.rows.length === 0) {
+    await client.query(
+      `
+      INSERT INTO lot_inventory (lot_id, godown_id, available_quantity, created_by, updated_by)
+      VALUES ($1, $2, $3, $4, $4)
+      `,
+      [lotId, updated.godown_id, newReceived, updatedBy]
+    );
+    return;
+  }
+
+  const liId = liRes.rows[0].id;
+  const quantityBefore = toNumber(liRes.rows[0].available_quantity);
+  // Re-state receipt like create, but keep kg already consumed by production: same as
+  // new_received - (old_received - available) === available + (new_received - old_received).
+  const rawUsedKg = oldReceived - quantityBefore;
+  const usedFromLotKg = Math.max(0, Math.min(oldReceived, rawUsedKg));
+  const quantityAfter = newReceived - usedFromLotKg;
+  if (quantityAfter < -0.0001) {
+    throw new BadRequestError(
+      `Cannot update kaanta: linked lot stock would become negative (${quantityAfter.toFixed(3)} kg). ` +
+        'Reduce batch usage or correct weighments in smaller steps.'
+    );
+  }
+
+  await client.query(
+    `
+    UPDATE lot_inventory SET
+      available_quantity = $1,
+      godown_id = $2,
+      updated_by = $3,
+      updated_at = CURRENT_TIMESTAMP
+    WHERE id = $4
+    `,
+    [quantityAfter, updated.godown_id, updatedBy, liId]
+  );
+
+  if (Math.abs(weightDelta) > 0.0001) {
+    await client.query(
+      `
+      INSERT INTO lot_inventory_audit (
+        lot_inventory_id, lot_id, operation_type, quantity_change,
+        quantity_before, quantity_after, reason, reference_type,
+        reference_id, batch_id, batch_number, notes, created_by
+      )
+      VALUES ($1, $2, 'adjustment', $3, $4, $5, $6, 'kaanta', $7, NULL, NULL, $8, $9)
+      `,
+      [
+        liId,
+        lotId,
+        weightDelta,
+        quantityBefore,
+        quantityAfter,
+        'Kaanta update: lot receipt re-stated; consumed quantity preserved',
+        updated.id,
+        `Lot ${lotNumber} | received ${oldReceived} → ${newReceived} kg, available ${quantityBefore.toFixed(3)} → ${quantityAfter.toFixed(3)} kg (used from lot ${usedFromLotKg.toFixed(3)} kg)`,
+        updatedBy,
+      ]
+    );
+  }
+}
 
 export class KaantaDAO {
   async findAll(saudaId?: string, ispId?: string, godownId?: string): Promise<Kaanta[]> {
@@ -234,23 +454,65 @@ export class KaantaDAO {
                 created_at, updated_at, created_by, updated_by
     `;
 
+    const client = await db.getClient();
     try {
-      const result = await db.query<Kaanta>(query, values);
-      if (result.rows.length === 0) {
+      await client.query('BEGIN');
+
+      const prevRes = await client.query<Kaanta>(
+        `SELECT id, kaanta_id, godown_id, sauda_id, inward_slip_pass_id, full_truck_weight,
+                empty_truck_weight, kaanta_weight, said_sent_weight, bag_weight, no_of_bags, bag_type,
+                khaali_kaanta_parchi_url, bhara_kaanta_parchi_url,
+                created_at, updated_at, created_by, updated_by
+         FROM kaantas WHERE id = $1 FOR UPDATE`,
+        [id]
+      );
+      if (prevRes.rows.length === 0) {
+        await client.query('ROLLBACK');
         return null;
       }
-      
+      const previous = prevRes.rows[0];
+
+      const result = await client.query<Kaanta>(query, values);
+      if (result.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return null;
+      }
       const updatedKaanta = result.rows[0];
-      logger.info('Kaanta updated', { id, kaanta_weight: updatedKaanta.kaanta_weight });
-      
-      // Recalculate sauda's received_until_now and completion_percentage
-      // Always recalculate since kaanta_weight is auto-calculated by trigger and may have changed
+
+      const saudaRes = await client.query<{
+        quantity: unknown;
+        rate: unknown;
+        rice_code_id: string | null;
+        rice_type: string | null;
+      }>(`SELECT quantity, rate, rice_code_id, rice_type FROM saudas WHERE id = $1`, [updatedKaanta.sauda_id]);
+      if (saudaRes.rows.length === 0) {
+        throw new Error(`Sauda not found for kaanta: ${updatedKaanta.sauda_id}`);
+      }
+
+      const syncUserId = (kaantaData.updated_by ?? updatedKaanta.updated_by) || null;
+
+      await syncKaantaLinkedLotAndInventory(client, updatedKaanta, saudaRes.rows[0], syncUserId);
+      await reconcileBagsInventoryOnKaantaEdit(client, previous, updatedKaanta, syncUserId);
+
+      await client.query('COMMIT');
+
+      logger.info('Kaanta updated (linked lot + inventory reconciled)', {
+        id,
+        kaanta_weight: updatedKaanta.kaanta_weight,
+      });
+
       await saudaDAO.recalculateReceivedWeight(updatedKaanta.sauda_id);
-      
       return updatedKaanta;
     } catch (error) {
+      try {
+        await client.query('ROLLBACK');
+      } catch {
+        /* ignore rollback errors (e.g. if BEGIN never completed) */
+      }
       logger.error('Error updating kaanta', { error, id });
       throw error;
+    } finally {
+      client.release();
     }
   }
 

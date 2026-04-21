@@ -46,6 +46,19 @@ export class InwardSlipLotDAO {
     return result.rows[0] || null;
   }
 
+  /** Kaanta-linked lots use `LOT-{kaanta_id}` (see {@link KaantaDAO.create}). */
+  async findBySaudaIdAndLotNumber(saudaId: string, lotNumber: string): Promise<InwardSlipLot | null> {
+    const query = `
+      SELECT id, sauda_id, godown_id, lot_number, rice_code_id, rice_type, no_of_bags, bag_weight, total_weight,
+             bill_weight, received_weight, rate, amount, inward_slip_pass_created_at,
+             created_at, updated_at, created_by, updated_by
+      FROM inward_slip_lots
+      WHERE sauda_id = $1 AND lot_number = $2
+    `;
+    const result = await db.query<InwardSlipLot>(query, [saudaId, lotNumber]);
+    return result.rows[0] || null;
+  }
+
   async create(inwardSlipLotData: CreateInwardSlipLotDTO): Promise<InwardSlipLot> {
     const query = `
       INSERT INTO inward_slip_lots (sauda_id, godown_id, lot_number, rice_code_id, rice_type, no_of_bags, bag_weight,
@@ -177,6 +190,22 @@ export class InwardSlipLotDAO {
       logger.info('Inward slip lot deleted', { id });
     }
     return deleted;
+  }
+
+  /** Sum of bill_weight for purchase-summary / kaanta pricing (optional godown scope). */
+  async sumBillWeightForSauda(saudaId: string, godownId?: string): Promise<number> {
+    let query = `
+      SELECT COALESCE(SUM(bill_weight::numeric), 0)::text AS total
+      FROM inward_slip_lots
+      WHERE sauda_id = $1
+    `;
+    const params: unknown[] = [saudaId];
+    if (godownId) {
+      query += ` AND godown_id = $2`;
+      params.push(godownId);
+    }
+    const result = await db.query<{ total: string }>(query, params);
+    return parseFloat(result.rows[0]?.total || '0');
   }
 }
 

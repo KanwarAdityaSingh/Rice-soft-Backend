@@ -19,7 +19,7 @@ import {
 } from '../models/purchase-summary.model';
 import { logger } from '../utils/logger';
 import { formatSaudaDisplayId } from '../utils/sauda-display';
-import { danaDeductionKgFromSaidSentWeight, floorToMoneyStep } from '../utils/money';
+import { computeKaantaPricingNetWeight, floorToMoneyStep } from '../utils/money';
 import { ValidationError } from '../utils/errors';
 import type { RiceType } from '../models/lead.model';
 
@@ -189,8 +189,12 @@ export class PurchaseSummaryDAO {
 
     const transportationCost = isps.reduce((sum, isp) => sum + parseFloat(isp.transportation_cost || '0'), 0);
 
-    // Price calculation uses net receivable weight when dana applies:
-    // net weight = total kaanta weight - dana deduction (300gm per quintal on said_sent_weight, ceiled to whole kg).
+    // Price calculation when kaanta exists: weight = min(kaanta, sum lot bill_weight) − dana (if required).
+    const totalBillWeight = lots.reduce(
+      (sum, lot) => sum + parseFloat(String(lot.bill_weight ?? '0')),
+      0
+    );
+
     const kaantaParams: unknown[] = [saudaId];
     let kaantaQuery = `
       SELECT kaanta_weight, said_sent_weight
@@ -208,10 +212,12 @@ export class PurchaseSummaryDAO {
     let baseAmountOverride: number | undefined;
     if (totalKaantaWeight > 0) {
       const shouldApplyDana = sauda.is_dana_required ?? false;
-      const danaDeduction = shouldApplyDana && totalSaidSentWeight > 0
-        ? danaDeductionKgFromSaidSentWeight(totalSaidSentWeight)
-        : 0;
-      const netWeightForPricing = Math.max(totalKaantaWeight - danaDeduction, 0);
+      const { netWeightForPricing } = computeKaantaPricingNetWeight({
+        totalKaantaWeight,
+        totalBillWeight,
+        totalSaidSentWeight,
+        isDanaRequired: shouldApplyDana,
+      });
       const saudaRate = parseFloat(String(sauda.rate || '0'));
       baseAmountOverride = netWeightForPricing * saudaRate;
     }

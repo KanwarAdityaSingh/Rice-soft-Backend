@@ -6,6 +6,7 @@ import { saudaDAO } from '../dao/sauda.dao';
 import { inwardSlipPassDAO } from '../dao/inward-slip-pass.dao';
 import { vendorDAO } from '../dao/vendor.dao';
 import { kaantaDAO } from '../dao/kaanta.dao';
+import { inwardSlipLotDAO } from '../dao/inward-slip-lot.dao';
 import { ResponseHandler } from '../utils/response';
 import {
   validate,
@@ -23,7 +24,7 @@ import { CreatePaymentAdviceChargeDTO, PaymentAdviceChargeResponse } from '../mo
 import { AuthRequest } from '../middleware/auth.middleware';
 import { uploadToS3, validateFileSize, validateFileType } from '../utils/s3-upload';
 import { appConfig } from '../config/app.config';
-import { danaDeductionKgFromSaidSentWeight, floorToMoneyStep } from '../utils/money';
+import { computeKaantaPricingNetWeight, floorToMoneyStep } from '../utils/money';
 
 export class PaymentAdviceController {
   async getAll(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
@@ -213,20 +214,22 @@ export class PaymentAdviceController {
         if (kaantas.length > 0) {
           totalKaantaWeight = kaantas.reduce((sum, k) => sum + (k.kaanta_weight || 0), 0);
           totalSaidSentWeight = kaantas.reduce((sum, k) => sum + (k.said_sent_weight || 0), 0);
-          
-          // Calculate dana deduction only if is_dana_required is true
-          if (shouldCalculateDana && totalSaidSentWeight > 0) {
-            danaDeduction = danaDeductionKgFromSaidSentWeight(totalSaidSentWeight);
-          }
-          
-          // Calculate final weight: kaanta_weight - dana_deduction
-          netWeight = totalKaantaWeight - danaDeduction;
-          
+          const totalBillWeight = await inwardSlipLotDAO.sumBillWeightForSauda(paymentAdviceData.sauda_id);
+
+          const pricing = computeKaantaPricingNetWeight({
+            totalKaantaWeight,
+            totalBillWeight,
+            totalSaidSentWeight,
+            isDanaRequired: shouldCalculateDana,
+          });
+          danaDeduction = pricing.danaDeductionKg;
+          netWeight = pricing.netWeightForPricing;
+
           // Set bill_weight as said_sent_weight (for display in frontend)
           if (!paymentAdviceData.bill_weight) {
             paymentAdviceData.bill_weight = totalSaidSentWeight;
           }
-          
+
           // Set kanta_weight if not provided
           if (!paymentAdviceData.kanta_weight) {
             paymentAdviceData.kanta_weight = totalKaantaWeight;
@@ -246,42 +249,45 @@ export class PaymentAdviceController {
             kaantasBySauda.get(kaanta.sauda_id)!.push(kaanta);
           }
           
-          // Calculate dana separately for each sauda group
+          // Calculate dana and pricing net weight per sauda (same min(kaanta,bill)−dana rule as purchase summary)
           let totalDanaDeduction = 0;
-          
+          let totalNetPricingWeight = 0;
+
           // Get all unique sauda IDs and fetch their is_dana_required flags
           const saudaIds = Array.from(kaantasBySauda.keys());
           const saudas = await Promise.all(
             saudaIds.map(id => saudaDAO.findById(id))
           );
-          
+
           const saudaMap = new Map<string, boolean>();
           saudas.forEach((sauda, index) => {
             if (sauda) {
               saudaMap.set(saudaIds[index], sauda.is_dana_required ?? false);
             }
           });
-          
-          // Process each sauda group separately
+
           for (const [saudaId, saudaKaantas] of kaantasBySauda.entries()) {
             const isDanaRequired = saudaMap.get(saudaId) || false;
-            
+
             const saudaKaantaWeight = saudaKaantas.reduce((sum, k) => sum + (k.kaanta_weight || 0), 0);
             const saudaSaidSentWeight = saudaKaantas.reduce((sum, k) => sum + (k.said_sent_weight || 0), 0);
-            
+
             totalKaantaWeight += saudaKaantaWeight;
             totalSaidSentWeight += saudaSaidSentWeight;
-            
-            // Calculate dana deduction only for this sauda if is_dana_required is true
-            if (isDanaRequired && saudaSaidSentWeight > 0) {
-              totalDanaDeduction += danaDeductionKgFromSaidSentWeight(saudaSaidSentWeight);
-            }
+
+            const totalBillWeight = await inwardSlipLotDAO.sumBillWeightForSauda(saudaId);
+            const pricing = computeKaantaPricingNetWeight({
+              totalKaantaWeight: saudaKaantaWeight,
+              totalBillWeight,
+              totalSaidSentWeight: saudaSaidSentWeight,
+              isDanaRequired,
+            });
+            totalDanaDeduction += pricing.danaDeductionKg;
+            totalNetPricingWeight += pricing.netWeightForPricing;
           }
-          
+
           danaDeduction = totalDanaDeduction;
-          
-          // Calculate final weight: kaanta_weight - dana_deduction
-          netWeight = totalKaantaWeight - danaDeduction;
+          netWeight = totalNetPricingWeight;
           
           // Set bill_weight as said_sent_weight (for display in frontend)
           if (!paymentAdviceData.bill_weight) {
@@ -425,14 +431,17 @@ export class PaymentAdviceController {
           if (kaantas.length > 0) {
             totalKaantaWeight = kaantas.reduce((sum, k) => sum + (k.kaanta_weight || 0), 0);
             totalSaidSentWeight = kaantas.reduce((sum, k) => sum + (k.said_sent_weight || 0), 0);
-            
-            // Calculate dana deduction only if is_dana_required is true
-            if (shouldCalculateDana && totalSaidSentWeight > 0) {
-              danaDeduction = danaDeductionKgFromSaidSentWeight(totalSaidSentWeight);
-            }
-            
-            netWeight = totalKaantaWeight - danaDeduction;
-            
+            const totalBillWeight = await inwardSlipLotDAO.sumBillWeightForSauda(saudaId);
+
+            const pricing = computeKaantaPricingNetWeight({
+              totalKaantaWeight,
+              totalBillWeight,
+              totalSaidSentWeight,
+              isDanaRequired: shouldCalculateDana,
+            });
+            danaDeduction = pricing.danaDeductionKg;
+            netWeight = pricing.netWeightForPricing;
+
             if (!paymentAdviceData.bill_weight) {
               paymentAdviceData.bill_weight = totalSaidSentWeight;
             }
@@ -454,41 +463,44 @@ export class PaymentAdviceController {
               kaantasBySauda.get(kaanta.sauda_id)!.push(kaanta);
             }
             
-            // Calculate dana separately for each sauda group
             let totalDanaDeduction = 0;
-            
+            let totalNetPricingWeight = 0;
+
             // Get all unique sauda IDs and fetch their is_dana_required flags
             const saudaIds = Array.from(kaantasBySauda.keys());
             const saudas = await Promise.all(
               saudaIds.map(id => saudaDAO.findById(id))
             );
-            
+
             const saudaMap = new Map<string, boolean>();
             saudas.forEach((sauda, index) => {
               if (sauda) {
                 saudaMap.set(saudaIds[index], sauda.is_dana_required ?? false);
               }
             });
-            
-            // Process each sauda group separately
+
             for (const [saudaId, saudaKaantas] of kaantasBySauda.entries()) {
               const isDanaRequired = saudaMap.get(saudaId) || false;
-              
+
               const saudaKaantaWeight = saudaKaantas.reduce((sum, k) => sum + (k.kaanta_weight || 0), 0);
               const saudaSaidSentWeight = saudaKaantas.reduce((sum, k) => sum + (k.said_sent_weight || 0), 0);
-              
+
               totalKaantaWeight += saudaKaantaWeight;
               totalSaidSentWeight += saudaSaidSentWeight;
-              
-              // Calculate dana deduction only for this sauda if is_dana_required is true
-              if (isDanaRequired && saudaSaidSentWeight > 0) {
-                totalDanaDeduction += danaDeductionKgFromSaidSentWeight(saudaSaidSentWeight);
-              }
+
+              const totalBillWeight = await inwardSlipLotDAO.sumBillWeightForSauda(saudaId);
+              const pricing = computeKaantaPricingNetWeight({
+                totalKaantaWeight: saudaKaantaWeight,
+                totalBillWeight,
+                totalSaidSentWeight: saudaSaidSentWeight,
+                isDanaRequired,
+              });
+              totalDanaDeduction += pricing.danaDeductionKg;
+              totalNetPricingWeight += pricing.netWeightForPricing;
             }
-            
+
             danaDeduction = totalDanaDeduction;
-            
-            netWeight = totalKaantaWeight - danaDeduction;
+            netWeight = totalNetPricingWeight;
             
             if (!paymentAdviceData.bill_weight) {
               paymentAdviceData.bill_weight = totalSaidSentWeight;
