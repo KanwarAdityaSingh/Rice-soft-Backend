@@ -175,23 +175,24 @@ export class BatchDAO {
 
   // Batch Products methods (Stage 2)
   async addProduct(batchId: string, productData: CreateBatchProductDTO): Promise<BatchProduct> {
+    const costForInsert =
+      productData.cost !== undefined ? productData.cost : null;
     const query = `
-      INSERT INTO batch_products (batch_id, product_id, created_by)
-      VALUES ($1, $2, $3)
-      ON CONFLICT (batch_id, product_id) DO NOTHING
-      RETURNING id, batch_id, product_id, created_at, updated_at, created_by, updated_by
+      INSERT INTO batch_products (batch_id, product_id, cost, created_by)
+      VALUES ($1, $2, $3, $4)
+      ON CONFLICT (batch_id, product_id)
+      DO UPDATE SET
+        cost = COALESCE(EXCLUDED.cost, batch_products.cost),
+        updated_at = CURRENT_TIMESTAMP
+      RETURNING id, batch_id, product_id, cost, created_at, updated_at, created_by, updated_by
     `;
-    const result = await db.query<BatchProduct>(query, [batchId, productData.product_id, productData.created_by || null]);
-    
-    if (result.rows.length === 0) {
-      // Already exists, fetch it
-      const existing = await this.getProduct(batchId, productData.product_id);
-      if (!existing) {
-        throw new Error('Product should exist but was not found');
-      }
-      return existing;
-    }
-    
+    const result = await db.query<BatchProduct>(query, [
+      batchId,
+      productData.product_id,
+      costForInsert,
+      productData.created_by || null,
+    ]);
+
     return result.rows[0];
   }
 
@@ -203,7 +204,7 @@ export class BatchDAO {
 
   async getProducts(batchId: string): Promise<BatchProduct[]> {
     const query = `
-      SELECT id, batch_id, product_id, created_at, updated_at, created_by, updated_by
+      SELECT id, batch_id, product_id, cost, created_at, updated_at, created_by, updated_by
       FROM batch_products
       WHERE batch_id = $1
       ORDER BY created_at ASC
@@ -214,7 +215,7 @@ export class BatchDAO {
 
   async getProduct(batchId: string, productId: string): Promise<BatchProduct | null> {
     const query = `
-      SELECT id, batch_id, product_id, created_at, updated_at, created_by, updated_by
+      SELECT id, batch_id, product_id, cost, created_at, updated_at, created_by, updated_by
       FROM batch_products
       WHERE batch_id = $1 AND product_id = $2
     `;

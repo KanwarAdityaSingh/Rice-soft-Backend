@@ -455,7 +455,7 @@ export class BatchService {
     packaging?: { id: string; holding_capacity: number; packet_type: string };
     lot_usage?: Array<{ id: string; batch_id: string; lot_id: string; quantity_used: number; percentage_used: number; created_at: Date | string; updated_at: Date | string }>;
     rice_code_usage?: Array<{ id: string; batch_id: string; rice_code_id: string; rice_type: string | null; total_quantity_used: number; created_at: Date | string; updated_at: Date | string }>;
-    products?: Array<{ id: string; product_id: string }>;
+    products?: Array<{ id: string; product_id: string; cost: number | null }>;
     packaging_list?: Array<{ id: string; product_id: string; packaging_id: string; quantity: number }>;
   }> {
     const batch = await batchDAO.findById(batchId);
@@ -492,7 +492,11 @@ export class BatchService {
       } : undefined,
       lot_usage: lotUsage,
       rice_code_usage: riceCodeUsage,
-      products: batchProducts.map(bp => ({ id: bp.id, product_id: bp.product_id })),
+      products: batchProducts.map((bp) => ({
+        id: bp.id,
+        product_id: bp.product_id,
+        cost: bp.cost != null ? parseFloat(String(bp.cost)) : null,
+      })),
       packaging_list: batchPackaging.map(bp => ({ 
         id: bp.id, 
         product_id: bp.product_id, 

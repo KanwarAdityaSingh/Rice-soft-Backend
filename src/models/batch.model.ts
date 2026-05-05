@@ -19,6 +19,8 @@ export interface BatchProduct {
   id: string;
   batch_id: string;
   product_id: string;
+  /** Optional cost for this product on this batch (stage 2) */
+  cost: number | null;
   created_at: Date;
   updated_at: Date;
   created_by: string | null;
@@ -48,6 +50,8 @@ export interface CreateBatchDTO {
 
 export interface CreateBatchProductDTO {
   product_id: string;
+  /** Optional; if omitted on re-POST of the same product, existing cost is kept */
+  cost?: number | null;
   created_by?: string;
 }
 
@@ -113,5 +117,8 @@ export interface BatchWithDetailsResponse extends BatchResponse {
   };
   lot_usage?: BatchLotUsage[];
   rice_code_usage?: BatchRiceCodeUsage[];
+  /** Stage 2: products attached to batch, with optional cost per link */
+  products?: Array<{ id: string; product_id: string; cost: number | null }>;
+  packaging_list?: Array<{ id: string; product_id: string; packaging_id: string; quantity: number }>;
 }
 

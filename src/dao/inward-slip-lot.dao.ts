@@ -46,6 +46,21 @@ export class InwardSlipLotDAO {
     return result.rows[0] || null;
   }
 
+  async findByIds(ids: string[]): Promise<InwardSlipLot[]> {
+    if (ids.length === 0) {
+      return [];
+    }
+    const query = `
+      SELECT id, sauda_id, godown_id, lot_number, rice_code_id, rice_type, no_of_bags, bag_weight, total_weight,
+             bill_weight, received_weight, rate, amount, inward_slip_pass_created_at,
+             created_at, updated_at, created_by, updated_by
+      FROM inward_slip_lots
+      WHERE id = ANY($1::uuid[])
+    `;
+    const result = await db.query<InwardSlipLot>(query, [ids]);
+    return result.rows;
+  }
+
   /** Kaanta-linked lots use `LOT-{kaanta_id}` (see {@link KaantaDAO.create}). */
   async findBySaudaIdAndLotNumber(saudaId: string, lotNumber: string): Promise<InwardSlipLot | null> {
     const query = `

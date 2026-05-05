@@ -8,11 +8,15 @@ const recipeController = new RecipeController();
 // Apply authentication middleware to all routes
 router.use(authenticate);
 
+// Cost preview (static path before /:id)
+router.post('/preview-cost', recipeController.previewCostByFormula.bind(recipeController));
+
 // Recipe CRUD routes
 router.get('/', recipeController.getAll.bind(recipeController));
 router.get('/:id', recipeController.getById.bind(recipeController));
 router.post('/', recipeController.create.bind(recipeController));
 router.put('/:id', recipeController.update.bind(recipeController));
+router.post('/:id/preview-cost', recipeController.previewCostByRecipeId.bind(recipeController));
 router.delete('/:id', recipeController.delete.bind(recipeController));
 
 export default router;

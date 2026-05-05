@@ -1,9 +1,20 @@
 import { Response, NextFunction } from 'express';
 import { recipeDAO } from '../dao/recipe.dao';
+import { recipeService } from '../services/recipe.service';
 import { ResponseHandler } from '../utils/response';
-import { validate, uuidSchema } from '../utils/validators';
+import {
+  validate,
+  uuidSchema,
+  recipeCostPreviewByFormulaSchema,
+  recipeCostPreviewByRecipeIdSchema,
+} from '../utils/validators';
 import { AuthRequest } from '../middleware/auth.middleware';
-import { CreateRecipeDTO, UpdateRecipeDTO, RecipeResponse } from '../models/recipe.model';
+import {
+  CreateRecipeDTO,
+  UpdateRecipeDTO,
+  RecipeResponse,
+  RecipeFormulaItem,
+} from '../models/recipe.model';
 import { createRecipeSchema, updateRecipeSchema } from '../utils/validators';
 import { NotFoundError, ConflictError, BadRequestError } from '../utils/errors';
 
@@ -21,6 +32,32 @@ export class RecipeController {
       }));
 
       return ResponseHandler.success(res, recipeResponses);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /** POST body: { quantity_kg, formula } — for unsaved / draft recipes */
+  async previewCostByFormula(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const body = validate<{ quantity_kg: number; formula: RecipeFormulaItem[] }>(
+        recipeCostPreviewByFormulaSchema,
+        req.body
+      );
+      const preview = await recipeService.previewCostByFormula(body.quantity_kg, body.formula);
+      return ResponseHandler.success(res, preview);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /** POST body: { quantity_kg } — uses stored recipe formula */
+  async previewCostByRecipeId(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const id = validate<string>(uuidSchema, req.params.id);
+      const body = validate<{ quantity_kg: number }>(recipeCostPreviewByRecipeIdSchema, req.body);
+      const preview = await recipeService.previewCostByRecipeId(id, body.quantity_kg);
+      return ResponseHandler.success(res, preview);
     } catch (error) {
       next(error);
     }

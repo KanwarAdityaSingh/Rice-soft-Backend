@@ -24,6 +24,7 @@ import { appConfig } from '../config/app.config';
 import { whatsAppService } from '../services/whatsapp.service';
 import { emailService } from '../services/email.service';
 import { logger } from '../utils/logger';
+import { parseStringArrayFromBody } from '../utils/parse-multipart-array';
 /**
  * Format a Date object to YYYY-MM-DD string using UTC
  * When PostgreSQL returns a DATE column, it's a Date object at midnight UTC,
@@ -507,9 +508,10 @@ export class SaudaController {
   async sendViaEmail(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const id = validate<string>(uuidSchema, req.params.id);
-      const { emails, customSubject, customHtml, customText } = req.body;
+      const { customSubject, customHtml, customText } = req.body;
+      const emails = parseStringArrayFromBody(req.body.emails);
 
-      if (!emails || !Array.isArray(emails) || emails.length === 0) {
+      if (!emails || emails.length === 0) {
         throw new ValidationError('At least one email address is required');
       }
 
@@ -590,9 +592,10 @@ export class SaudaController {
   async sendViaWhatsApp(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const id = validate<string>(uuidSchema, req.params.id);
-      const { whatsappNumbers, pdfUrl, customMessage } = req.body;
+      const { pdfUrl, customMessage } = req.body;
+      const whatsappNumbers = parseStringArrayFromBody(req.body.whatsappNumbers);
 
-      if (!whatsappNumbers || !Array.isArray(whatsappNumbers) || whatsappNumbers.length === 0) {
+      if (!whatsappNumbers || whatsappNumbers.length === 0) {
         throw new ValidationError('At least one WhatsApp number is required');
       }
 
@@ -692,9 +695,10 @@ export class SaudaController {
    */
   async sendPaymentAdviceViaEmail(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const { emails, adviceNumber, vendorName, amount, date, bankDetails } = req.body;
+      const { adviceNumber, vendorName, amount, date, bankDetails } = req.body;
+      const emails = parseStringArrayFromBody(req.body.emails);
 
-      if (!emails || !Array.isArray(emails) || emails.length === 0) {
+      if (!emails || emails.length === 0) {
         throw new ValidationError('At least one email address is required');
       }
 
@@ -822,9 +826,10 @@ export class SaudaController {
    */
   async sendPaymentAdviceViaWhatsApp(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const { whatsappNumbers, adviceNumber, vendorName, amount, date, pdfUrl, customMessage } = req.body;
+      const { adviceNumber, vendorName, amount, date, pdfUrl, customMessage } = req.body;
+      const whatsappNumbers = parseStringArrayFromBody(req.body.whatsappNumbers);
 
-      if (!whatsappNumbers || !Array.isArray(whatsappNumbers) || whatsappNumbers.length === 0) {
+      if (!whatsappNumbers || whatsappNumbers.length === 0) {
         throw new ValidationError('At least one WhatsApp number is required');
       }
 

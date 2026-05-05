@@ -917,6 +917,15 @@ export const updateRecipeSchema = Joi.object({
   updated_by: Joi.string().optional().uuid(),
 }).min(1);
 
+export const recipeCostPreviewByFormulaSchema = Joi.object({
+  quantity_kg: Joi.number().required().min(0.001).precision(3),
+  formula: Joi.array().items(recipeFormulaItemSchema).required().min(1),
+});
+
+export const recipeCostPreviewByRecipeIdSchema = Joi.object({
+  quantity_kg: Joi.number().required().min(0.001).precision(3),
+});
+
 // Product validation schemas
 export const createProductSchema = Joi.object({
   name: Joi.string().required().min(1).max(255),
@@ -1101,6 +1110,7 @@ export const updateBatchSchema = Joi.object({
 // Batch Product validation schemas (Stage 2)
 export const createBatchProductSchema = Joi.object({
   product_id: Joi.string().required().uuid(),
+  cost: Joi.number().optional().min(0).precision(2).allow(null),
   created_by: Joi.string().optional().uuid(),
 });
 
@@ -1111,6 +1121,53 @@ export const createBatchPackagingSchema = Joi.object({
   quantity: Joi.number().required().min(0.01).precision(2),
   created_by: Joi.string().optional().uuid(),
 });
+
+// Quality parameters (batch / inward slip / product)
+const optionalNullableUuid = Joi.alternatives()
+  .try(Joi.string().uuid(), Joi.valid(null, ''))
+  .optional();
+
+const optionalNullableParamSpec = Joi.string().optional().allow(null, '').max(2000);
+
+export const listParametersQuerySchema = Joi.object({
+  batch_id: Joi.string().optional().uuid(),
+  product_id: Joi.string().optional().uuid(),
+  inward_slip_pass_id: Joi.string().optional().uuid(),
+});
+
+export const createParameterSchema = Joi.object({
+  inward_slip_pass_id: optionalNullableUuid,
+  product_id: optionalNullableUuid,
+  batch_id: optionalNullableUuid,
+  purity: optionalNullableParamSpec,
+  natural_admixture: optionalNullableParamSpec,
+  average_grain_length: optionalNullableParamSpec,
+  moisture: optionalNullableParamSpec,
+  broken_grain: optionalNullableParamSpec,
+  damage_discolour_grain: optionalNullableParamSpec,
+  immature_grains: optionalNullableParamSpec,
+  whiteness: optionalNullableParamSpec,
+  foreign_matter: optionalNullableParamSpec,
+  black_grains: optionalNullableParamSpec,
+  created_by: Joi.string().optional().uuid(),
+});
+
+export const updateParameterSchema = Joi.object({
+  inward_slip_pass_id: optionalNullableUuid,
+  product_id: optionalNullableUuid,
+  batch_id: optionalNullableUuid,
+  purity: optionalNullableParamSpec,
+  natural_admixture: optionalNullableParamSpec,
+  average_grain_length: optionalNullableParamSpec,
+  moisture: optionalNullableParamSpec,
+  broken_grain: optionalNullableParamSpec,
+  damage_discolour_grain: optionalNullableParamSpec,
+  immature_grains: optionalNullableParamSpec,
+  whiteness: optionalNullableParamSpec,
+  foreign_matter: optionalNullableParamSpec,
+  black_grains: optionalNullableParamSpec,
+  updated_by: Joi.string().optional().uuid(),
+}).min(1);
 
 // Packets Inventory validation schemas
 export const createPacketsInventorySchema = Joi.object({

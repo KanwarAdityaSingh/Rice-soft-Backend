@@ -5,8 +5,21 @@ import { inventoryAuditService } from '../services/inventory-audit.service';
 import { ResponseHandler } from '../utils/response';
 import { validate, uuidSchema } from '../utils/validators';
 import { AuthRequest } from '../middleware/auth.middleware';
-import { CreateBatchDTO, UpdateBatchDTO, BatchResponse, BatchWithDetailsResponse, CreateBatchProductDTO, CreateBatchPackagingDTO } from '../models/batch.model';
+import { CreateBatchDTO, UpdateBatchDTO, BatchResponse, BatchWithDetailsResponse, CreateBatchProductDTO, CreateBatchPackagingDTO, BatchProduct } from '../models/batch.model';
 import { createBatchSchema, updateBatchSchema, createBatchProductSchema, createBatchPackagingSchema } from '../utils/validators';
+
+function toBatchProductResponse(p: BatchProduct) {
+  return {
+    id: p.id,
+    batch_id: p.batch_id,
+    product_id: p.product_id,
+    cost: p.cost != null ? parseFloat(String(p.cost)) : null,
+    created_at: p.created_at.toISOString(),
+    updated_at: p.updated_at.toISOString(),
+    created_by: p.created_by,
+    updated_by: p.updated_by,
+  };
+}
 
 export class BatchController {
   async getAll(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
@@ -74,6 +87,8 @@ export class BatchController {
           created_at: usage.created_at instanceof Date ? usage.created_at.toISOString() : usage.created_at,
           updated_at: usage.updated_at instanceof Date ? usage.updated_at.toISOString() : usage.updated_at,
         })),
+        products: batchDetails.products,
+        packaging_list: batchDetails.packaging_list,
       };
 
       return ResponseHandler.success(res, batchResponse);
@@ -246,7 +261,7 @@ export class BatchController {
 
       const products = await batchDAO.getProducts(batchId);
 
-      return ResponseHandler.success(res, products);
+      return ResponseHandler.success(res, products.map(toBatchProductResponse));
     } catch (error) {
       next(error);
     }

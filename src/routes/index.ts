@@ -34,6 +34,7 @@ import godownRoutes from './godown.routes';
 import vendorSiteRoutes from './vendor-site.routes';
 import salesPartySiteRoutes from './sales-party-site.routes';
 import driverRoutes from './driver.routes';
+import parameterRoutes from './parameter.routes';
 
 const router = Router();
 
@@ -82,6 +83,7 @@ router.use('/godowns', godownRoutes);
 router.use('/sites', vendorSiteRoutes);
 router.use('/sales-party-sites', salesPartySiteRoutes);
 router.use('/drivers', driverRoutes);
+router.use('/parameters', parameterRoutes);
 
 export default router;
 
