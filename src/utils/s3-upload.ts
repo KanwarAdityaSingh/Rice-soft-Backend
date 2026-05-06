@@ -156,14 +156,23 @@ export function validateFileSize(fileSize: number, maxSizeMB: number = 5): boole
 }
 
 /**
+ * Strip parameters (e.g. charset) for reliable MIME comparison.
+ */
+export function normalizeMimeType(mimetype: string): string {
+  return mimetype.split(';')[0].trim().toLowerCase();
+}
+
+/**
  * Validate file type
  * @param mimetype - File mimetype
- * @param allowedTypes - Array of allowed mimetypes
+ * @param allowedTypes - Array of allowed mimetypes (parameters ignored)
  * @returns True if valid, throws error otherwise
  */
 export function validateFileType(mimetype: string, allowedTypes: string[]): boolean {
-  if (!allowedTypes.includes(mimetype)) {
-    throw new Error(`File type ${mimetype} is not allowed. Allowed types: ${allowedTypes.join(', ')}`);
+  const normalized = normalizeMimeType(mimetype);
+  const allowed = allowedTypes.map((t) => normalizeMimeType(t));
+  if (!allowed.includes(normalized)) {
+    throw new Error(`File type ${normalized} is not allowed. Allowed types: ${allowed.join(', ')}`);
   }
   return true;
 }

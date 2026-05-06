@@ -19,10 +19,10 @@ import {
 import { CreateSaudaDTO, UpdateSaudaDTO, Sauda, SaudaResponse, SaudaStatus, SaudaType } from '../models/sauda.model';
 import { formatSaudaDisplayId } from '../utils/sauda-display';
 import { AuthRequest } from '../middleware/auth.middleware';
-import { uploadToS3, validateFileSize, validateFileType } from '../utils/s3-upload';
+import { uploadToS3, validateFileSize, validateFileType, normalizeMimeType } from '../utils/s3-upload';
 import { appConfig } from '../config/app.config';
 import { whatsAppService } from '../services/whatsapp.service';
-import { emailService } from '../services/email.service';
+import { emailService, SaudaEmailAttachmentInput } from '../services/email.service';
 import { logger } from '../utils/logger';
 import { parseStringArrayFromBody } from '../utils/parse-multipart-array';
 /**
@@ -503,7 +503,7 @@ export class SaudaController {
 
   /**
    * Send Sauda details via Email
-   * Accepts email addresses, optional PDF file, and optional custom content
+   * Accepts email addresses, optional PDF or HTML attachment, and optional custom content
    */
   async sendViaEmail(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
@@ -526,12 +526,28 @@ export class SaudaController {
       // Fetch sauda details
       const { saudaDetails } = await this.getSaudaNotificationDetails(id);
 
-      // Get PDF buffer if provided
-      let pdfBuffer: Buffer | undefined;
+      // Optional attachment: PDF (legacy) or HTML sauda export
+      let attachment: SaudaEmailAttachmentInput | undefined;
       if (req.file) {
-        validateFileType(req.file.mimetype, ['application/pdf']);
-        validateFileSize(req.file.size, 10); // Max 10MB for PDFs
-        pdfBuffer = req.file.buffer;
+        validateFileType(req.file.mimetype, ['application/pdf', 'text/html']);
+        validateFileSize(req.file.size, 10); // Max 10MB
+
+        const mime = normalizeMimeType(req.file.mimetype);
+        if (mime === 'application/pdf') {
+          attachment = req.file.buffer;
+        } else {
+          let filename = req.file.originalname?.trim() || '';
+          if (!filename.toLowerCase().endsWith('.html') && !filename.toLowerCase().endsWith('.htm')) {
+            filename = `Sauda_${id}.html`;
+          } else {
+            filename = filename.replace(/[^\w.\-]/g, '_');
+          }
+          attachment = {
+            buffer: req.file.buffer,
+            contentType: req.file.mimetype,
+            filename,
+          };
+        }
       }
 
       // Prepare custom content if provided
@@ -545,7 +561,7 @@ export class SaudaController {
         result = await emailService.sendSaudaNotification(
           emails,
           saudaDetails,
-          pdfBuffer,
+          attachment,
           customContent
         );
 

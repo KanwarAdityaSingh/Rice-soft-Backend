@@ -6,16 +6,31 @@ import {
   createDriverSchema,
   updateDriverSchema,
   uuidSchema,
+  verifyDriverSchema,
 } from '../utils/validators';
 import { NotFoundError, ConflictError } from '../utils/errors';
 import { CreateDriverDTO, DriverResponse, UpdateDriverDTO } from '../models/driver.model';
 import { AuthRequest } from '../middleware/auth.middleware';
+import { gstLookupService } from '../services/gst-lookup.service';
+
+function dateOnlyFromDb(value: Date | string | null | undefined): string | null {
+  if (value == null) {
+    return null;
+  }
+  if (typeof value === 'string') {
+    return value.slice(0, 10);
+  }
+  return value.toISOString().split('T')[0];
+}
 
 function toResponse(driver: {
   id: string;
   license_number: string;
   phone: string;
   name: string | null;
+  date_of_birth: Date | string | null;
+  license_expires_at: Date | string | null;
+  address: string | null;
   is_verified: boolean;
   verified_at: Date | null;
   verification_details: unknown;
@@ -28,6 +43,9 @@ function toResponse(driver: {
     license_number: driver.license_number,
     phone: driver.phone,
     name: driver.name,
+    date_of_birth: dateOnlyFromDb(driver.date_of_birth),
+    license_expires_at: dateOnlyFromDb(driver.license_expires_at),
+    address: driver.address,
     is_verified: driver.is_verified,
     verified_at: driver.verified_at?.toISOString() || null,
     verification_details: (driver.verification_details as DriverResponse['verification_details']) ?? null,
@@ -72,6 +90,16 @@ export class DriverController {
         throw new NotFoundError('Driver not found');
       }
       return ResponseHandler.success(res, toResponse(driver));
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async verifyDriver(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const { license_number } = validate<{ license_number: string }>(verifyDriverSchema, req.body);
+      const result = await gstLookupService.verifyDrivingLicense(license_number);
+      return ResponseHandler.success(res, result, 'Driving licence verified successfully');
     } catch (error) {
       next(error);
     }

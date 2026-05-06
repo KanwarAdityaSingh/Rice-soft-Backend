@@ -111,7 +111,7 @@ router.get(
  * @route   POST /api/v1/saudas/:id/send-via-email
  * @desc    Send sauda details via email
  * @access  Private
- * @body    emails: string[] (required), file: PDF (optional), customSubject/customHtml/customText: string (optional)
+ * @body    emails: string[] (required), file: PDF or HTML attachment (optional), customSubject/customHtml/customText: string (optional)
  */
 router.post(
   '/:id/send-via-email',

@@ -25,6 +25,14 @@ router.get(
 );
 
 /**
+ * @route   POST /api/v1/drivers/verify
+ * @desc    Verify driving licence via Surepass (does NOT create a driver)
+ * @access  Private
+ * @body    { license_number: string }
+ */
+router.post('/verify', authenticate, driverController.verifyDriver.bind(driverController));
+
+/**
  * @route   GET /api/v1/drivers/:id
  * @desc    Get driver by id
  * @access  Private
@@ -33,7 +41,7 @@ router.get('/:id', authenticate, driverController.getById.bind(driverController)
 
 /**
  * @route   POST /api/v1/drivers
- * @desc    Create driver (Surepass verify flow to be added later)
+ * @desc    Create driver
  * @access  Private
  */
 router.post(

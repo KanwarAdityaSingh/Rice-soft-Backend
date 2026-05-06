@@ -1,14 +1,33 @@
 import { db } from '../database/connection';
 import { Driver, CreateDriverDTO, UpdateDriverDTO } from '../models/driver.model';
 import { logger } from '../utils/logger';
+import { normalizeDrivingLicenseForStorage } from '../utils/driver-license';
 
 const SELECT_COLUMNS = `
-  id, license_number, phone, name, is_verified, verified_at, verification_details,
+  id, license_number, phone, name, date_of_birth, license_expires_at, address,
+  is_verified, verified_at, verification_details,
   is_active, created_at, updated_at, created_by, updated_by
 `;
 
-export function normalizeLicenseNumber(raw: string): string {
-  return raw.replace(/\s+/g, ' ').trim().toUpperCase();
+/** Accept ISO YYYY-MM-DD or DD-MM-YYYY (common on Indian DL text). */
+function toPgDate(value: string | null | undefined): string | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  const s = String(value).trim();
+  if (!s) {
+    return null;
+  }
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+    return s.slice(0, 10);
+  }
+  const dm = /^(\d{2})-(\d{2})-(\d{4})$/.exec(s);
+  if (dm) {
+    const [, dd, mm, yyyy] = dm;
+    return `${yyyy}-${mm}-${dd}`;
+  }
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
 }
 
 export class DriverDAO {
@@ -31,7 +50,7 @@ export class DriverDAO {
   }
 
   async findByLicenseNumber(licenseNumber: string): Promise<Driver | null> {
-    const normalized = normalizeLicenseNumber(licenseNumber);
+    const normalized = normalizeDrivingLicenseForStorage(licenseNumber);
     const query = `
       SELECT ${SELECT_COLUMNS}
       FROM drivers
@@ -42,7 +61,7 @@ export class DriverDAO {
   }
 
   async licenseNumberExists(licenseNumber: string, excludeId?: string): Promise<boolean> {
-    const normalized = normalizeLicenseNumber(licenseNumber);
+    const normalized = normalizeDrivingLicenseForStorage(licenseNumber);
     let query = `SELECT EXISTS(SELECT 1 FROM drivers WHERE license_number = $1`;
     const params: unknown[] = [normalized];
     if (excludeId) {
@@ -55,19 +74,30 @@ export class DriverDAO {
   }
 
   async create(data: CreateDriverDTO): Promise<Driver> {
-    const license = normalizeLicenseNumber(data.license_number);
+    const license = normalizeDrivingLicenseForStorage(data.license_number);
     const query = `
       INSERT INTO drivers (
-        license_number, phone, name, is_verified, verified_at, verification_details,
+        license_number, phone, name, date_of_birth, license_expires_at, address,
+        is_verified, verified_at, verification_details,
         is_active, created_by
       )
-      VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8)
+      VALUES (
+        $1, $2, $3,
+        $4::date, $5::date, $6,
+        $7, $8, $9::jsonb,
+        $10, $11
+      )
       RETURNING ${SELECT_COLUMNS}
     `;
+    const dob = toPgDate(data.date_of_birth ?? null);
+    const exp = toPgDate(data.license_expires_at ?? null);
     const values = [
       license,
       data.phone.trim(),
       data.name?.trim() || null,
+      dob,
+      exp,
+      data.address?.trim() || null,
       data.is_verified !== undefined ? data.is_verified : false,
       data.verified_at || null,
       data.verification_details != null ? JSON.stringify(data.verification_details) : null,
@@ -94,7 +124,7 @@ export class DriverDAO {
 
     if (data.license_number !== undefined) {
       fields.push(`license_number = $${paramCount++}`);
-      values.push(normalizeLicenseNumber(data.license_number));
+      values.push(normalizeDrivingLicenseForStorage(data.license_number));
     }
     if (data.phone !== undefined) {
       fields.push(`phone = $${paramCount++}`);
@@ -103,6 +133,18 @@ export class DriverDAO {
     if (data.name !== undefined) {
       fields.push(`name = $${paramCount++}`);
       values.push(data.name?.trim() || null);
+    }
+    if (data.date_of_birth !== undefined) {
+      fields.push(`date_of_birth = $${paramCount++}::date`);
+      values.push(toPgDate(data.date_of_birth));
+    }
+    if (data.license_expires_at !== undefined) {
+      fields.push(`license_expires_at = $${paramCount++}::date`);
+      values.push(toPgDate(data.license_expires_at));
+    }
+    if (data.address !== undefined) {
+      fields.push(`address = $${paramCount++}`);
+      values.push(data.address?.trim() || null);
     }
     if (data.is_verified !== undefined) {
       fields.push(`is_verified = $${paramCount++}`);

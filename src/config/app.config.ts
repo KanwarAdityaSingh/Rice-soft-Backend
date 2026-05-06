@@ -35,6 +35,9 @@ export const appConfig = {
       panUrl: process.env.SUREPASS_PAN_API_URL || 'https://kyc-api.surepass.io/api/v1/pan/pan',
       bankVerificationUrl: process.env.SUREPASS_BANK_API_URL || 'https://kyc-api.surepass.io/api/v1/bank-verification/',
       rcVerificationUrl: process.env.SUREPASS_RC_API_URL || 'https://kyc-api.surepass.io/api/v1/rc-verification',
+      dlVerificationUrl:
+        process.env.SUREPASS_DL_API_URL ||
+        'https://kyc-api.surepass.io/api/v1/driving-license/driving-license',
       token: process.env.SUREPASS_API_TOKEN || '',
     },
     mastersIndia: {

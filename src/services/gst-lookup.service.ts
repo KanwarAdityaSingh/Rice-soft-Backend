@@ -1,6 +1,11 @@
 import { logger } from '../utils/logger';
 import { ValidationError, BadRequestError, InternalServerError } from '../utils/errors';
 import { appConfig } from '../config/app.config';
+import type { DriverLicenseVerificationResult } from '../models/driver.model';
+import {
+  normalizeDrivingLicenseForProvider,
+  normalizeDrivingLicenseForStorage,
+} from '../utils/driver-license';
 
 /**
  * GST API Response Interface
@@ -129,6 +134,32 @@ export interface VehicleVerificationResult {
   fitness_validity: string;
   permit_validity: string | null;
   challan_details: any[];
+}
+
+/**
+ * Surepass Driving License Verification API response (fields may vary slightly by API version).
+ */
+export interface SurepassDLVerificationResponse {
+  success: boolean;
+  status_code: number;
+  message: string;
+  message_code?: string;
+  data?: {
+    full_name?: string;
+    name?: string;
+    holder_name?: string;
+    license_number?: string;
+    dl_number?: string;
+    id_number?: string;
+    dob?: string;
+    date_of_birth?: string;
+    date_of_birth_in_words?: string;
+    doe?: string;
+    date_of_expiry?: string;
+    age?: string | number;
+    address?: string | Record<string, unknown>;
+    [key: string]: unknown;
+  };
 }
 
 /**
@@ -841,6 +872,146 @@ export class GSTLookupService {
       logger.error('Error verifying vehicle RC', { error, vehicleNumber });
       throw new InternalServerError('Failed to verify vehicle RC');
     }
+  }
+
+  /**
+   * Verify Indian driving licence via Surepass API (does not persist a driver record).
+   */
+  static async verifyDrivingLicense(licenseNumber: string): Promise<DriverLicenseVerificationResult> {
+    const idForProvider = normalizeDrivingLicenseForProvider(licenseNumber);
+    const storageForm = normalizeDrivingLicenseForStorage(licenseNumber);
+    if (!idForProvider) {
+      throw new ValidationError('Driving licence number is required');
+    }
+
+    logger.info('Verifying driving licence via Surepass', { licenseNumber: storageForm });
+
+    try {
+      const config = appConfig.apis.surepass;
+      if (!config.token) {
+        throw new InternalServerError('Surepass API token not configured');
+      }
+
+      const token = config.token.startsWith('Bearer ')
+        ? config.token.substring(7)
+        : config.token;
+
+      const response = await fetch(config.dlVerificationUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          id_number: idForProvider,
+        }),
+      });
+
+      if (!response.ok) {
+        logger.error('Surepass DL verification API error', {
+          status: response.status,
+          statusText: response.statusText,
+        });
+        throw new InternalServerError(`Driving licence verification failed: ${response.statusText}`);
+      }
+
+      const apiResponse = (await response.json()) as SurepassDLVerificationResponse;
+
+      if (!apiResponse.success || apiResponse.status_code !== 200) {
+        logger.warn('DL verification unsuccessful', {
+          licenseNumber: storageForm,
+          message: apiResponse.message,
+          status_code: apiResponse.status_code,
+        });
+        throw new BadRequestError(apiResponse.message || 'Driving licence verification failed');
+      }
+
+      if (!apiResponse.data) {
+        throw new BadRequestError('No driving licence data returned from verification');
+      }
+
+      const result = GSTLookupService.mapSurepassDLData(storageForm, apiResponse.data);
+
+      if (!result.full_name?.trim()) {
+        logger.warn('Surepass DL returned no holder name', { licenseNumber: storageForm });
+        throw new BadRequestError('Driving licence holder name not found in verification response');
+      }
+
+      logger.info('Driving licence verified successfully', {
+        licenseNumber: storageForm,
+        fullName: result.full_name,
+      });
+
+      return result;
+    } catch (error) {
+      if (error instanceof ValidationError || error instanceof BadRequestError) {
+        throw error;
+      }
+      logger.error('Error verifying driving licence', { error, licenseNumber });
+      throw new InternalServerError('Failed to verify driving licence');
+    }
+  }
+
+  private static mapSurepassDLData(
+    licenseNumber: string,
+    data: NonNullable<SurepassDLVerificationResponse['data']>
+  ): DriverLicenseVerificationResult {
+    const fullName =
+      (data.full_name as string | undefined) ||
+      (data.name as string | undefined) ||
+      (data.holder_name as string | undefined) ||
+      '';
+
+    const licRaw =
+      (data.license_number as string | undefined) ||
+      (data.dl_number as string | undefined) ||
+      (data.id_number as string | undefined) ||
+      licenseNumber;
+    const lic = normalizeDrivingLicenseForStorage(licRaw);
+
+    const dob =
+      (data.dob as string | undefined) ||
+      (data.date_of_birth as string | undefined) ||
+      (data.date_of_birth_in_words as string | undefined) ||
+      '';
+
+    const doe =
+      (data.doe as string | undefined) ||
+      (data.date_of_expiry as string | undefined) ||
+      '';
+
+    const age = data.age !== undefined && data.age !== null ? data.age : null;
+
+    let address = '';
+    const addr = data.address;
+    if (typeof addr === 'string') {
+      address = addr;
+    } else if (addr && typeof addr === 'object') {
+      const o = addr as Record<string, unknown>;
+      const parts = [
+        o.house,
+        o.street,
+        o.locality,
+        o.landmark,
+        o.city,
+        o.district,
+        o.state,
+        o.pincode ?? o.pin_code,
+      ].filter((p) => p !== undefined && p !== null && String(p).trim() !== '');
+      address =
+        (o.full_address as string | undefined) ||
+        (o.complete_address as string | undefined) ||
+        parts.map(String).join(', ');
+    }
+
+    return {
+      license_number: lic,
+      full_name: fullName,
+      date_of_birth: dob,
+      date_of_expiry: doe,
+      age,
+      address,
+    };
   }
 }
 

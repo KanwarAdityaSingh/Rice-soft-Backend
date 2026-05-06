@@ -26,6 +26,14 @@ export interface EmailResponse {
   error?: string;
 }
 
+export type SaudaEmailAttachmentInput =
+  | Buffer
+  | {
+      buffer: Buffer;
+      contentType: string;
+      filename?: string;
+    };
+
 export class EmailService {
   private sesClient: SESClient;
 
@@ -201,6 +209,7 @@ export class EmailService {
   /**
    * Send Sauda notification via Email
    * Supports custom content override for edited messages
+   * @param attachment - Optional PDF buffer, or HTML/PDF with explicit metadata for the file part
    */
   async sendSaudaNotification(
     to: string | string[],
@@ -219,7 +228,7 @@ export class EmailService {
       estimatedDeliveryTime?: number;
       notes?: string;
     },
-    pdfBuffer?: Buffer,
+    attachment?: SaudaEmailAttachmentInput,
     customContent?: { subject?: string; html?: string; text?: string }
   ): Promise<EmailResponse> {
     const defaultContent = this.generateSaudaEmailPreview(saudaDetails);
@@ -229,12 +238,25 @@ export class EmailService {
     const text = customContent?.text || defaultContent.text;
 
     const attachments: EmailAttachment[] = [];
-    if (pdfBuffer) {
-      attachments.push({
-        filename: `Sauda_${saudaDetails.saudaId}.pdf`,
-        content: pdfBuffer,
-        contentType: 'application/pdf',
-      });
+    if (attachment) {
+      if (Buffer.isBuffer(attachment)) {
+        attachments.push({
+          filename: `Sauda_${saudaDetails.saudaId}.pdf`,
+          content: attachment,
+          contentType: 'application/pdf',
+        });
+      } else {
+        const contentType = attachment.contentType.split(';')[0].trim();
+        const isHtml = contentType.toLowerCase() === 'text/html';
+        const defaultFilename = isHtml
+          ? `Sauda_${saudaDetails.saudaId}.html`
+          : `Sauda_${saudaDetails.saudaId}.pdf`;
+        attachments.push({
+          filename: attachment.filename || defaultFilename,
+          content: attachment.buffer,
+          contentType,
+        });
+      }
     }
 
     return this.sendEmail({

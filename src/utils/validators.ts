@@ -1231,11 +1231,17 @@ const driverPhoneSchema = Joi.string()
     return helpers.error('string.pattern.base', { name: 'phone' });
   }, 'Indian phone validation');
 
-/** Drivers table — Surepass DL verification wired in a follow-up */
+export const verifyDriverSchema = Joi.object({
+  license_number: driverLicenseSchema,
+});
+
 export const createDriverSchema = Joi.object({
   license_number: driverLicenseSchema,
   phone: driverPhoneSchema,
   name: Joi.string().optional().allow(null, '').min(1).max(255),
+  date_of_birth: Joi.string().optional().allow(null, '').isoDate(),
+  license_expires_at: Joi.string().optional().allow(null, '').isoDate(),
+  address: Joi.string().optional().allow(null, '').max(2000),
   is_verified: Joi.boolean().optional(),
   verified_at: Joi.string().optional().allow(null, ''),
   verification_details: Joi.any().optional().allow(null),
@@ -1246,6 +1252,9 @@ export const updateDriverSchema = Joi.object({
   license_number: driverLicenseSchema.optional(),
   phone: driverPhoneSchema.optional(),
   name: Joi.string().optional().allow(null, '').min(1).max(255),
+  date_of_birth: Joi.string().optional().allow(null, '').isoDate(),
+  license_expires_at: Joi.string().optional().allow(null, '').isoDate(),
+  address: Joi.string().optional().allow(null, '').max(2000),
   is_verified: Joi.boolean().optional(),
   verified_at: Joi.string().optional().allow(null, ''),
   verification_details: Joi.any().optional().allow(null),
