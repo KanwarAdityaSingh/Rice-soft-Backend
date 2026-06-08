@@ -1,3 +1,5 @@
+import type { EntityKycVerificationDetails } from './kyc-verification.model';
+
 export interface Address {
   street: string;
   city: string;
@@ -56,6 +58,7 @@ export interface Vendor {
   bank_details_verified_by: string | null;
   /** Last failed verify_bank / confirm attempt; cleared on success or bank_details update */
   bank_verification_error: string | null;
+  kyc_verification_details: EntityKycVerificationDetails;
 }
 
 export interface CreateVendorDTO {
@@ -73,6 +76,8 @@ export interface CreateVendorDTO {
   business_card_url?: string;
   /** If true, attempt Surepass verification after insert; on failure vendor is kept unverified (lenient). */
   verify_bank?: boolean;
+  /** Partial Surepass snapshots merged into kyc_verification_details JSONB. */
+  kyc_verification_details?: EntityKycVerificationDetails;
 }
 
 export interface UpdateVendorDTO {
@@ -89,6 +94,7 @@ export interface UpdateVendorDTO {
   business_card_url?: string;
   /** If true, attempt Surepass verification after bank_details update; on failure vendor is kept unverified (lenient). */
   verify_bank?: boolean;
+  kyc_verification_details?: EntityKycVerificationDetails;
 }
 
 export interface VendorResponse {
@@ -110,4 +116,5 @@ export interface VendorResponse {
   bank_details_verified_at: string | null;
   bank_details_verified_by: string | null;
   bank_verification_error: string | null;
+  kyc_verification_details: EntityKycVerificationDetails;
 }

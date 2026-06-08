@@ -193,7 +193,7 @@ export class PaymentAdviceController {
 
       // Set the calculated amount (floor to whole rupees; same rule as purchase summary)
       if (calculatedAmount !== undefined && calculatedAmount !== null) {
-        paymentAdviceData.amount = floorToMoneyStep(Number(calculatedAmount));
+        paymentAdviceData.amount = floorToMoneyStep(calculatedAmount as number | string);
       } else {
         paymentAdviceData.amount = calculatedAmount;
       }
@@ -212,8 +212,9 @@ export class PaymentAdviceController {
         // Get all kaantas for this sauda
         const kaantas = await kaantaDAO.findAll(paymentAdviceData.sauda_id);
         if (kaantas.length > 0) {
-          totalKaantaWeight = kaantas.reduce((sum, k) => sum + (k.kaanta_weight || 0), 0);
-          totalSaidSentWeight = kaantas.reduce((sum, k) => sum + (k.said_sent_weight || 0), 0);
+          // PG DECIMAL often arrives as string; use Number() so + never does string concat.
+          totalKaantaWeight = kaantas.reduce((sum, k) => sum + Number(k.kaanta_weight ?? 0), 0);
+          totalSaidSentWeight = kaantas.reduce((sum, k) => sum + Number(k.said_sent_weight ?? 0), 0);
           const totalBillWeight = await inwardSlipLotDAO.sumBillWeightForSauda(paymentAdviceData.sauda_id);
 
           const pricing = computeKaantaPricingNetWeight({
@@ -269,8 +270,8 @@ export class PaymentAdviceController {
           for (const [saudaId, saudaKaantas] of kaantasBySauda.entries()) {
             const isDanaRequired = saudaMap.get(saudaId) || false;
 
-            const saudaKaantaWeight = saudaKaantas.reduce((sum, k) => sum + (k.kaanta_weight || 0), 0);
-            const saudaSaidSentWeight = saudaKaantas.reduce((sum, k) => sum + (k.said_sent_weight || 0), 0);
+            const saudaKaantaWeight = saudaKaantas.reduce((sum, k) => sum + Number(k.kaanta_weight ?? 0), 0);
+            const saudaSaidSentWeight = saudaKaantas.reduce((sum, k) => sum + Number(k.said_sent_weight ?? 0), 0);
 
             totalKaantaWeight += saudaKaantaWeight;
             totalSaidSentWeight += saudaSaidSentWeight;
@@ -429,8 +430,8 @@ export class PaymentAdviceController {
           
           const kaantas = await kaantaDAO.findAll(saudaId);
           if (kaantas.length > 0) {
-            totalKaantaWeight = kaantas.reduce((sum, k) => sum + (k.kaanta_weight || 0), 0);
-            totalSaidSentWeight = kaantas.reduce((sum, k) => sum + (k.said_sent_weight || 0), 0);
+            totalKaantaWeight = kaantas.reduce((sum, k) => sum + Number(k.kaanta_weight ?? 0), 0);
+            totalSaidSentWeight = kaantas.reduce((sum, k) => sum + Number(k.said_sent_weight ?? 0), 0);
             const totalBillWeight = await inwardSlipLotDAO.sumBillWeightForSauda(saudaId);
 
             const pricing = computeKaantaPricingNetWeight({
@@ -482,8 +483,8 @@ export class PaymentAdviceController {
             for (const [saudaId, saudaKaantas] of kaantasBySauda.entries()) {
               const isDanaRequired = saudaMap.get(saudaId) || false;
 
-              const saudaKaantaWeight = saudaKaantas.reduce((sum, k) => sum + (k.kaanta_weight || 0), 0);
-              const saudaSaidSentWeight = saudaKaantas.reduce((sum, k) => sum + (k.said_sent_weight || 0), 0);
+              const saudaKaantaWeight = saudaKaantas.reduce((sum, k) => sum + Number(k.kaanta_weight ?? 0), 0);
+              const saudaSaidSentWeight = saudaKaantas.reduce((sum, k) => sum + Number(k.said_sent_weight ?? 0), 0);
 
               totalKaantaWeight += saudaKaantaWeight;
               totalSaidSentWeight += saudaSaidSentWeight;

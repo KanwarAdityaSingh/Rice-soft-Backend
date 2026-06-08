@@ -6,6 +6,8 @@ import { NotFoundError, ConflictError } from '../utils/errors';
 import { CreateVehicleDTO, UpdateVehicleDTO, VehicleResponse } from '../models/vehicle.model';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { gstLookupService } from '../services/gst-lookup.service';
+import { kycPersistenceService } from '../services/kyc-persistence.service';
+import { parseVehicleVerificationDetails } from '../utils/kyc-verification';
 
 export class VehicleController {
   async getAll(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
@@ -31,6 +33,7 @@ export class VehicleController {
         transporter_ids: vehicle.transporter_ids,
         is_verified: vehicle.is_verified,
         verified_at: vehicle.verified_at?.toISOString() || null,
+        verification_details: parseVehicleVerificationDetails(vehicle.verification_details),
         is_active: vehicle.is_active,
         created_at: vehicle.created_at.toISOString(),
         updated_at: vehicle.updated_at.toISOString(),
@@ -67,6 +70,7 @@ export class VehicleController {
         transporter_ids: vehicle.transporter_ids,
         is_verified: vehicle.is_verified,
         verified_at: vehicle.verified_at?.toISOString() || null,
+        verification_details: parseVehicleVerificationDetails(vehicle.verification_details),
         is_active: vehicle.is_active,
         created_at: vehicle.created_at.toISOString(),
         updated_at: vehicle.updated_at.toISOString(),
@@ -103,6 +107,7 @@ export class VehicleController {
         transporter_ids: vehicle.transporter_ids,
         is_verified: vehicle.is_verified,
         verified_at: vehicle.verified_at?.toISOString() || null,
+        verification_details: parseVehicleVerificationDetails(vehicle.verification_details),
         is_active: vehicle.is_active,
         created_at: vehicle.created_at.toISOString(),
         updated_at: vehicle.updated_at.toISOString(),
@@ -116,12 +121,27 @@ export class VehicleController {
 
   async verifyVehicle(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const { vehicle_number } = validate<{ vehicle_number: string }>(verifyVehicleSchema, req.body);
+      const { vehicle_number, vehicle_id } = validate<{ vehicle_number: string; vehicle_id?: string }>(
+        verifyVehicleSchema,
+        req.body
+      );
 
-      // Call Surepass API to verify vehicle
-      const verificationResult = await gstLookupService.verifyVehicleRC(vehicle_number);
+      const envelope = await gstLookupService.verifyVehicleRC(vehicle_number);
 
-      return ResponseHandler.success(res, verificationResult, 'Vehicle verified successfully');
+      if (vehicle_id) {
+        await kycPersistenceService.saveVehicleVerification(vehicle_id, 'rc', envelope);
+      } else {
+        const existing = await vehicleDAO.findByVehicleNumber(vehicle_number);
+        if (existing) {
+          await kycPersistenceService.saveVehicleVerification(existing.id, 'rc', envelope);
+        }
+      }
+
+      return ResponseHandler.success(
+        res,
+        { ...envelope.mapped, surepass_response: envelope.raw },
+        'Vehicle verified successfully'
+      );
     } catch (error) {
       next(error);
     }
@@ -160,6 +180,7 @@ export class VehicleController {
         transporter_ids: createdVehicle.transporter_ids,
         is_verified: createdVehicle.is_verified,
         verified_at: createdVehicle.verified_at?.toISOString() || null,
+        verification_details: parseVehicleVerificationDetails(createdVehicle.verification_details),
         is_active: createdVehicle.is_active,
         created_at: createdVehicle.created_at.toISOString(),
         updated_at: createdVehicle.updated_at.toISOString(),
@@ -202,6 +223,7 @@ export class VehicleController {
         transporter_ids: updatedVehicle.transporter_ids,
         is_verified: updatedVehicle.is_verified,
         verified_at: updatedVehicle.verified_at?.toISOString() || null,
+        verification_details: parseVehicleVerificationDetails(updatedVehicle.verification_details),
         is_active: updatedVehicle.is_active,
         created_at: updatedVehicle.created_at.toISOString(),
         updated_at: updatedVehicle.updated_at.toISOString(),

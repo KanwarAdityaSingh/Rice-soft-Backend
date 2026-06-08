@@ -1,3 +1,5 @@
+import type { EntityKycVerificationDetails } from './kyc-verification.model';
+
 export interface Address {
   street: string;
   city: string;
@@ -58,6 +60,7 @@ export interface Broker {
   bank_details_verified_by: string | null;
   /** Last failed verify_bank / confirm attempt; cleared on success or bank_details update */
   bank_verification_error: string | null;
+  kyc_verification_details: EntityKycVerificationDetails;
 }
 
 export interface CreateBrokerDTO {
@@ -73,6 +76,7 @@ export interface CreateBrokerDTO {
   user_id?: string;
   /** If true, attempt Surepass verification after insert; on failure broker is kept unverified (lenient). */
   verify_bank?: boolean;
+  kyc_verification_details?: EntityKycVerificationDetails;
 }
 
 export interface UpdateBrokerDTO {
@@ -87,6 +91,7 @@ export interface UpdateBrokerDTO {
   updated_by?: string;
   /** If true, run Surepass verification after update (lenient on failure). */
   verify_bank?: boolean;
+  kyc_verification_details?: EntityKycVerificationDetails;
 }
 
 export interface BrokerResponse {
@@ -104,4 +109,5 @@ export interface BrokerResponse {
   bank_details_verified_at: string | null;
   bank_details_verified_by: string | null;
   bank_verification_error: string | null;
+  kyc_verification_details: EntityKycVerificationDetails;
 }

@@ -109,10 +109,11 @@ export class PurchaseSummaryDAO {
       );
     }
     const amountAfterCommission = amountAfterDiscount - brokerCommissionAmount;
-    const amountAfterTransportation = amountAfterCommission + transportationCost;
+    // Use Number() so a rare string from DB/JSON cannot trigger JS string concatenation with +.
+    const amountAfterTransportation = Number(amountAfterCommission) + Number(transportationCost);
     const igstAmount = 0;
     const igstPercentage = 0;
-    const finalTotalAmount = amountAfterTransportation + igstAmount;
+    const finalTotalAmount = Number(amountAfterTransportation) + Number(igstAmount);
     const f = floorToMoneyStep;
     return {
       totalLots,
@@ -406,19 +407,19 @@ export class PurchaseSummaryDAO {
       
       saudaBreakdowns.push(breakdown);
       
-      // Aggregate totals
-      totalLots += saudaSummary.total_lots;
-      totalBags += saudaSummary.total_bags;
-      totalWeight += saudaSummary.total_weight;
-      totalBaseAmount += saudaSummary.base_amount;
-      totalCashDiscountAmount += saudaSummary.cash_discount_amount;
-      totalAmountAfterDiscount += saudaSummary.amount_after_discount;
-      totalBrokerCommissionAmount += saudaSummary.broker_commission_amount;
-      totalAmountAfterCommission += saudaSummary.amount_after_commission;
-      totalTransportationCost += saudaSummary.transportation_cost;
-      totalAmountAfterTransportation += saudaSummary.amount_after_transportation;
-      totalIgstAmount += saudaSummary.igst_amount;
-      totalFinalAmount += saudaSummary.final_total_amount;
+      // Aggregate totals (Number() avoids JS "0" + "1.00" style string concatenation)
+      totalLots += Number(saudaSummary.total_lots);
+      totalBags += Number(saudaSummary.total_bags);
+      totalWeight += Number(saudaSummary.total_weight);
+      totalBaseAmount += Number(saudaSummary.base_amount);
+      totalCashDiscountAmount += Number(saudaSummary.cash_discount_amount);
+      totalAmountAfterDiscount += Number(saudaSummary.amount_after_discount);
+      totalBrokerCommissionAmount += Number(saudaSummary.broker_commission_amount);
+      totalAmountAfterCommission += Number(saudaSummary.amount_after_commission);
+      totalTransportationCost += Number(saudaSummary.transportation_cost);
+      totalAmountAfterTransportation += Number(saudaSummary.amount_after_transportation);
+      totalIgstAmount += Number(saudaSummary.igst_amount);
+      totalFinalAmount += Number(saudaSummary.final_total_amount);
     }
 
     // Format ISP details

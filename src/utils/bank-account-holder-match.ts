@@ -1,11 +1,17 @@
 import { BadRequestError } from './errors';
 
 /**
- * Strict match only: trim, collapse internal whitespace, uppercase.
- * No fuzzy matching — "MILL" and "MILLS" are different.
+ * Strict match after normalizing formatting differences common in bank records:
+ * trim, uppercase, treat periods as spaces (B.R ↔ B. R.), collapse whitespace.
+ * No fuzzy matching on substantive words — "MILL" and "MILLS" remain different.
  */
 export function normalizeAccountHolderNameForComparison(name: string): string {
-  return name.trim().replace(/\s+/g, ' ').toUpperCase();
+  return name
+    .trim()
+    .toUpperCase()
+    .replace(/\./g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 /**

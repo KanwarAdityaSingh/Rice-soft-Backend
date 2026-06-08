@@ -27,6 +27,8 @@ import {
 } from '../models/vendor.model';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { gstLookupService } from '../services/gst-lookup.service';
+import { kycPersistenceService } from '../services/kyc-persistence.service';
+import { parseEntityKycDetails } from '../utils/kyc-verification';
 import { appConfig } from '../config/app.config';
 import { logger } from '../utils/logger';
 import Joi from 'joi';
@@ -62,11 +64,12 @@ async function tryVerifyBankAfterSave(
   if (accountDigits.length < 9 || accountDigits.length > 18 || !ifsc) {
     throw new ValidationError('Invalid bank account for verification');
   }
-  const verificationResult = await gstLookupService.verifyBankAccount(accountDigits, ifsc);
+  const envelope = await gstLookupService.verifyBankAccount(accountDigits, ifsc);
   assertEnteredAccountHolderMatchesBankRecord(
     bankDetails.account_holder_name,
-    verificationResult.account_holder_name
+    envelope.mapped.account_holder_name
   );
+  await kycPersistenceService.saveEntityVerification('vendor', vendorId, 'bank', envelope);
   await vendorDAO.markBankDetailsVerified(vendorId, userId);
 }
 
@@ -90,6 +93,7 @@ function toVendorResponse(vendor: Vendor): VendorResponse {
     bank_details_verified_at: vendor.bank_details_verified_at?.toISOString() ?? null,
     bank_details_verified_by: vendor.bank_details_verified_by ?? null,
     bank_verification_error: vendor.bank_verification_error ?? null,
+    kyc_verification_details: parseEntityKycDetails(vendor.kyc_verification_details),
   };
 }
 
@@ -479,8 +483,8 @@ export class VendorController {
       }
 
       // Fetch GST details
-      const gstData = await gstLookupService.lookupGST(gst_number);
-      const mappedData = gstLookupService.mapGSTToBusinessData(gstData);
+      const gstEnvelope = await gstLookupService.lookupGSTAdvanced(gst_number);
+      const mappedData = gstLookupService.mapGSTAdvancedToBusinessData(gstEnvelope.mapped);
 
       // Create vendor with fetched + provided data
       const vendorData: CreateVendorDTO = {
@@ -495,6 +499,12 @@ export class VendorController {
       };
 
       const vendor = await vendorDAO.create(vendorData);
+      await kycPersistenceService.saveEntityVerification(
+        'vendor',
+        vendor.id,
+        'gst_advanced',
+        gstEnvelope
+      );
 
       if (verifyBank && vendor.bank_details) {
         try {
@@ -601,6 +611,7 @@ export class VendorController {
       }
 
       // Fetch PAN details
+      const panEnvelope = await gstLookupService.lookupPANComprehensive(pan_number);
       const panData = await gstLookupService.lookupPAN(pan_number);
       const mappedData = gstLookupService.mapPANToBusinessData(panData);
 
@@ -620,6 +631,12 @@ export class VendorController {
       };
 
       const vendor = await vendorDAO.create(vendorData);
+      await kycPersistenceService.saveEntityVerification(
+        'vendor',
+        vendor.id,
+        'pan_comprehensive',
+        panEnvelope
+      );
 
       if (verifyBank && vendor.bank_details) {
         try {
@@ -719,12 +736,16 @@ export class VendorController {
       }
 
       // Verify bank account
-      const verificationResult = await gstLookupService.verifyBankAccount(
+      const envelope = await gstLookupService.verifyBankAccount(
         id_number.trim(),
         ifsc.trim()
       );
 
-      return ResponseHandler.success(res, verificationResult, 'Bank account verified successfully');
+      return ResponseHandler.success(
+        res,
+        { ...envelope.mapped, surepass_response: envelope.raw },
+        'Bank account verified successfully'
+      );
     } catch (error) {
       next(error);
     }
@@ -766,8 +787,9 @@ export class VendorController {
         );
       }
 
-      const verificationResult = await gstLookupService.verifyBankAccount(accountDigits, ifsc);
-      assertEnteredAccountHolderMatchesBankRecord(enteredName, verificationResult.account_holder_name);
+      const envelope = await gstLookupService.verifyBankAccount(accountDigits, ifsc);
+      assertEnteredAccountHolderMatchesBankRecord(enteredName, envelope.mapped.account_holder_name);
+      await kycPersistenceService.saveEntityVerification('vendor', id, 'bank', envelope);
 
       const updated = await vendorDAO.markBankDetailsVerified(id, req.user.userId);
       if (!updated) {

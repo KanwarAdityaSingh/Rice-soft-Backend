@@ -2,16 +2,58 @@
  * Money helpers: amounts are in rupees (same unit as DB DECIMAL / API numbers).
  */
 
+import { ValidationError } from './errors';
+
 const EPS = 1e-9;
 
 /**
- * Round down to the nearest multiple of `step` (default 1 = whole rupees).
+ * Parse API / DB money input to a finite number.
+ * Rejects strings with more than one "." (common bug: two formatted amounts concatenated).
  */
-export function floorToMoneyStep(amount: number, step = 1): number {
-  if (!Number.isFinite(amount) || step <= 0 || !Number.isFinite(step)) {
-    return amount;
+export function coerceFiniteMoneyNumber(value: unknown, fieldLabel = 'amount'): number {
+  if (value === null || value === undefined) {
+    throw new ValidationError(`Invalid ${fieldLabel}: missing`);
   }
-  return Math.floor((amount + EPS) / step) * step;
+  if (typeof value === 'number') {
+    if (Number.isFinite(value)) return value;
+    throw new ValidationError(`Invalid ${fieldLabel}: not a finite number`);
+  }
+  if (typeof value === 'string') {
+    const s = value.replace(/,/g, '').trim();
+    if (s === '') {
+      throw new ValidationError(`Invalid ${fieldLabel}: empty`);
+    }
+    if ((s.match(/\./g) ?? []).length > 1) {
+      throw new ValidationError(
+        `Invalid ${fieldLabel}: "${value}" has multiple decimal points — often two numbers were joined as text.`
+      );
+    }
+    const n = parseFloat(s);
+    if (!Number.isFinite(n)) {
+      throw new ValidationError(`Invalid ${fieldLabel}: "${value}"`);
+    }
+    return n;
+  }
+  const n = Number(value);
+  if (!Number.isFinite(n)) {
+    throw new ValidationError(`Invalid ${fieldLabel}`);
+  }
+  return n;
+}
+
+/**
+ * Round down to the nearest multiple of `step` (default 1 = whole rupees).
+ * Coerces numeric strings; rejects malformed multi-decimal strings.
+ */
+export function floorToMoneyStep(amount: number | string, step = 1): number {
+  const n =
+    typeof amount === 'number' && Number.isFinite(amount)
+      ? amount
+      : coerceFiniteMoneyNumber(amount, 'money');
+  if (!Number.isFinite(n) || step <= 0 || !Number.isFinite(step)) {
+    return typeof amount === 'number' ? amount : Number.NaN;
+  }
+  return Math.floor((n + EPS) / step) * step;
 }
 
 /**

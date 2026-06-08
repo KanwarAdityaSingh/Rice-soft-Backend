@@ -1,13 +1,17 @@
 import { db } from '../database/connection';
 import { Vehicle, CreateVehicleDTO, UpdateVehicleDTO } from '../models/vehicle.model';
 import { logger } from '../utils/logger';
+import {
+  mergeVehicleVerificationDetailsPatch,
+  parseVehicleVerificationDetails,
+} from '../utils/kyc-verification';
 
 export class VehicleDAO {
   async findAll(transporterId?: string, isActive?: boolean): Promise<Vehicle[]> {
     let query = `
       SELECT id, vehicle_number, rc_number, owner_name, vehicle_class, fuel_type,
              maker_model, registration_date, insurance_validity, fitness_validity,
-             permit_validity, challan_details, transporter_ids, is_verified, verified_at,
+             permit_validity, challan_details, transporter_ids, is_verified, verified_at, verification_details,
              is_active, created_at, updated_at, created_by, updated_by
       FROM vehicles
       WHERE 1=1
@@ -36,7 +40,7 @@ export class VehicleDAO {
     const query = `
       SELECT id, vehicle_number, rc_number, owner_name, vehicle_class, fuel_type,
              maker_model, registration_date, insurance_validity, fitness_validity,
-             permit_validity, challan_details, transporter_ids, is_verified, verified_at,
+             permit_validity, challan_details, transporter_ids, is_verified, verified_at, verification_details,
              is_active, created_at, updated_at, created_by, updated_by
       FROM vehicles
       WHERE id = $1
@@ -49,7 +53,7 @@ export class VehicleDAO {
     const query = `
       SELECT id, vehicle_number, rc_number, owner_name, vehicle_class, fuel_type,
              maker_model, registration_date, insurance_validity, fitness_validity,
-             permit_validity, challan_details, transporter_ids, is_verified, verified_at,
+             permit_validity, challan_details, transporter_ids, is_verified, verified_at, verification_details,
              is_active, created_at, updated_at, created_by, updated_by
       FROM vehicles
       WHERE vehicle_number = $1
@@ -80,17 +84,22 @@ export class VehicleDAO {
       throw new Error('Vehicle number already exists');
     }
 
+    const verificationDetails = mergeVehicleVerificationDetailsPatch(
+      {},
+      vehicleData.verification_details
+    );
+
     const query = `
       INSERT INTO vehicles (
         vehicle_number, rc_number, owner_name, vehicle_class, fuel_type,
         maker_model, registration_date, insurance_validity, fitness_validity,
         permit_validity, challan_details, transporter_ids, is_verified, verified_at,
-        is_active, created_by
+        verification_details, is_active, created_by
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
       RETURNING id, vehicle_number, rc_number, owner_name, vehicle_class, fuel_type,
                 maker_model, registration_date, insurance_validity, fitness_validity,
-                permit_validity, challan_details, transporter_ids, is_verified, verified_at,
+                permit_validity, challan_details, transporter_ids, is_verified, verified_at, verification_details,
                 is_active, created_at, updated_at, created_by, updated_by
     `;
 
@@ -109,6 +118,7 @@ export class VehicleDAO {
       vehicleData.transporter_ids || [],
       vehicleData.is_verified !== undefined ? vehicleData.is_verified : false,
       vehicleData.verified_at || null,
+      JSON.stringify(verificationDetails),
       vehicleData.is_active !== undefined ? vehicleData.is_active : true,
       vehicleData.created_by || null,
     ];
@@ -196,6 +206,19 @@ export class VehicleDAO {
       values.push(vehicleData.updated_by);
     }
 
+    if (vehicleData.verification_details !== undefined) {
+      const existingRow = await db.query<{ verification_details: unknown }>(
+        `SELECT verification_details FROM vehicles WHERE id = $1`,
+        [id]
+      );
+      const merged = mergeVehicleVerificationDetailsPatch(
+        parseVehicleVerificationDetails(existingRow.rows[0]?.verification_details),
+        vehicleData.verification_details
+      );
+      fields.push(`verification_details = $${paramCount++}::jsonb`);
+      values.push(JSON.stringify(merged));
+    }
+
     if (fields.length === 0) {
       return this.findById(id);
     }
@@ -209,7 +232,7 @@ export class VehicleDAO {
       WHERE id = $${paramCount}
       RETURNING id, vehicle_number, rc_number, owner_name, vehicle_class, fuel_type,
                 maker_model, registration_date, insurance_validity, fitness_validity,
-                permit_validity, challan_details, transporter_ids, is_verified, verified_at,
+                permit_validity, challan_details, transporter_ids, is_verified, verified_at, verification_details,
                 is_active, created_at, updated_at, created_by, updated_by
     `;
 

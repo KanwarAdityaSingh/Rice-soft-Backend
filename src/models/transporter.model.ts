@@ -1,4 +1,5 @@
 import { ContactPerson } from './vendor.model';
+import type { EntityKycVerificationDetails } from './kyc-verification.model';
 
 export interface Address {
   street: string;
@@ -38,6 +39,7 @@ export interface Transporter {
   updated_at: Date;
   created_by: string | null;
   updated_by: string | null;
+  kyc_verification_details: EntityKycVerificationDetails;
 }
 
 export interface CreateTransporterDTO {
@@ -54,6 +56,7 @@ export interface CreateTransporterDTO {
   bank_details?: BankDetails;
   is_active?: boolean;
   created_by?: string;
+  kyc_verification_details?: EntityKycVerificationDetails;
 }
 
 export interface UpdateTransporterDTO {
@@ -69,6 +72,7 @@ export interface UpdateTransporterDTO {
   bank_details?: BankDetails;
   is_active?: boolean;
   updated_by?: string;
+  kyc_verification_details?: EntityKycVerificationDetails;
 }
 
 export interface TransporterResponse {
@@ -86,5 +90,6 @@ export interface TransporterResponse {
   is_active: boolean;
   created_at: string;
   updated_at: string;
+  kyc_verification_details: EntityKycVerificationDetails;
 }
 

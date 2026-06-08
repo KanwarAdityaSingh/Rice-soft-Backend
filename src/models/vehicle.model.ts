@@ -1,3 +1,5 @@
+import type { VehicleVerificationDetails } from './kyc-verification.model';
+
 export interface Vehicle {
   id: string;
   vehicle_number: string; // Primary identifier (e.g., DL01AB1234)
@@ -14,6 +16,7 @@ export interface Vehicle {
   transporter_ids: string[]; // Array of transporter UUIDs
   is_verified: boolean; // True if verified via Surepass
   verified_at: Date | null;
+  verification_details: VehicleVerificationDetails;
   is_active: boolean;
   created_at: Date;
   updated_at: Date;
@@ -36,6 +39,7 @@ export interface CreateVehicleDTO {
   transporter_ids?: string[];
   is_verified?: boolean;
   verified_at?: string;
+  verification_details?: VehicleVerificationDetails;
   is_active?: boolean;
   created_by?: string;
 }
@@ -53,6 +57,7 @@ export interface UpdateVehicleDTO {
   permit_validity?: string;
   challan_details?: any[];
   transporter_ids?: string[];
+  verification_details?: VehicleVerificationDetails;
   is_active?: boolean;
   updated_by?: string;
 }
@@ -73,9 +78,8 @@ export interface VehicleResponse {
   transporter_ids: string[];
   is_verified: boolean;
   verified_at: string | null;
+  verification_details: VehicleVerificationDetails;
   is_active: boolean;
   created_at: string;
   updated_at: string;
 }
-
-

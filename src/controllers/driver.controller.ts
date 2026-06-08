@@ -12,6 +12,7 @@ import { NotFoundError, ConflictError } from '../utils/errors';
 import { CreateDriverDTO, DriverResponse, UpdateDriverDTO } from '../models/driver.model';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { gstLookupService } from '../services/gst-lookup.service';
+import { kycPersistenceService } from '../services/kyc-persistence.service';
 
 function dateOnlyFromDb(value: Date | string | null | undefined): string | null {
   if (value == null) {
@@ -97,9 +98,27 @@ export class DriverController {
 
   async verifyDriver(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const { license_number } = validate<{ license_number: string }>(verifyDriverSchema, req.body);
-      const result = await gstLookupService.verifyDrivingLicense(license_number);
-      return ResponseHandler.success(res, result, 'Driving licence verified successfully');
+      const { license_number, dob } = validate<{ license_number: string; dob?: string }>(
+        verifyDriverSchema,
+        req.body
+      );
+      const envelope = await gstLookupService.verifyDrivingLicense(license_number, dob);
+
+      const driverId = (req.body as { driver_id?: string }).driver_id;
+      if (driverId) {
+        await kycPersistenceService.saveDriverVerification(driverId, envelope);
+      } else {
+        const existing = await driverDAO.findByLicenseNumber(license_number);
+        if (existing) {
+          await kycPersistenceService.saveDriverVerification(existing.id, envelope);
+        }
+      }
+
+      return ResponseHandler.success(
+        res,
+        { ...envelope.mapped, surepass_response: envelope.raw },
+        'Driving licence verified successfully'
+      );
     } catch (error) {
       next(error);
     }

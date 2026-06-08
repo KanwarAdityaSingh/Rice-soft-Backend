@@ -12,9 +12,30 @@ import {
   ConflictError,
   ValidationError,
 } from '../utils/errors';
-import { CreateTransporterDTO, UpdateTransporterDTO, TransporterResponse } from '../models/transporter.model';
+import { CreateTransporterDTO, UpdateTransporterDTO, TransporterResponse, Transporter } from '../models/transporter.model';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { gstLookupService } from '../services/gst-lookup.service';
+import { parseEntityKycDetails } from '../utils/kyc-verification';
+
+function toTransporterResponse(transporter: Transporter): TransporterResponse {
+  return {
+    id: transporter.id,
+    business_name: transporter.business_name,
+    contact_persons: transporter.contact_persons,
+    address: transporter.address,
+    gst_number: transporter.gst_number,
+    pan_number: transporter.pan_number,
+    aadhar_number: transporter.aadhar_number,
+    transport_type: transporter.transport_type,
+    vehicle_numbers: transporter.vehicle_numbers,
+    vehicle_ids: transporter.vehicle_ids,
+    bank_details: transporter.bank_details,
+    is_active: transporter.is_active,
+    created_at: transporter.created_at.toISOString(),
+    updated_at: transporter.updated_at.toISOString(),
+    kyc_verification_details: parseEntityKycDetails(transporter.kyc_verification_details),
+  };
+}
 
 export class TransporterController {
   async getAll(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
@@ -23,22 +44,7 @@ export class TransporterController {
       
       const transporters = await transporterDAO.findAll(includeInactive);
 
-      const transporterResponses: TransporterResponse[] = transporters.map((transporter) => ({
-        id: transporter.id,
-        business_name: transporter.business_name,
-        contact_persons: transporter.contact_persons,
-        address: transporter.address,
-        gst_number: transporter.gst_number,
-        pan_number: transporter.pan_number,
-        aadhar_number: transporter.aadhar_number,
-        transport_type: transporter.transport_type,
-        vehicle_numbers: transporter.vehicle_numbers,
-        vehicle_ids: transporter.vehicle_ids,
-        bank_details: transporter.bank_details,
-        is_active: transporter.is_active,
-        created_at: transporter.created_at.toISOString(),
-        updated_at: transporter.updated_at.toISOString(),
-      }));
+      const transporterResponses: TransporterResponse[] = transporters.map(toTransporterResponse);
 
       return ResponseHandler.success(res, transporterResponses);
     } catch (error) {
@@ -55,24 +61,7 @@ export class TransporterController {
         throw new NotFoundError('Transporter not found');
       }
 
-      const transporterResponse: TransporterResponse = {
-        id: transporter.id,
-        business_name: transporter.business_name,
-        contact_persons: transporter.contact_persons,
-        address: transporter.address,
-        gst_number: transporter.gst_number,
-        pan_number: transporter.pan_number,
-        aadhar_number: transporter.aadhar_number,
-        transport_type: transporter.transport_type,
-        vehicle_numbers: transporter.vehicle_numbers,
-        vehicle_ids: transporter.vehicle_ids,
-        bank_details: transporter.bank_details,
-        is_active: transporter.is_active,
-        created_at: transporter.created_at.toISOString(),
-        updated_at: transporter.updated_at.toISOString(),
-      };
-
-      return ResponseHandler.success(res, transporterResponse);
+      return ResponseHandler.success(res, toTransporterResponse(transporter));
     } catch (error) {
       next(error);
     }
@@ -127,24 +116,7 @@ export class TransporterController {
 
       const transporter = await transporterDAO.create(transporterData);
 
-      const transporterResponse: TransporterResponse = {
-        id: transporter.id,
-        business_name: transporter.business_name,
-        contact_persons: transporter.contact_persons,
-        address: transporter.address,
-        gst_number: transporter.gst_number,
-        pan_number: transporter.pan_number,
-        aadhar_number: transporter.aadhar_number,
-        transport_type: transporter.transport_type,
-        vehicle_numbers: transporter.vehicle_numbers,
-        vehicle_ids: transporter.vehicle_ids,
-        bank_details: transporter.bank_details,
-        is_active: transporter.is_active,
-        created_at: transporter.created_at.toISOString(),
-        updated_at: transporter.updated_at.toISOString(),
-      };
-
-      return ResponseHandler.created(res, transporterResponse, 'Transporter created successfully');
+      return ResponseHandler.created(res, toTransporterResponse(transporter), 'Transporter created successfully');
     } catch (error) {
       next(error);
     }
@@ -214,24 +186,7 @@ export class TransporterController {
         throw new NotFoundError('Transporter not found after update');
       }
 
-      const transporterResponse: TransporterResponse = {
-        id: transporter.id,
-        business_name: transporter.business_name,
-        contact_persons: transporter.contact_persons,
-        address: transporter.address,
-        gst_number: transporter.gst_number,
-        pan_number: transporter.pan_number,
-        aadhar_number: transporter.aadhar_number,
-        transport_type: transporter.transport_type,
-        vehicle_numbers: transporter.vehicle_numbers,
-        vehicle_ids: transporter.vehicle_ids,
-        bank_details: transporter.bank_details,
-        is_active: transporter.is_active,
-        created_at: transporter.created_at.toISOString(),
-        updated_at: transporter.updated_at.toISOString(),
-      };
-
-      return ResponseHandler.success(res, transporterResponse, 'Transporter updated successfully');
+      return ResponseHandler.success(res, toTransporterResponse(transporter), 'Transporter updated successfully');
     } catch (error) {
       next(error);
     }
@@ -335,12 +290,16 @@ export class TransporterController {
       }
 
       // Verify bank account
-      const verificationResult = await gstLookupService.verifyBankAccount(
+      const envelope = await gstLookupService.verifyBankAccount(
         id_number.trim(),
         ifsc.trim()
       );
 
-      return ResponseHandler.success(res, verificationResult, 'Bank account verified successfully');
+      return ResponseHandler.success(
+        res,
+        { ...envelope.mapped, surepass_response: envelope.raw },
+        'Bank account verified successfully'
+      );
     } catch (error) {
       next(error);
     }

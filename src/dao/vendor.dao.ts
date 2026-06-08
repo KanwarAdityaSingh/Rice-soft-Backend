@@ -1,12 +1,14 @@
 import { db } from '../database/connection';
 import { Vendor, CreateVendorDTO, UpdateVendorDTO, VendorType } from '../models/vendor.model';
+import { mergeEntityKycDetailsPatch, parseEntityKycDetails } from '../utils/kyc-verification';
 import { logger } from '../utils/logger';
 
 const VENDOR_SELECT_COLUMNS = `
       id, business_name, contact_persons, contact_person, email, phone, address, business_details,
              bank_details, type, is_active, user_id, lead_id, created_at, updated_at, created_by, updated_by,
              last_enquiry_date, google_location_link, business_card_url,
-             bank_details_verified_at, bank_details_verified_by, bank_verification_error`;
+             bank_details_verified_at, bank_details_verified_by, bank_verification_error,
+             kyc_verification_details`;
 
 export class VendorDAO {
   /**
@@ -94,10 +96,16 @@ export class VendorDAO {
     const primaryPhone = firstContactPerson.phones[0];
     const primaryEmail = firstContactPerson.emails?.[0]?.trim() || null;
 
+    const kycDetails = mergeEntityKycDetailsPatch(
+      {},
+      vendorData.kyc_verification_details
+    );
+
     const query = `
       INSERT INTO vendors (business_name, contact_persons, contact_person, email, phone, address, business_details, 
-                          bank_details, type, is_active, created_by, user_id, lead_id, google_location_link, business_card_url)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+                          bank_details, type, is_active, created_by, user_id, lead_id, google_location_link, business_card_url,
+                          kyc_verification_details)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
       RETURNING ${VENDOR_SELECT_COLUMNS}
     `;
     
@@ -116,7 +124,8 @@ export class VendorDAO {
       vendorData.user_id || null,
       vendorData.lead_id || null,
       vendorData.google_location_link || null,
-      vendorData.business_card_url || null
+      vendorData.business_card_url || null,
+      JSON.stringify(kycDetails),
     ];
 
     const result = await db.query<Vendor>(query, values);
@@ -203,6 +212,19 @@ export class VendorDAO {
     if (vendorData.business_card_url !== undefined) {
       updateFields.push(`business_card_url = $${paramCount++}`);
       values.push(vendorData.business_card_url || null);
+    }
+
+    if (vendorData.kyc_verification_details !== undefined) {
+      const existingRow = await db.query<{ kyc_verification_details: unknown }>(
+        `SELECT kyc_verification_details FROM vendors WHERE id = $1`,
+        [id]
+      );
+      const merged = mergeEntityKycDetailsPatch(
+        parseEntityKycDetails(existingRow.rows[0]?.kyc_verification_details),
+        vendorData.kyc_verification_details
+      );
+      updateFields.push(`kyc_verification_details = $${paramCount++}::jsonb`);
+      values.push(JSON.stringify(merged));
     }
 
     if (updateFields.length === 0) {

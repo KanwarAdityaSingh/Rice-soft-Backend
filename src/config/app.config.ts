@@ -32,13 +32,31 @@ export const appConfig = {
   // External API Configurations
   apis: {
     surepass: {
-      panUrl: process.env.SUREPASS_PAN_API_URL || 'https://kyc-api.surepass.io/api/v1/pan/pan',
-      bankVerificationUrl: process.env.SUREPASS_BANK_API_URL || 'https://kyc-api.surepass.io/api/v1/bank-verification/',
-      rcVerificationUrl: process.env.SUREPASS_RC_API_URL || 'https://kyc-api.surepass.io/api/v1/rc-verification',
+      panUrl:
+        process.env.SUREPASS_PAN_API_URL ||
+        'https://kyc-api.surepass.io/api/v1/pan/pan-comprehensive',
+      bankVerificationUrl:
+        process.env.SUREPASS_BANK_API_URL ||
+        'https://kyc-api.surepass.io/api/v1/bank-verification/',
+      aadhaarValidationUrl:
+        process.env.SUREPASS_AADHAAR_API_URL ||
+        'https://kyc-api.surepass.io/api/v1/aadhaar-validation/aadhaar-validation',
+      emailCheckUrl:
+        process.env.SUREPASS_EMAIL_API_URL ||
+        'https://kyc-api.surepass.io/api/v1/employment/email-check',
+      gstinAdvancedUrl:
+        process.env.SUREPASS_GSTIN_ADVANCED_API_URL ||
+        'https://kyc-api.surepass.io/api/v1/corporate/gstin-advanced',
+      rcVerificationUrl:
+        process.env.SUREPASS_RC_API_URL ||
+        'https://kyc-api.surepass.io/api/v1/rc-verification',
+      rcChallanDetailsUrl:
+        process.env.SUREPASS_RC_CHALLAN_API_URL ||
+        'https://kyc-api.surepass.io/api/v1/rc/rc-related/challan-details',
       dlVerificationUrl:
         process.env.SUREPASS_DL_API_URL ||
         'https://kyc-api.surepass.io/api/v1/driving-license/driving-license',
-      token: process.env.SUREPASS_API_TOKEN || '',
+      token: process.env.SUREPASS_NEW_API_TOKEN || '',
     },
     mastersIndia: {
       url: process.env.MASTERS_INDIA_API_URL || 'https://commonapi.mastersindia.co/commonapis/searchgstin/',
@@ -86,7 +104,7 @@ export const appConfig = {
       packagingBillsFolder: process.env.AWS_S3_PACKAGING_BILLS_FOLDER || 'packaging-bills',
     },
     ses: {
-      fromEmail: process.env.AWS_SES_FROM_EMAIL || 'noreply@santkripa.com',
+      fromEmail: process.env.AWS_SES_FROM_EMAIL || 'info@santkripaequipment.com',
       fromName: process.env.AWS_SES_FROM_NAME || 'SantKripa Equipments',
     },
   },

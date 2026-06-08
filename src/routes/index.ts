@@ -35,6 +35,7 @@ import vendorSiteRoutes from './vendor-site.routes';
 import salesPartySiteRoutes from './sales-party-site.routes';
 import driverRoutes from './driver.routes';
 import parameterRoutes from './parameter.routes';
+import kycRoutes from './kyc.routes';
 
 const router = Router();
 
@@ -84,6 +85,7 @@ router.use('/sites', vendorSiteRoutes);
 router.use('/sales-party-sites', salesPartySiteRoutes);
 router.use('/drivers', driverRoutes);
 router.use('/parameters', parameterRoutes);
+router.use('/kyc', kycRoutes);
 
 export default router;
 

@@ -23,7 +23,7 @@ router.get('/lookupPAN', authenticate, brokerController.lookupPAN.bind(brokerCon
 
 /**
  * @route   GET /api/v1/brokers/lookupAadhaar
- * @desc    Validate Aadhaar number format and check availability
+ * @desc    Validate Aadhaar via Surepass and check availability
  * @access  Private
  * @query   aadhaar_number: string (12 digits)
  */

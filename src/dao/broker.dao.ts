@@ -1,11 +1,13 @@
 import { db } from '../database/connection';
 import { Broker, CreateBrokerDTO, UpdateBrokerDTO, BrokerType, ContactPerson } from '../models/broker.model';
+import { parseEntityKycDetails, mergeEntityKycDetailsPatch } from '../utils/kyc-verification';
 import { logger } from '../utils/logger';
 
 const BROKER_SELECT_COLUMNS = `
       id, business_name, contact_persons, email, phone, address, business_details,
              bank_details, broker_details, type, is_active, user_id, created_at, updated_at, created_by, updated_by,
-             bank_details_verified_at, bank_details_verified_by, bank_verification_error`;
+             bank_details_verified_at, bank_details_verified_by, bank_verification_error,
+             kyc_verification_details`;
 
 export class BrokerDAO {
   /**
@@ -61,6 +63,7 @@ export class BrokerDAO {
       bank_details_verified_at: broker.bank_details_verified_at ?? null,
       bank_details_verified_by: broker.bank_details_verified_by ?? null,
       bank_verification_error: broker.bank_verification_error ?? null,
+      kyc_verification_details: parseEntityKycDetails(broker.kyc_verification_details),
     };
   }
 
@@ -146,10 +149,12 @@ export class BrokerDAO {
     const primaryEmail = firstContactPerson.emails?.[0]?.trim() || null;
     const primaryPhone = firstContactPerson.phones[0];
 
+    const kycDetails = mergeEntityKycDetailsPatch({}, brokerData.kyc_verification_details);
+
     const query = `
       INSERT INTO brokers (business_name, contact_persons, email, phone, address, business_details, 
-                          bank_details, broker_details, type, is_active, created_by, user_id)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                          bank_details, broker_details, type, is_active, created_by, user_id, kyc_verification_details)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
       RETURNING ${BROKER_SELECT_COLUMNS}
     `;
     
@@ -165,7 +170,8 @@ export class BrokerDAO {
       brokerData.type,
       brokerData.is_active !== undefined ? brokerData.is_active : true,
       brokerData.created_by || null,
-      brokerData.user_id || null
+      brokerData.user_id || null,
+      JSON.stringify(kycDetails),
     ];
 
     const result = await db.query<any>(query, values);
@@ -240,6 +246,19 @@ export class BrokerDAO {
     if (brokerData.updated_by !== undefined) {
       updateFields.push(`updated_by = $${paramCount++}`);
       values.push(brokerData.updated_by);
+    }
+
+    if (brokerData.kyc_verification_details !== undefined) {
+      const existingRow = await db.query<{ kyc_verification_details: unknown }>(
+        `SELECT kyc_verification_details FROM brokers WHERE id = $1`,
+        [id]
+      );
+      const merged = mergeEntityKycDetailsPatch(
+        parseEntityKycDetails(existingRow.rows[0]?.kyc_verification_details),
+        brokerData.kyc_verification_details
+      );
+      updateFields.push(`kyc_verification_details = $${paramCount++}::jsonb`);
+      values.push(JSON.stringify(merged));
     }
 
     if (updateFields.length === 0) {

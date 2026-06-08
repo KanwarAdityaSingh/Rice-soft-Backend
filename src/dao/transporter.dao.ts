@@ -1,12 +1,17 @@
 import { db } from '../database/connection';
 import { Transporter, CreateTransporterDTO, UpdateTransporterDTO } from '../models/transporter.model';
 import { logger } from '../utils/logger';
+import { mergeEntityKycDetailsPatch, parseEntityKycDetails } from '../utils/kyc-verification';
+
+const TRANSPORTER_SELECT_COLUMNS = `
+      id, business_name, contact_persons, contact_person, phone, email, address, gst_number, pan_number,
+      aadhar_number, transport_type, vehicle_numbers, vehicle_ids, bank_details, is_active,
+      created_at, updated_at, created_by, updated_by, kyc_verification_details`;
 
 export class TransporterDAO {
   async findAll(includeInactive = false): Promise<Transporter[]> {
     let query = `
-      SELECT id, business_name, contact_persons, contact_person, phone, email, address, gst_number, pan_number,
-             aadhar_number, transport_type, vehicle_numbers, vehicle_ids, bank_details, is_active, created_at, updated_at, created_by, updated_by
+      SELECT ${TRANSPORTER_SELECT_COLUMNS}
       FROM transporters
       WHERE 1=1
     `;
@@ -25,8 +30,7 @@ export class TransporterDAO {
 
   async findById(id: string): Promise<Transporter | null> {
     const query = `
-      SELECT id, business_name, contact_persons, contact_person, phone, email, address, gst_number, pan_number,
-             aadhar_number, transport_type, vehicle_numbers, vehicle_ids, bank_details, is_active, created_at, updated_at, created_by, updated_by
+      SELECT ${TRANSPORTER_SELECT_COLUMNS}
       FROM transporters
       WHERE id = $1
     `;
@@ -36,8 +40,7 @@ export class TransporterDAO {
 
   async findByEmail(email: string): Promise<Transporter | null> {
     const query = `
-      SELECT id, business_name, contact_persons, contact_person, phone, email, address, gst_number, pan_number,
-             aadhar_number, transport_type, vehicle_numbers, vehicle_ids, bank_details, is_active, created_at, updated_at, created_by, updated_by
+      SELECT ${TRANSPORTER_SELECT_COLUMNS}
       FROM transporters
       WHERE email = $1
     `;
@@ -66,12 +69,14 @@ export class TransporterDAO {
     const primaryPhone = firstContactPerson?.phones?.[0] ?? '';
     const primaryEmail = firstContactPerson?.emails?.[0] || null;
 
+    const kycDetails = mergeEntityKycDetailsPatch({}, transporterData.kyc_verification_details);
+
     const query = `
       INSERT INTO transporters (business_name, contact_persons, contact_person, phone, email, address, gst_number,
-                              pan_number, aadhar_number, transport_type, vehicle_numbers, vehicle_ids, bank_details, is_active, created_by)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-      RETURNING id, business_name, contact_persons, contact_person, phone, email, address, gst_number, pan_number,
-                aadhar_number, transport_type, vehicle_numbers, vehicle_ids, bank_details, is_active, created_at, updated_at, created_by, updated_by
+                              pan_number, aadhar_number, transport_type, vehicle_numbers, vehicle_ids, bank_details, is_active, created_by,
+                              kyc_verification_details)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+      RETURNING ${TRANSPORTER_SELECT_COLUMNS}
     `;
     
     const values = [
@@ -90,6 +95,7 @@ export class TransporterDAO {
       JSON.stringify(transporterData.bank_details || {}),
       transporterData.is_active !== undefined ? transporterData.is_active : true,
       transporterData.created_by || null,
+      JSON.stringify(kycDetails),
     ];
 
     try {
@@ -168,6 +174,19 @@ export class TransporterDAO {
       values.push(transporterData.updated_by);
     }
 
+    if (transporterData.kyc_verification_details !== undefined) {
+      const existingRow = await db.query<{ kyc_verification_details: unknown }>(
+        `SELECT kyc_verification_details FROM transporters WHERE id = $1`,
+        [id]
+      );
+      const merged = mergeEntityKycDetailsPatch(
+        parseEntityKycDetails(existingRow.rows[0]?.kyc_verification_details),
+        transporterData.kyc_verification_details
+      );
+      fields.push(`kyc_verification_details = $${paramCount++}::jsonb`);
+      values.push(JSON.stringify(merged));
+    }
+
     if (fields.length === 0) {
       return this.findById(id);
     }
@@ -179,8 +198,7 @@ export class TransporterDAO {
       UPDATE transporters
       SET ${fields.join(', ')}
       WHERE id = $${paramCount}
-      RETURNING id, business_name, contact_persons, contact_person, phone, email, address, gst_number, pan_number,
-                aadhar_number, transport_type, vehicle_numbers, vehicle_ids, bank_details, is_active, created_at, updated_at, created_by, updated_by
+      RETURNING ${TRANSPORTER_SELECT_COLUMNS}
     `;
 
     try {

@@ -163,6 +163,32 @@ export const bankDetailsForVerifySchema = Joi.object({
   branch: Joi.string().optional().allow(null, '').max(255),
 });
 
+const surepassVerificationSnapshotSchema = Joi.object({
+  provider: Joi.string().valid('surepass').optional(),
+  verified_at: Joi.string().optional(),
+  raw: Joi.any().optional(),
+  mapped: Joi.any().optional(),
+}).unknown(true);
+
+/** Partial KYC snapshots merged into entity JSONB on create/update. */
+export const kycVerificationDetailsSchema = Joi.object({
+  pan: surepassVerificationSnapshotSchema.optional(),
+  pan_comprehensive: surepassVerificationSnapshotSchema.optional(),
+  gst: surepassVerificationSnapshotSchema.optional(),
+  gst_advanced: surepassVerificationSnapshotSchema.optional(),
+  aadhaar: surepassVerificationSnapshotSchema.optional(),
+  bank: surepassVerificationSnapshotSchema.optional(),
+  driving_license: surepassVerificationSnapshotSchema.optional(),
+  emails: Joi.object()
+    .pattern(Joi.string(), surepassVerificationSnapshotSchema)
+    .optional(),
+}).optional();
+
+export const vehicleVerificationDetailsSchema = Joi.object({
+  rc: surepassVerificationSnapshotSchema.optional(),
+  rc_challan: surepassVerificationSnapshotSchema.optional(),
+}).optional();
+
 export const createVendorSchema = Joi.object({
   business_name: Joi.string().required().min(2).max(255),
   contact_persons: Joi.array().items(
@@ -183,6 +209,7 @@ export const createVendorSchema = Joi.object({
   type: Joi.string().required().valid('purchaser', 'seller', 'both'),
   is_active: Joi.boolean().optional(),
   google_location_link: Joi.string().optional().allow(null, '').max(500),
+  kyc_verification_details: kycVerificationDetailsSchema,
 });
 
 export const updateVendorSchema = Joi.object({
@@ -205,6 +232,7 @@ export const updateVendorSchema = Joi.object({
   type: Joi.string().optional().valid('purchaser', 'seller', 'both'),
   is_active: Joi.boolean().optional(),
   google_location_link: Joi.string().optional().allow(null, '').max(500),
+  kyc_verification_details: kycVerificationDetailsSchema,
 }).min(1);
 
 // Sales Party validation schemas (no type — sales parties are always buyers)
@@ -268,6 +296,7 @@ export const createBrokerSchema = Joi.object({
   broker_details: brokerDetailsSchema.optional(),
   type: Joi.string().required().valid('purchase', 'sale', 'both'),
   is_active: Joi.boolean().optional(),
+  kyc_verification_details: kycVerificationDetailsSchema,
 });
 
 /** Query for GET /brokers/:brokerId/brokerage-commission-summary */
@@ -298,6 +327,7 @@ export const updateBrokerSchema = Joi.object({
   broker_details: brokerDetailsSchema.optional(),
   type: Joi.string().optional().valid('purchase', 'sale', 'both'),
   is_active: Joi.boolean().optional(),
+  kyc_verification_details: kycVerificationDetailsSchema,
 }).min(1);
 
 // Lead validation schemas
@@ -458,6 +488,7 @@ export const createTransporterSchema = Joi.object({
   bank_details: bankDetailsSchema.optional(),
   is_active: Joi.boolean().optional(),
   created_by: Joi.string().optional().uuid(),
+  kyc_verification_details: kycVerificationDetailsSchema,
 });
 
 export const updateTransporterSchema = Joi.object({
@@ -478,9 +509,8 @@ export const updateTransporterSchema = Joi.object({
   bank_details: bankDetailsSchema.optional(),
   is_active: Joi.boolean().optional(),
   updated_by: Joi.string().optional().uuid(),
+  kyc_verification_details: kycVerificationDetailsSchema,
 }).min(1);
-
-// Sauda validation schemas
 export const createSaudaSchema = Joi.object({
   sauda_type: Joi.string().required().valid('exgodown', 'for'),
   rice_type: Joi.string().required().valid('basmati', 'non_basmati', 'parboiled', 'raw', 'raw_basmati', 'steam_basmati', 'white_sella', 'golden_sella'),
@@ -667,6 +697,7 @@ export const createVehicleSchema = Joi.object({
   transporter_ids: Joi.array().items(Joi.string().uuid()).optional().allow(null),
   is_verified: Joi.boolean().optional().allow(null),
   verified_at: Joi.date().optional().allow(null).iso(),
+  verification_details: vehicleVerificationDetailsSchema,
   is_active: Joi.boolean().optional(),
   created_by: Joi.string().optional().uuid(),
 });
@@ -684,12 +715,14 @@ export const updateVehicleSchema = Joi.object({
   permit_validity: Joi.date().optional().allow(null).iso(),
   challan_details: Joi.array().optional().allow(null),
   transporter_ids: Joi.array().items(Joi.string().uuid()).optional().allow(null),
+  verification_details: vehicleVerificationDetailsSchema,
   is_active: Joi.boolean().optional(),
   updated_by: Joi.string().optional().uuid(),
 }).min(1);
 
 export const verifyVehicleSchema = Joi.object({
   vehicle_number: Joi.string().required().uppercase().trim(),
+  vehicle_id: Joi.string().uuid().optional(),
 });
 
 export const createInwardSlipPassSchema = Joi.object({
@@ -1233,6 +1266,15 @@ const driverPhoneSchema = Joi.string()
 
 export const verifyDriverSchema = Joi.object({
   license_number: driverLicenseSchema,
+  dob: Joi.string().optional().allow(null, '').isoDate(),
+});
+
+export const rcChallanDetailsSchema = Joi.object({
+  rc_number: Joi.string().required().trim().min(4).max(20),
+  chassis_number: Joi.string().required().trim().min(5).max(30),
+  engine_number: Joi.string().required().trim().min(3).max(30),
+  state_only: Joi.boolean().optional().default(false),
+  state_portal: Joi.array().items(Joi.string().trim().uppercase().length(2)).optional(),
 });
 
 export const createDriverSchema = Joi.object({

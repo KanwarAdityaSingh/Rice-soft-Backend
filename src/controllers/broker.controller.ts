@@ -28,6 +28,8 @@ import {
 } from '../models/broker.model';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { gstLookupService } from '../services/gst-lookup.service';
+import { kycPersistenceService } from '../services/kyc-persistence.service';
+import { parseEntityKycDetails } from '../utils/kyc-verification';
 import { logger } from '../utils/logger';
 import { bankDetailsForVerifySchema } from '../utils/validators';
 import Joi from 'joi';
@@ -61,11 +63,12 @@ async function tryVerifyBankAfterSave(
   if (accountDigits.length < 9 || accountDigits.length > 18 || !ifsc) {
     throw new ValidationError('Invalid bank account for verification');
   }
-  const verificationResult = await gstLookupService.verifyBankAccount(accountDigits, ifsc);
+  const envelope = await gstLookupService.verifyBankAccount(accountDigits, ifsc);
   assertEnteredAccountHolderMatchesBankRecord(
     bankDetails.account_holder_name,
-    verificationResult.account_holder_name
+    envelope.mapped.account_holder_name
   );
+  await kycPersistenceService.saveEntityVerification('broker', brokerId, 'bank', envelope);
   await brokerDAO.markBankDetailsVerified(brokerId, userId);
 }
 
@@ -85,6 +88,7 @@ function toBrokerResponse(broker: Broker): BrokerResponse {
     bank_details_verified_at: broker.bank_details_verified_at?.toISOString() ?? null,
     bank_details_verified_by: broker.bank_details_verified_by ?? null,
     bank_verification_error: broker.bank_verification_error ?? null,
+    kyc_verification_details: parseEntityKycDetails(broker.kyc_verification_details),
   };
 }
 
@@ -529,8 +533,7 @@ export class BrokerController {
   }
 
   /**
-   * Lookup Aadhaar Number and validate format
-   * NOTE: Aadhaar lookup APIs are not publicly available, so this only validates format
+   * Lookup Aadhaar Number via Surepass and check availability in system
    */
   async lookupAadhaar(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
@@ -540,25 +543,31 @@ export class BrokerController {
         throw new ValidationError('Aadhaar number is required');
       }
 
-      // Validate Aadhaar format
-      if (!gstLookupService.validateAadhaarFormat(aadhaarNumber)) {
-        throw new ValidationError('Invalid Aadhaar number format. Expected format: 12 digits (not starting with 0 or 1)');
+      const envelope = await gstLookupService.validateAadhaar(aadhaarNumber);
+      const cleaned = aadhaarNumber.replace(/\s/g, '');
+
+      const brokerId = req.query.broker_id as string | undefined;
+      if (brokerId) {
+        await kycPersistenceService.saveEntityVerification('broker', brokerId, 'aadhaar', envelope);
       }
 
-      // Check if Aadhaar already exists
-      const aadhaarExists = await brokerDAO.aadhaarExists(aadhaarNumber);
+      const aadhaarExists = await brokerDAO.aadhaarExists(cleaned);
       if (aadhaarExists) {
         return ResponseHandler.success(res, {
+          aadhaar_data: envelope.mapped,
+          surepass_response: envelope.raw,
           is_valid: true,
           already_exists: true,
-          message: 'Aadhaar number is valid but already exists in system'
+          message: 'Aadhaar number is valid but already exists in system',
         }, 'Aadhaar number validation completed');
       }
 
       return ResponseHandler.success(res, {
+        aadhaar_data: envelope.mapped,
+        surepass_response: envelope.raw,
         is_valid: true,
         already_exists: false,
-        message: 'Aadhaar number is valid and available'
+        message: 'Aadhaar number is valid and available',
       }, 'Aadhaar number validation completed');
     } catch (error) {
       next(error);
@@ -968,8 +977,9 @@ export class BrokerController {
         );
       }
 
-      const verificationResult = await gstLookupService.verifyBankAccount(accountDigits, ifsc);
-      assertEnteredAccountHolderMatchesBankRecord(enteredName, verificationResult.account_holder_name);
+      const envelope = await gstLookupService.verifyBankAccount(accountDigits, ifsc);
+      assertEnteredAccountHolderMatchesBankRecord(enteredName, envelope.mapped.account_holder_name);
+      await kycPersistenceService.saveEntityVerification('broker', id, 'bank', envelope);
 
       const updated = await brokerDAO.markBankDetailsVerified(id, req.user.userId);
       if (!updated) {
@@ -998,9 +1008,9 @@ export class BrokerController {
       }
 
       // Verify bank account
-      let verificationResult;
+      let envelope;
       try {
-        verificationResult = await gstLookupService.verifyBankAccount(
+        envelope = await gstLookupService.verifyBankAccount(
           id_number.trim(),
           ifsc.trim()
         );
@@ -1011,7 +1021,11 @@ export class BrokerController {
         throw new InternalServerError('Failed to verify bank account. Please try again later.');
       }
 
-      return ResponseHandler.success(res, verificationResult, 'Bank account verified successfully');
+      return ResponseHandler.success(
+        res,
+        { ...envelope.mapped, surepass_response: envelope.raw },
+        'Bank account verified successfully'
+      );
     } catch (error) {
       next(error);
     }
