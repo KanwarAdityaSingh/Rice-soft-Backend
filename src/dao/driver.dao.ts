@@ -1,13 +1,26 @@
 import { db } from '../database/connection';
-import { Driver, CreateDriverDTO, UpdateDriverDTO } from '../models/driver.model';
+import {
+  Driver,
+  CreateDriverDTO,
+  UpdateDriverDTO,
+  isDriverVerifiedFromDetails,
+  DriverVerificationSnapshot,
+} from '../models/driver.model';
 import { logger } from '../utils/logger';
-import { normalizeDrivingLicenseForStorage } from '../utils/driver-license';
+import { normalizeDrivingLicenseForStorage, driverProfileFromMapped } from '../utils/driver-license';
 
 const SELECT_COLUMNS = `
   id, license_number, phone, name, date_of_birth, license_expires_at, address,
+  pincode, gender, profile_image, vehicle_classes,
   is_verified, verified_at, verification_details,
   is_active, created_at, updated_at, created_by, updated_by
 `;
+
+export interface DriverListFilters {
+  includeInactive?: boolean;
+  isActive?: boolean;
+  isVerified?: boolean;
+}
 
 /** Accept ISO YYYY-MM-DD or DD-MM-YYYY (common on Indian DL text). */
 function toPgDate(value: string | null | undefined): string | null {
@@ -30,12 +43,50 @@ function toPgDate(value: string | null | undefined): string | null {
   return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
 }
 
+function resolveLicenseExpiry(data: {
+  license_expires_at?: string | null;
+  doe?: string | null;
+}): string | null {
+  return toPgDate(data.license_expires_at ?? data.doe ?? null);
+}
+
+function profileFromVerificationDetails(
+  details: CreateDriverDTO['verification_details']
+): ReturnType<typeof driverProfileFromMapped> {
+  if (!details || typeof details !== 'object' || Array.isArray(details)) {
+    return driverProfileFromMapped(null);
+  }
+  return driverProfileFromMapped((details as DriverVerificationSnapshot).mapped);
+}
+
 export class DriverDAO {
-  async findAll(includeInactive = false): Promise<Driver[]> {
-    const query = includeInactive
-      ? `SELECT ${SELECT_COLUMNS} FROM drivers ORDER BY license_number ASC`
-      : `SELECT ${SELECT_COLUMNS} FROM drivers WHERE is_active = true ORDER BY license_number ASC`;
-    const result = await db.query<Driver>(query);
+  async findAll(filters: DriverListFilters = {}): Promise<Driver[]> {
+    const { includeInactive = false, isActive, isVerified } = filters;
+
+    let query = `SELECT ${SELECT_COLUMNS} FROM drivers WHERE 1=1`;
+    const params: unknown[] = [];
+
+    if (includeInactive) {
+      if (isActive === true) {
+        query += ` AND is_active = true`;
+      } else if (isActive === false) {
+        query += ` AND is_active = false`;
+      }
+    } else if (isActive === false) {
+      query += ` AND is_active = false`;
+    } else {
+      query += ` AND is_active = true`;
+    }
+
+    if (isVerified === true) {
+      query += ` AND is_verified = true`;
+    } else if (isVerified === false) {
+      query += ` AND is_verified = false`;
+    }
+
+    query += ` ORDER BY license_number ASC`;
+
+    const result = await db.query<Driver>(query, params);
     return result.rows;
   }
 
@@ -75,31 +126,44 @@ export class DriverDAO {
 
   async create(data: CreateDriverDTO): Promise<Driver> {
     const license = normalizeDrivingLicenseForStorage(data.license_number);
+    const fromMapped = profileFromVerificationDetails(data.verification_details);
+
     const query = `
       INSERT INTO drivers (
         license_number, phone, name, date_of_birth, license_expires_at, address,
+        pincode, gender, profile_image, vehicle_classes,
         is_verified, verified_at, verification_details,
         is_active, created_by
       )
       VALUES (
         $1, $2, $3,
         $4::date, $5::date, $6,
-        $7, $8, $9::jsonb,
-        $10, $11
+        $7, $8, $9, $10,
+        $11, $12, $13::jsonb,
+        $14, $15
       )
       RETURNING ${SELECT_COLUMNS}
     `;
-    const dob = toPgDate(data.date_of_birth ?? null);
-    const exp = toPgDate(data.license_expires_at ?? null);
+    const dob = toPgDate(data.date_of_birth ?? fromMapped.date_of_birth);
+    const exp = resolveLicenseExpiry(data) ?? fromMapped.license_expires_at;
+    const isVerified =
+      data.is_verified !== undefined
+        ? data.is_verified
+        : isDriverVerifiedFromDetails(data.verification_details ?? null);
+
     const values = [
       license,
       data.phone.trim(),
-      data.name?.trim() || null,
+      data.name?.trim() || fromMapped.name,
       dob,
       exp,
-      data.address?.trim() || null,
-      data.is_verified !== undefined ? data.is_verified : false,
-      data.verified_at || null,
+      data.address?.trim() || fromMapped.address,
+      data.pincode?.trim() || fromMapped.pincode,
+      data.gender?.trim() || fromMapped.gender,
+      data.profile_image ?? fromMapped.profile_image,
+      data.vehicle_classes ?? fromMapped.vehicle_classes,
+      isVerified,
+      isVerified ? data.verified_at || new Date() : null,
       data.verification_details != null ? JSON.stringify(data.verification_details) : null,
       data.is_active !== undefined ? data.is_active : true,
       data.created_by || null,
@@ -138,19 +202,36 @@ export class DriverDAO {
       fields.push(`date_of_birth = $${paramCount++}::date`);
       values.push(toPgDate(data.date_of_birth));
     }
-    if (data.license_expires_at !== undefined) {
+    if (data.license_expires_at !== undefined || data.doe !== undefined) {
       fields.push(`license_expires_at = $${paramCount++}::date`);
-      values.push(toPgDate(data.license_expires_at));
+      values.push(resolveLicenseExpiry(data));
     }
     if (data.address !== undefined) {
       fields.push(`address = $${paramCount++}`);
       values.push(data.address?.trim() || null);
     }
+    if (data.pincode !== undefined) {
+      fields.push(`pincode = $${paramCount++}`);
+      values.push(data.pincode?.trim() || null);
+    }
+    if (data.gender !== undefined) {
+      fields.push(`gender = $${paramCount++}`);
+      values.push(data.gender?.trim() || null);
+    }
+    if (data.profile_image !== undefined) {
+      fields.push(`profile_image = $${paramCount++}`);
+      values.push(data.profile_image || null);
+    }
+    if (data.vehicle_classes !== undefined) {
+      fields.push(`vehicle_classes = $${paramCount++}`);
+      values.push(data.vehicle_classes);
+    }
     if (data.is_verified !== undefined) {
       fields.push(`is_verified = $${paramCount++}`);
       values.push(data.is_verified);
-    }
-    if (data.verified_at !== undefined) {
+      fields.push(`verified_at = $${paramCount++}`);
+      values.push(data.is_verified ? data.verified_at || new Date() : null);
+    } else if (data.verified_at !== undefined) {
       fields.push(`verified_at = $${paramCount++}`);
       values.push(data.verified_at || null);
     }
@@ -159,6 +240,64 @@ export class DriverDAO {
       values.push(
         data.verification_details != null ? JSON.stringify(data.verification_details) : null
       );
+
+      if (data.is_verified === undefined) {
+        const verified = isDriverVerifiedFromDetails(data.verification_details);
+        fields.push(`is_verified = $${paramCount++}`);
+        values.push(verified);
+        fields.push(`verified_at = $${paramCount++}`);
+        values.push(verified ? new Date() : null);
+      }
+
+      if (
+        data.name === undefined ||
+        data.date_of_birth === undefined ||
+        data.license_expires_at === undefined ||
+        data.doe === undefined ||
+        data.address === undefined ||
+        data.pincode === undefined ||
+        data.gender === undefined ||
+        data.profile_image === undefined ||
+        data.vehicle_classes === undefined
+      ) {
+        const fromMapped = profileFromVerificationDetails(data.verification_details);
+        if (data.name === undefined && fromMapped.name) {
+          fields.push(`name = $${paramCount++}`);
+          values.push(fromMapped.name);
+        }
+        if (data.date_of_birth === undefined && fromMapped.date_of_birth) {
+          fields.push(`date_of_birth = $${paramCount++}::date`);
+          values.push(fromMapped.date_of_birth);
+        }
+        if (
+          data.license_expires_at === undefined &&
+          data.doe === undefined &&
+          fromMapped.license_expires_at
+        ) {
+          fields.push(`license_expires_at = $${paramCount++}::date`);
+          values.push(fromMapped.license_expires_at);
+        }
+        if (data.address === undefined && fromMapped.address) {
+          fields.push(`address = $${paramCount++}`);
+          values.push(fromMapped.address);
+        }
+        if (data.pincode === undefined && fromMapped.pincode) {
+          fields.push(`pincode = $${paramCount++}`);
+          values.push(fromMapped.pincode);
+        }
+        if (data.gender === undefined && fromMapped.gender) {
+          fields.push(`gender = $${paramCount++}`);
+          values.push(fromMapped.gender);
+        }
+        if (data.profile_image === undefined && fromMapped.profile_image) {
+          fields.push(`profile_image = $${paramCount++}`);
+          values.push(fromMapped.profile_image);
+        }
+        if (data.vehicle_classes === undefined && fromMapped.vehicle_classes.length > 0) {
+          fields.push(`vehicle_classes = $${paramCount++}`);
+          values.push(fromMapped.vehicle_classes);
+        }
+      }
     }
     if (data.is_active !== undefined) {
       fields.push(`is_active = $${paramCount++}`);

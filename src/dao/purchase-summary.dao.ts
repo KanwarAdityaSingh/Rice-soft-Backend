@@ -43,18 +43,21 @@ type LotRowForMetrics = {
 export class PurchaseSummaryDAO {
   /**
    * Step totals from sauda commercial rules + lot lines + transportation.
-   * Percentage broker commission is computed on base_amount; the amount is then deducted from amount_after_discount.
+   * When dana applies: base = gross×rate, dana subtracted separately; CD % uses base_amount.
    */
   private computeStepTotalsFromSaudaAndLots(
     sauda: SaudaRowForMetrics,
     lots: LotRowForMetrics[],
     transportationCost: number,
-    baseAmountOverride?: number
+    baseAmountOverride?: number,
+    danaDeductionAmount = 0
   ): {
     totalLots: number;
     totalBags: number;
     totalWeight: number;
     baseAmount: number;
+    danaDeductionAmount: number;
+    amountAfterDana: number;
     cashDiscountAmount: number;
     amountAfterDiscount: number;
     brokerCommissionAmount: number;
@@ -72,6 +75,8 @@ export class PurchaseSummaryDAO {
     const baseAmount = baseAmountOverride !== undefined
       ? baseAmountOverride
       : lots.reduce((sum, lot) => sum + parseFloat(String(lot.amount || '0')), 0);
+    const danaAmount = Math.max(Number(danaDeductionAmount) || 0, 0);
+    const amountAfterDana = Math.max(baseAmount - danaAmount, 0);
     const receivedUntilNow = parseFloat(String(sauda.received_until_now || '0'));
     const completionPercentage = sauda.completion_percentage ? parseFloat(String(sauda.completion_percentage)) : null;
     const isPartialSauda = completionPercentage !== null && completionPercentage < 100;
@@ -86,15 +91,15 @@ export class PurchaseSummaryDAO {
         cashDiscountAmount = cashDiscount;
       }
     }
-    const amountAfterDiscount = baseAmount - cashDiscountAmount;
+    const amountAfterDiscount = amountAfterDana - cashDiscountAmount;
 
     let brokerCommissionAmount = 0;
     const brokerCommission = parseFloat(String(sauda.broker_commission || '0'));
     const brokerCommissionType = sauda.broker_commission_type || 'percentage';
     if (brokerCommission > 0) {
       if (brokerCommissionType === 'percentage') {
-        // Percentage is applied to pre-discount commercial base (lot totals / kaanta×rate override).
-        brokerCommissionAmount = baseAmount * (brokerCommission / 100);
+        // Percentage is applied to amount after dana (pre-discount commercial base).
+        brokerCommissionAmount = amountAfterDana * (brokerCommission / 100);
       } else if (brokerCommissionType === 'weight') {
         const weightForCommission = isPartialSauda ? receivedUntilNow : totalWeight;
         brokerCommissionAmount = brokerCommission * weightForCommission;
@@ -120,6 +125,8 @@ export class PurchaseSummaryDAO {
       totalBags,
       totalWeight,
       baseAmount: f(baseAmount),
+      danaDeductionAmount: f(danaAmount),
+      amountAfterDana: f(amountAfterDana),
       cashDiscountAmount: f(cashDiscountAmount),
       amountAfterDiscount: f(amountAfterDiscount),
       brokerCommissionAmount: f(brokerCommissionAmount),
@@ -190,7 +197,8 @@ export class PurchaseSummaryDAO {
 
     const transportationCost = isps.reduce((sum, isp) => sum + parseFloat(isp.transportation_cost || '0'), 0);
 
-    // Price calculation when kaanta exists: weight = min(kaanta, sum lot bill_weight) − dana (if required).
+    // Price calculation when kaanta exists: base = min(kaanta, billCap) × rate; dana = dana_kg × rate (separate step).
+    // billCap = said_sent (invoice) when set, else sum of lot bill_weight (sauda quantity).
     const totalBillWeight = lots.reduce(
       (sum, lot) => sum + parseFloat(String(lot.bill_weight ?? '0')),
       0
@@ -211,24 +219,35 @@ export class PurchaseSummaryDAO {
     const totalSaidSentWeight = kaantaResult.rows.reduce((sum, row) => sum + parseFloat(String(row.said_sent_weight || '0')), 0);
 
     let baseAmountOverride: number | undefined;
+    let danaDeductionKg = 0;
+    let danaDeductionAmount = 0;
     if (totalKaantaWeight > 0) {
       const shouldApplyDana = sauda.is_dana_required ?? false;
-      const { netWeightForPricing } = computeKaantaPricingNetWeight({
+      const pricing = computeKaantaPricingNetWeight({
         totalKaantaWeight,
         totalBillWeight,
         totalSaidSentWeight,
         isDanaRequired: shouldApplyDana,
       });
       const saudaRate = parseFloat(String(sauda.rate || '0'));
-      baseAmountOverride = netWeightForPricing * saudaRate;
+      baseAmountOverride = pricing.grossWeightBeforeDana * saudaRate;
+      danaDeductionKg = pricing.danaDeductionKg;
+      danaDeductionAmount = danaDeductionKg * saudaRate;
     }
 
-    const step = this.computeStepTotalsFromSaudaAndLots(sauda, lots, transportationCost, baseAmountOverride);
+    const step = this.computeStepTotalsFromSaudaAndLots(
+      sauda,
+      lots,
+      transportationCost,
+      baseAmountOverride,
+      danaDeductionAmount
+    );
     const {
       totalLots,
       totalBags,
       totalWeight,
       baseAmount,
+      amountAfterDana,
       cashDiscountAmount,
       amountAfterDiscount,
       brokerCommissionAmount,
@@ -311,6 +330,13 @@ export class PurchaseSummaryDAO {
       total_bags: totalBags,
       total_weight: totalWeight,
       base_amount: baseAmount,
+      ...(danaDeductionKg > 0
+        ? {
+            dana_deduction_kg: danaDeductionKg,
+            dana_deduction_amount: step.danaDeductionAmount,
+            amount_after_dana: amountAfterDana,
+          }
+        : {}),
       cash_discount_amount: cashDiscountAmount,
       amount_after_discount: amountAfterDiscount,
       broker_commission_amount: brokerCommissionAmount,
@@ -374,6 +400,9 @@ export class PurchaseSummaryDAO {
     let totalBags = 0;
     let totalWeight = 0;
     let totalBaseAmount = 0;
+    let totalDanaDeductionKg = 0;
+    let totalDanaDeductionAmount = 0;
+    let totalAmountAfterDana = 0;
     let totalCashDiscountAmount = 0;
     let totalAmountAfterDiscount = 0;
     let totalBrokerCommissionAmount = 0;
@@ -394,6 +423,13 @@ export class PurchaseSummaryDAO {
         total_bags: saudaSummary.total_bags,
         total_weight: saudaSummary.total_weight,
         base_amount: saudaSummary.base_amount,
+        ...(saudaSummary.dana_deduction_kg != null && saudaSummary.dana_deduction_kg > 0
+          ? {
+              dana_deduction_kg: saudaSummary.dana_deduction_kg,
+              dana_deduction_amount: saudaSummary.dana_deduction_amount,
+              amount_after_dana: saudaSummary.amount_after_dana,
+            }
+          : {}),
         cash_discount_amount: saudaSummary.cash_discount_amount,
         amount_after_discount: saudaSummary.amount_after_discount,
         broker_commission_amount: saudaSummary.broker_commission_amount,
@@ -412,6 +448,9 @@ export class PurchaseSummaryDAO {
       totalBags += Number(saudaSummary.total_bags);
       totalWeight += Number(saudaSummary.total_weight);
       totalBaseAmount += Number(saudaSummary.base_amount);
+      totalDanaDeductionKg += Number(saudaSummary.dana_deduction_kg ?? 0);
+      totalDanaDeductionAmount += Number(saudaSummary.dana_deduction_amount ?? 0);
+      totalAmountAfterDana += Number(saudaSummary.amount_after_dana ?? saudaSummary.base_amount);
       totalCashDiscountAmount += Number(saudaSummary.cash_discount_amount);
       totalAmountAfterDiscount += Number(saudaSummary.amount_after_discount);
       totalBrokerCommissionAmount += Number(saudaSummary.broker_commission_amount);
@@ -442,6 +481,13 @@ export class PurchaseSummaryDAO {
       total_bags: totalBags,
       total_weight: totalWeight,
       base_amount: agg(totalBaseAmount),
+      ...(totalDanaDeductionKg > 0
+        ? {
+            dana_deduction_kg: totalDanaDeductionKg,
+            dana_deduction_amount: agg(totalDanaDeductionAmount),
+            amount_after_dana: agg(totalAmountAfterDana),
+          }
+        : {}),
       cash_discount_amount: agg(totalCashDiscountAmount),
       amount_after_discount: agg(totalAmountAfterDiscount),
       broker_commission_amount: agg(totalBrokerCommissionAmount),
@@ -556,6 +602,12 @@ export class PurchaseSummaryDAO {
       total_bags: step.totalBags,
       total_weight_kg: step.totalWeight,
       base_amount: step.baseAmount,
+      ...(step.danaDeductionAmount > 0
+        ? {
+            dana_deduction_amount: step.danaDeductionAmount,
+            amount_after_dana: step.amountAfterDana,
+          }
+        : {}),
       cash_discount_amount: step.cashDiscountAmount,
       amount_after_discount: step.amountAfterDiscount,
       broker_commission_amount: step.brokerCommissionAmount,

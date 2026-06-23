@@ -1,17 +1,15 @@
 import { Response, NextFunction } from 'express';
 import { paymentAdviceDAO } from '../dao/payment-advice.dao';
 import { paymentAdviceChargeDAO } from '../dao/payment-advice-charge.dao';
-import { purchaseSummaryDAO } from '../dao/purchase-summary.dao';
 import { saudaDAO } from '../dao/sauda.dao';
 import { inwardSlipPassDAO } from '../dao/inward-slip-pass.dao';
 import { vendorDAO } from '../dao/vendor.dao';
-import { kaantaDAO } from '../dao/kaanta.dao';
-import { inwardSlipLotDAO } from '../dao/inward-slip-lot.dao';
 import { ResponseHandler } from '../utils/response';
 import {
   validate,
   createPaymentAdviceSchema,
   updatePaymentAdviceSchema,
+  paymentAdvicePreviewQuerySchema,
   createPaymentAdviceChargeSchema,
   uuidSchema,
 } from '../utils/validators';
@@ -24,7 +22,8 @@ import { CreatePaymentAdviceChargeDTO, PaymentAdviceChargeResponse } from '../mo
 import { AuthRequest } from '../middleware/auth.middleware';
 import { uploadToS3, validateFileSize, validateFileType } from '../utils/s3-upload';
 import { appConfig } from '../config/app.config';
-import { computeKaantaPricingNetWeight, floorToMoneyStep } from '../utils/money';
+import { floorToMoneyStep } from '../utils/money';
+import { paymentAdviceService } from '../services/payment-advice.service';
 
 export class PaymentAdviceController {
   async getAll(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
@@ -86,6 +85,38 @@ export class PaymentAdviceController {
 
       return ResponseHandler.success(res, responses);
     } catch (error) {
+      next(error);
+    }
+  }
+
+  async preview(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const query = validate<{
+        sauda_id?: string;
+        inward_slip_pass_id?: string;
+        godown_id?: string;
+        total_charges: number;
+      }>(paymentAdvicePreviewQuerySchema, req.query);
+
+      const preview = await paymentAdviceService.buildPreview({
+        saudaId: query.sauda_id,
+        ispId: query.inward_slip_pass_id,
+        godownId: query.godown_id,
+        totalCharges: query.total_charges,
+      });
+
+      return ResponseHandler.success(res, preview, 'Payment advice preview retrieved successfully');
+    } catch (error) {
+      if (error instanceof Error) {
+        if (error.message === 'Sauda not found' || error.message === 'Inward slip pass not found') {
+          next(new NotFoundError(error.message));
+          return;
+        }
+        if (error.message === 'No saudas found for this ISP') {
+          next(new NotFoundError(error.message));
+          return;
+        }
+      }
       next(error);
     }
   }
@@ -163,149 +194,47 @@ export class PaymentAdviceController {
       }
 
       // Validate and auto-calculate amount based on sauda_id or inward_slip_pass_id
-      let calculatedAmount = paymentAdviceData.amount;
+      let calculatedAmount: number | null | undefined = paymentAdviceData.amount;
       
       if (paymentAdviceData.sauda_id) {
-        // Validate sauda exists
         const sauda = await saudaDAO.findById(paymentAdviceData.sauda_id);
         if (!sauda) {
           throw new NotFoundError('Sauda not found');
         }
         
-        // Get summary and auto-calculate amount if not provided
         if (!calculatedAmount) {
-          const summary = await purchaseSummaryDAO.getSaudaSummary(paymentAdviceData.sauda_id);
-          calculatedAmount = summary.final_total_amount;
+          calculatedAmount = await paymentAdviceService.resolveAmountFromSummary(
+            paymentAdviceData.sauda_id,
+            null
+          );
         }
       } else if (paymentAdviceData.inward_slip_pass_id) {
-        // Validate ISP exists
         const isp = await inwardSlipPassDAO.findById(paymentAdviceData.inward_slip_pass_id);
         if (!isp) {
           throw new NotFoundError('Inward slip pass not found');
         }
         
-        // Get summary and auto-calculate amount if not provided
         if (!calculatedAmount) {
-          const summary = await purchaseSummaryDAO.getIspSummary(paymentAdviceData.inward_slip_pass_id);
-          calculatedAmount = summary.final_total_amount;
+          calculatedAmount = await paymentAdviceService.resolveAmountFromSummary(
+            null,
+            paymentAdviceData.inward_slip_pass_id
+          );
         }
       }
 
       // Set the calculated amount (floor to whole rupees; same rule as purchase summary)
       if (calculatedAmount !== undefined && calculatedAmount !== null) {
-        paymentAdviceData.amount = floorToMoneyStep(calculatedAmount as number | string);
-      } else {
-        paymentAdviceData.amount = calculatedAmount;
+        paymentAdviceData.amount = floorToMoneyStep(calculatedAmount);
       }
 
-      // Calculate dana_deduction and final_weight from kaanta data
-      let totalKaantaWeight = 0;
-      let totalSaidSentWeight = 0;
-      let danaDeduction = 0;
-      let netWeight = 0;
-
-      if (paymentAdviceData.sauda_id) {
-        // Get the sauda to check is_dana_required
-        const sauda = await saudaDAO.findById(paymentAdviceData.sauda_id);
-        const shouldCalculateDana = sauda?.is_dana_required || false;
-        
-        // Get all kaantas for this sauda
-        const kaantas = await kaantaDAO.findAll(paymentAdviceData.sauda_id);
-        if (kaantas.length > 0) {
-          // PG DECIMAL often arrives as string; use Number() so + never does string concat.
-          totalKaantaWeight = kaantas.reduce((sum, k) => sum + Number(k.kaanta_weight ?? 0), 0);
-          totalSaidSentWeight = kaantas.reduce((sum, k) => sum + Number(k.said_sent_weight ?? 0), 0);
-          const totalBillWeight = await inwardSlipLotDAO.sumBillWeightForSauda(paymentAdviceData.sauda_id);
-
-          const pricing = computeKaantaPricingNetWeight({
-            totalKaantaWeight,
-            totalBillWeight,
-            totalSaidSentWeight,
-            isDanaRequired: shouldCalculateDana,
-          });
-          danaDeduction = pricing.danaDeductionKg;
-          netWeight = pricing.netWeightForPricing;
-
-          // Set bill_weight as said_sent_weight (for display in frontend)
-          if (!paymentAdviceData.bill_weight) {
-            paymentAdviceData.bill_weight = totalSaidSentWeight;
-          }
-
-          // Set kanta_weight if not provided
-          if (!paymentAdviceData.kanta_weight) {
-            paymentAdviceData.kanta_weight = totalKaantaWeight;
-          }
-        }
-      } else if (paymentAdviceData.inward_slip_pass_id) {
-        // Get all kaantas for this ISP
-        const kaantas = await kaantaDAO.findAll(undefined, paymentAdviceData.inward_slip_pass_id);
-        
-        if (kaantas.length > 0) {
-          // Group kaantas by sauda_id
-          const kaantasBySauda = new Map<string, typeof kaantas>();
-          for (const kaanta of kaantas) {
-            if (!kaantasBySauda.has(kaanta.sauda_id)) {
-              kaantasBySauda.set(kaanta.sauda_id, []);
-            }
-            kaantasBySauda.get(kaanta.sauda_id)!.push(kaanta);
-          }
-          
-          // Calculate dana and pricing net weight per sauda (same min(kaanta,bill)−dana rule as purchase summary)
-          let totalDanaDeduction = 0;
-          let totalNetPricingWeight = 0;
-
-          // Get all unique sauda IDs and fetch their is_dana_required flags
-          const saudaIds = Array.from(kaantasBySauda.keys());
-          const saudas = await Promise.all(
-            saudaIds.map(id => saudaDAO.findById(id))
-          );
-
-          const saudaMap = new Map<string, boolean>();
-          saudas.forEach((sauda, index) => {
-            if (sauda) {
-              saudaMap.set(saudaIds[index], sauda.is_dana_required ?? false);
-            }
-          });
-
-          for (const [saudaId, saudaKaantas] of kaantasBySauda.entries()) {
-            const isDanaRequired = saudaMap.get(saudaId) || false;
-
-            const saudaKaantaWeight = saudaKaantas.reduce((sum, k) => sum + Number(k.kaanta_weight ?? 0), 0);
-            const saudaSaidSentWeight = saudaKaantas.reduce((sum, k) => sum + Number(k.said_sent_weight ?? 0), 0);
-
-            totalKaantaWeight += saudaKaantaWeight;
-            totalSaidSentWeight += saudaSaidSentWeight;
-
-            const totalBillWeight = await inwardSlipLotDAO.sumBillWeightForSauda(saudaId);
-            const pricing = computeKaantaPricingNetWeight({
-              totalKaantaWeight: saudaKaantaWeight,
-              totalBillWeight,
-              totalSaidSentWeight: saudaSaidSentWeight,
-              isDanaRequired,
-            });
-            totalDanaDeduction += pricing.danaDeductionKg;
-            totalNetPricingWeight += pricing.netWeightForPricing;
-          }
-
-          danaDeduction = totalDanaDeduction;
-          netWeight = totalNetPricingWeight;
-          
-          // Set bill_weight as said_sent_weight (for display in frontend)
-          if (!paymentAdviceData.bill_weight) {
-            paymentAdviceData.bill_weight = totalSaidSentWeight;
-          }
-          
-          // Set kanta_weight if not provided
-          if (!paymentAdviceData.kanta_weight) {
-            paymentAdviceData.kanta_weight = totalKaantaWeight;
-          }
-        }
-      }
-
-      // Set calculated dana_deduction and final_weight
-      paymentAdviceData.dana_deduction = danaDeduction > 0 ? danaDeduction : undefined;
-      // final_weight = kaanta_weight - dana_deduction (after all deductions)
-      paymentAdviceData.final_weight = netWeight > 0 ? netWeight : undefined;
+      const kaantaMetrics = await paymentAdviceService.computeKaantaMetrics(
+        paymentAdviceData.sauda_id,
+        paymentAdviceData.inward_slip_pass_id
+      );
+      paymentAdviceService.applyKaantaMetricsToDto(paymentAdviceData, kaantaMetrics, {
+        preserveBillWeight: paymentAdviceData.bill_weight != null,
+        preserveKantaWeight: paymentAdviceData.kanta_weight != null,
+      });
 
       // Set created_by from authenticated user
       if (req.user) {
@@ -378,11 +307,12 @@ export class PaymentAdviceController {
   async update(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const id = validate<string>(uuidSchema, req.params.id);
-      
-      // Remove charges from request body if present (charges are managed via separate endpoints)
-      const { charges: _charges, ...updateData } = req.body;
-      
-      const paymentAdviceData = validate<UpdatePaymentAdviceDTO>(updatePaymentAdviceSchema, updateData);
+
+      const paymentAdviceData = validate<UpdatePaymentAdviceDTO & { charges?: CreatePaymentAdviceChargeDTO[] }>(
+        updatePaymentAdviceSchema,
+        req.body
+      );
+      const { charges: chargesPayload, ...paFields } = paymentAdviceData;
 
       // Check if payment advice exists
       const existingAdvice = await paymentAdviceDAO.findById(id);
@@ -391,143 +321,44 @@ export class PaymentAdviceController {
       }
 
       // Validate recipient if being updated
-      if (paymentAdviceData.recipient_id) {
-        const recipient = await vendorDAO.findById(paymentAdviceData.recipient_id);
+      if (paFields.recipient_id) {
+        const recipient = await vendorDAO.findById(paFields.recipient_id);
         if (!recipient) {
           throw new NotFoundError('Recipient (vendor) not found');
         }
       }
 
-      // Recalculate amount from summary if sauda/ISP reference changes and amount is not explicitly provided.
-      // This keeps amount in sync with dana-adjusted pricing logic from purchase summary.
-      if ((paymentAdviceData.sauda_id || paymentAdviceData.inward_slip_pass_id) && paymentAdviceData.amount === undefined) {
-        const summarySaudaId = paymentAdviceData.sauda_id || existingAdvice.sauda_id || undefined;
-        const summaryIspId = paymentAdviceData.inward_slip_pass_id || existingAdvice.inward_slip_pass_id || undefined;
+      const saudaId = paFields.sauda_id ?? existingAdvice.sauda_id ?? null;
+      const ispId = paFields.inward_slip_pass_id ?? existingAdvice.inward_slip_pass_id ?? null;
 
-        if (summarySaudaId) {
-          const summary = await purchaseSummaryDAO.getSaudaSummary(summarySaudaId);
-          paymentAdviceData.amount = summary.final_total_amount;
-        } else if (summaryIspId) {
-          const summary = await purchaseSummaryDAO.getIspSummary(summaryIspId);
-          paymentAdviceData.amount = summary.final_total_amount;
-        }
-      }
-
-      // Recalculate dana_deduction and final_weight if sauda_id or inward_slip_pass_id is being updated
-      if (paymentAdviceData.sauda_id || paymentAdviceData.inward_slip_pass_id) {
-        let totalKaantaWeight = 0;
-        let totalSaidSentWeight = 0;
-        let danaDeduction = 0;
-        let netWeight = 0;
-
-        const saudaId = paymentAdviceData.sauda_id || existingAdvice.sauda_id;
-        const ispId = paymentAdviceData.inward_slip_pass_id || existingAdvice.inward_slip_pass_id;
-
-        if (saudaId) {
-          // Get the sauda to check is_dana_required
-          const sauda = await saudaDAO.findById(saudaId);
-          const shouldCalculateDana = sauda?.is_dana_required || false;
-          
-          const kaantas = await kaantaDAO.findAll(saudaId);
-          if (kaantas.length > 0) {
-            totalKaantaWeight = kaantas.reduce((sum, k) => sum + Number(k.kaanta_weight ?? 0), 0);
-            totalSaidSentWeight = kaantas.reduce((sum, k) => sum + Number(k.said_sent_weight ?? 0), 0);
-            const totalBillWeight = await inwardSlipLotDAO.sumBillWeightForSauda(saudaId);
-
-            const pricing = computeKaantaPricingNetWeight({
-              totalKaantaWeight,
-              totalBillWeight,
-              totalSaidSentWeight,
-              isDanaRequired: shouldCalculateDana,
-            });
-            danaDeduction = pricing.danaDeductionKg;
-            netWeight = pricing.netWeightForPricing;
-
-            if (!paymentAdviceData.bill_weight) {
-              paymentAdviceData.bill_weight = totalSaidSentWeight;
-            }
-            if (!paymentAdviceData.kanta_weight) {
-              paymentAdviceData.kanta_weight = totalKaantaWeight;
-            }
-          }
-        } else if (ispId) {
-          // Get all kaantas for this ISP
-          const kaantas = await kaantaDAO.findAll(undefined, ispId);
-          
-          if (kaantas.length > 0) {
-            // Group kaantas by sauda_id
-            const kaantasBySauda = new Map<string, typeof kaantas>();
-            for (const kaanta of kaantas) {
-              if (!kaantasBySauda.has(kaanta.sauda_id)) {
-                kaantasBySauda.set(kaanta.sauda_id, []);
-              }
-              kaantasBySauda.get(kaanta.sauda_id)!.push(kaanta);
-            }
-            
-            let totalDanaDeduction = 0;
-            let totalNetPricingWeight = 0;
-
-            // Get all unique sauda IDs and fetch their is_dana_required flags
-            const saudaIds = Array.from(kaantasBySauda.keys());
-            const saudas = await Promise.all(
-              saudaIds.map(id => saudaDAO.findById(id))
-            );
-
-            const saudaMap = new Map<string, boolean>();
-            saudas.forEach((sauda, index) => {
-              if (sauda) {
-                saudaMap.set(saudaIds[index], sauda.is_dana_required ?? false);
-              }
-            });
-
-            for (const [saudaId, saudaKaantas] of kaantasBySauda.entries()) {
-              const isDanaRequired = saudaMap.get(saudaId) || false;
-
-              const saudaKaantaWeight = saudaKaantas.reduce((sum, k) => sum + Number(k.kaanta_weight ?? 0), 0);
-              const saudaSaidSentWeight = saudaKaantas.reduce((sum, k) => sum + Number(k.said_sent_weight ?? 0), 0);
-
-              totalKaantaWeight += saudaKaantaWeight;
-              totalSaidSentWeight += saudaSaidSentWeight;
-
-              const totalBillWeight = await inwardSlipLotDAO.sumBillWeightForSauda(saudaId);
-              const pricing = computeKaantaPricingNetWeight({
-                totalKaantaWeight: saudaKaantaWeight,
-                totalBillWeight,
-                totalSaidSentWeight: saudaSaidSentWeight,
-                isDanaRequired,
-              });
-              totalDanaDeduction += pricing.danaDeductionKg;
-              totalNetPricingWeight += pricing.netWeightForPricing;
-            }
-
-            danaDeduction = totalDanaDeduction;
-            netWeight = totalNetPricingWeight;
-            
-            if (!paymentAdviceData.bill_weight) {
-              paymentAdviceData.bill_weight = totalSaidSentWeight;
-            }
-            if (!paymentAdviceData.kanta_weight) {
-              paymentAdviceData.kanta_weight = totalKaantaWeight;
-            }
+      if (saudaId || ispId) {
+        if (paFields.amount === undefined) {
+          const amount = await paymentAdviceService.resolveAmountFromSummary(saudaId, ispId);
+          if (amount != null) {
+            paFields.amount = amount;
           }
         }
 
-        paymentAdviceData.dana_deduction = danaDeduction > 0 ? danaDeduction : undefined;
-        paymentAdviceData.final_weight = netWeight > 0 ? netWeight : undefined;
+        const kaantaMetrics = await paymentAdviceService.computeKaantaMetrics(saudaId, ispId);
+        paymentAdviceService.applyKaantaMetricsToDto(paFields, kaantaMetrics);
       }
 
       // Set updated_by from authenticated user
       if (req.user) {
-        paymentAdviceData.updated_by = req.user.userId;
+        paFields.updated_by = req.user.userId;
       }
 
-      if (paymentAdviceData.amount !== undefined) {
-        paymentAdviceData.amount = floorToMoneyStep(paymentAdviceData.amount);
+      if (paFields.amount !== undefined) {
+        paFields.amount = floorToMoneyStep(paFields.amount);
       }
 
-      const paymentAdvice = await paymentAdviceDAO.update(id, paymentAdviceData);
+      const paymentAdvice = await paymentAdviceDAO.update(id, paFields);
       if (!paymentAdvice) {
         throw new NotFoundError('Payment advice not found after update');
+      }
+
+      if (chargesPayload !== undefined) {
+        await paymentAdviceChargeDAO.replaceAllForPaymentAdvice(id, chargesPayload);
       }
 
       const charges = await paymentAdviceChargeDAO.findByPaymentAdviceId(id);

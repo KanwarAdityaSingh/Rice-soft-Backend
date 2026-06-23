@@ -38,6 +38,31 @@ export class PaymentAdviceDAO {
     return result.rows;
   }
 
+  /** Pending payment advices linked to a sauda and/or inward slip pass (kaanta sync). */
+  async findPendingLinked(saudaId: string, ispId?: string | null): Promise<PaymentAdvice[]> {
+    const params: string[] = [saudaId];
+    let query = `
+      SELECT id, sauda_id, inward_slip_pass_id, payer_id, recipient_id, sr_number, party_name, party_address,
+             broker_name, invoice_number, invoice_date, bill_number, truck_number, item, total_bags,
+             due_date, bill_weight, kanta_weight, dana_deduction, final_weight, rate, amount, transaction_id,
+             date_of_payment, status, payment_slip_image_url, notes, created_at, updated_at,
+             created_by, updated_by
+      FROM payment_advices
+      WHERE status = 'pending'
+        AND (sauda_id = $1
+    `;
+
+    if (ispId) {
+      params.push(ispId);
+      query += ` OR inward_slip_pass_id = $2`;
+    }
+
+    query += `) ORDER BY created_at ASC`;
+
+    const result = await db.query<PaymentAdvice>(query, params);
+    return result.rows;
+  }
+
   async findById(id: string): Promise<PaymentAdvice | null> {
     const query = `
       SELECT id, sauda_id, inward_slip_pass_id, payer_id, recipient_id, sr_number, party_name, party_address,

@@ -15,6 +15,14 @@ const router = Router();
 router.get('/', authenticate, paymentAdviceController.getAll.bind(paymentAdviceController));
 
 /**
+ * @route   GET /api/v1/payment-advices/preview
+ * @desc    Preview PA amounts & weights before save (same rules as create)
+ * @access  Private
+ * @query   sauda_id, inward_slip_pass_id (at least one), godown_id?, total_charges?
+ */
+router.get('/preview', authenticate, paymentAdviceController.preview.bind(paymentAdviceController));
+
+/**
  * @route   GET /api/v1/payment-advices/:id
  * @desc    Get payment advice by ID with charges
  * @access  Private
@@ -35,7 +43,7 @@ router.post(
 
 /**
  * @route   PUT /api/v1/payment-advices/:id
- * @desc    Update payment advice
+ * @desc    Update payment advice (optional charges[] replaces all charges when provided)
  * @access  Private
  */
 router.put(

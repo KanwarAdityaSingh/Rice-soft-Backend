@@ -47,16 +47,25 @@ export const appConfig = {
       gstinAdvancedUrl:
         process.env.SUREPASS_GSTIN_ADVANCED_API_URL ||
         'https://kyc-api.surepass.io/api/v1/corporate/gstin-advanced',
+      gstinByPanUrl:
+        process.env.SUREPASS_GSTIN_BY_PAN_API_URL ||
+        'https://kyc-api.surepass.io/api/v1/corporate/gstin-by-pan',
+      panToEmailMobileUrl:
+        process.env.SUREPASS_PAN_TO_EMAIL_MOBILE_API_URL ||
+        'https://kyc-api.surepass.io/api/v1/pan-to-email-mobile/verification',
       rcVerificationUrl:
         process.env.SUREPASS_RC_API_URL ||
         'https://kyc-api.surepass.io/api/v1/rc-verification',
       rcChallanDetailsUrl:
         process.env.SUREPASS_RC_CHALLAN_API_URL ||
         'https://kyc-api.surepass.io/api/v1/rc/rc-related/challan-details',
+      rcFullUrl:
+        process.env.SUREPASS_RC_FULL_API_URL ||
+        'https://kyc-api.surepass.io/api/v1/rc/rc-full',
       dlVerificationUrl:
         process.env.SUREPASS_DL_API_URL ||
-        'https://kyc-api.surepass.io/api/v1/driving-license/driving-license',
-      token: process.env.SUREPASS_NEW_API_TOKEN || '',
+        'https://kyc-api.surepass.app/api/v1/driving-license/driving-license',
+      token: process.env.SUREPASS_API_TOKEN || '',
     },
     mastersIndia: {
       url: process.env.MASTERS_INDIA_API_URL || 'https://commonapi.mastersindia.co/commonapis/searchgstin/',

@@ -15,9 +15,9 @@ router.post('/verify', authenticate, vehicleController.verifyVehicle.bind(vehicl
 
 /**
  * @route   GET /api/v1/vehicles
- * @desc    Get all vehicles
+ * @desc    Get vehicles (active only by default)
  * @access  Private
- * @query   transporter_id: UUID (optional), is_active: boolean (optional)
+ * @query   transporter_id: UUID (optional), is_active: boolean (optional), include_inactive: boolean (optional, all when true)
  */
 router.get('/', authenticate, vehicleController.getAll.bind(vehicleController));
 

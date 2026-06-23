@@ -57,46 +57,58 @@ export function floorToMoneyStep(amount: number | string, step = 1): number {
 }
 
 /**
- * Dana (husk) deduction in kg from aggregate said-sent weight.
- * Same formula as DB comment: (said_sent_weight * 300/1000) / 100, then rounded up to whole kg.
+ * Dana (husk) deduction in kg: 300 g per quintal = weightKg × (3/1000).
+ * Rounded to the nearest whole kg (0.5 rounds up).
  */
-export function danaDeductionKgFromSaidSentWeight(saidSentWeight: number): number {
-  if (!Number.isFinite(saidSentWeight) || saidSentWeight <= 0) {
+export function danaDeductionKgFromWeight(weightKg: number): number {
+  if (!Number.isFinite(weightKg) || weightKg <= 0) {
     return 0;
   }
-  const rawKg = (saidSentWeight * 300 / 1000) / 100;
-  return Math.ceil(rawKg - EPS);
+  const rawKg = (weightKg * 3) / 1000;
+  return Math.round(rawKg);
+}
+
+/** @deprecated Use {@link danaDeductionKgFromWeight}; kept for callers passing said-sent weight. */
+export function danaDeductionKgFromSaidSentWeight(saidSentWeight: number): number {
+  return danaDeductionKgFromWeight(saidSentWeight);
 }
 
 export type KaantaPricingWeightInput = {
   totalKaantaWeight: number;
-  /** Sum of lot bill_weight for the sauda (same scope as purchase summary lots). */
+  /** Sum of lot bill_weight (typically sauda quantity); fallback bill cap when said sent is missing. */
   totalBillWeight: number;
+  /** Party invoice / said-document weight; primary bill cap when present. */
   totalSaidSentWeight: number;
   isDanaRequired: boolean;
 };
 
 export type KaantaPricingWeightResult = {
-  /** Weight before dana: min(kaanta, bill) when bill > 0, else kaanta-only. */
+  /** Weight before dana: min(kaanta, billCap) when billCap > 0, else kaanta-only. */
   grossWeightBeforeDana: number;
   danaDeductionKg: number;
   netWeightForPricing: number;
 };
 
 /**
- * Commercial net weight for rate × weight pricing when kaanta exists.
- * Uses min(kaanta, bill) then subtracts dana when required (same dana formula as {@link danaDeductionKgFromSaidSentWeight}).
- * If totalBillWeight is 0 or missing, bill does not cap kaanta (backward compatible when lots have no bill yet).
+ * Kaanta pricing weights when kaanta exists.
+ * Bill cap = said_sent (invoice) when provided, else lot bill_weight (sauda quantity).
+ * Gross = min(kaanta, billCap) — base amount = gross × rate.
+ * Dana (if required) = round(gross × 3/1000); deducted separately as dana_kg × rate before discounts.
+ * net = gross − dana — used for PA final_weight display.
  */
 export function computeKaantaPricingNetWeight(input: KaantaPricingWeightInput): KaantaPricingWeightResult {
   const kaanta = Number.isFinite(input.totalKaantaWeight) ? Math.max(input.totalKaantaWeight, 0) : 0;
   const bill = Number.isFinite(input.totalBillWeight) ? Math.max(input.totalBillWeight, 0) : 0;
   const said = Number.isFinite(input.totalSaidSentWeight) ? Math.max(input.totalSaidSentWeight, 0) : 0;
 
-  const danaDeductionKg =
-    input.isDanaRequired && said > 0 ? danaDeductionKgFromSaidSentWeight(said) : 0;
+  const billCap = said > 0 ? said : bill;
+  const grossWeightBeforeDana = billCap > 0 ? Math.min(kaanta, billCap) : kaanta;
 
-  const grossWeightBeforeDana = bill > 0 ? Math.min(kaanta, bill) : kaanta;
+  const danaDeductionKg =
+    input.isDanaRequired && grossWeightBeforeDana > 0
+      ? danaDeductionKgFromWeight(grossWeightBeforeDana)
+      : 0;
+
   const netWeightForPricing = Math.max(grossWeightBeforeDana - danaDeductionKg, 0);
 
   return { grossWeightBeforeDana, danaDeductionKg, netWeightForPricing };

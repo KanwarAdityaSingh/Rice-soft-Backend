@@ -16,13 +16,16 @@ export interface SurepassApiEnvelope<TMapped> {
 export type KycVerificationKey =
   | 'pan'
   | 'pan_comprehensive'
+  | 'pan_contact'
   | 'gst'
   | 'gst_advanced'
+  | 'gstin_by_pan'
   | 'aadhaar'
   | 'bank'
   | 'email'
   | 'driving_license'
   | 'rc'
+  | 'rc_full'
   | 'rc_challan';
 
 export interface SurepassVerificationSnapshot {
@@ -36,8 +39,10 @@ export interface SurepassVerificationSnapshot {
 export interface EntityKycVerificationDetails {
   pan?: SurepassVerificationSnapshot;
   pan_comprehensive?: SurepassVerificationSnapshot;
+  pan_contact?: SurepassVerificationSnapshot;
   gst?: SurepassVerificationSnapshot;
   gst_advanced?: SurepassVerificationSnapshot;
+  gstin_by_pan?: SurepassVerificationSnapshot;
   aadhaar?: SurepassVerificationSnapshot;
   bank?: SurepassVerificationSnapshot;
   driving_license?: SurepassVerificationSnapshot;
@@ -48,6 +53,7 @@ export interface EntityKycVerificationDetails {
 /** Stored on vehicles (JSONB column). */
 export interface VehicleVerificationDetails {
   rc?: SurepassVerificationSnapshot;
+  rc_full?: SurepassVerificationSnapshot;
   rc_challan?: SurepassVerificationSnapshot;
 }
 

@@ -117,6 +117,45 @@ export class PaymentAdviceChargeDAO {
     return deleted;
   }
 
+  /** Replace all charges for a payment advice (used on PUT when charges[] is sent). */
+  async replaceAllForPaymentAdvice(
+    paymentAdviceId: string,
+    charges: CreatePaymentAdviceChargeDTO[]
+  ): Promise<PaymentAdviceCharge[]> {
+    return db.transaction(async (client) => {
+      await client.query(
+        'DELETE FROM payment_advice_charges WHERE payment_advice_id = $1',
+        [paymentAdviceId]
+      );
+
+      if (charges.length === 0) {
+        return [];
+      }
+
+      const created: PaymentAdviceCharge[] = [];
+      for (const charge of charges) {
+        const result = await client.query<PaymentAdviceCharge>(
+          `INSERT INTO payment_advice_charges (payment_advice_id, charge_name, charge_value, charge_type)
+           VALUES ($1, $2, $3, $4)
+           RETURNING id, payment_advice_id, charge_name, charge_value, charge_type, created_at, updated_at`,
+          [
+            paymentAdviceId,
+            charge.charge_name,
+            charge.charge_value,
+            charge.charge_type || null,
+          ]
+        );
+        created.push(result.rows[0]);
+      }
+
+      logger.info('Payment advice charges replaced', {
+        paymentAdviceId,
+        count: created.length,
+      });
+      return created;
+    });
+  }
+
   async calculateNetPayable(paymentAdviceId: string): Promise<number> {
     const paymentAdvice = await db.query<{ amount: number }>(
       'SELECT amount FROM payment_advices WHERE id = $1',

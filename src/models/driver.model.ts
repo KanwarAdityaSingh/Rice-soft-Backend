@@ -6,6 +6,18 @@ export interface DriverLicenseVerificationResult {
   date_of_expiry: string;
   age: string | number | null;
   address: string;
+  pincode?: string | null;
+  state?: string | null;
+  gender?: string | null;
+  blood_group?: string | null;
+  vehicle_classes?: string[];
+  father_or_husband_name?: string | null;
+  date_of_issue?: string | null;
+  transport_date_of_expiry?: string | null;
+  profile_image?: string | null;
+  has_image?: boolean;
+  ola_name?: string | null;
+  ola_code?: string | null;
 }
 
 /**
@@ -28,6 +40,10 @@ export interface Driver {
   date_of_birth: Date | string | null;
   license_expires_at: Date | string | null;
   address: string | null;
+  pincode: string | null;
+  gender: string | null;
+  profile_image: string | null;
+  vehicle_classes: string[];
   is_verified: boolean;
   verified_at: Date | null;
   verification_details: DriverVerificationDetails;
@@ -44,7 +60,12 @@ export interface CreateDriverDTO {
   name?: string | null;
   date_of_birth?: string | null;
   license_expires_at?: string | null;
+  doe?: string | null;
   address?: string | null;
+  pincode?: string | null;
+  gender?: string | null;
+  profile_image?: string | null;
+  vehicle_classes?: string[];
   is_verified?: boolean;
   verified_at?: string | null;
   verification_details?: DriverVerificationDetails;
@@ -58,7 +79,12 @@ export interface UpdateDriverDTO {
   name?: string | null;
   date_of_birth?: string | null;
   license_expires_at?: string | null;
+  doe?: string | null;
   address?: string | null;
+  pincode?: string | null;
+  gender?: string | null;
+  profile_image?: string | null;
+  vehicle_classes?: string[];
   is_verified?: boolean;
   verified_at?: string | null;
   verification_details?: DriverVerificationDetails;
@@ -73,7 +99,13 @@ export interface DriverResponse {
   name: string | null;
   date_of_birth: string | null;
   license_expires_at: string | null;
+  /** Alias for license_expires_at (DL valid until). */
+  doe: string | null;
   address: string | null;
+  pincode: string | null;
+  gender: string | null;
+  profile_image: string | null;
+  vehicle_classes: string[];
   is_verified: boolean;
   verified_at: string | null;
   verification_details: DriverVerificationDetails;
@@ -89,4 +121,18 @@ export function surepassDriverVerificationDetails(
   return raw !== undefined
     ? { provider: 'surepass', mapped, raw }
     : { provider: 'surepass', mapped };
+}
+
+/** True when a Surepass DL snapshot with holder name is stored. */
+export function isDriverVerifiedFromDetails(details: DriverVerificationDetails | unknown): boolean {
+  if (!details || typeof details !== 'object' || Array.isArray(details)) {
+    return false;
+  }
+  const snapshot = details as DriverVerificationSnapshot;
+  return (
+    snapshot.provider === 'surepass' &&
+    typeof snapshot.mapped === 'object' &&
+    snapshot.mapped !== null &&
+    Boolean(snapshot.mapped.full_name?.trim())
+  );
 }

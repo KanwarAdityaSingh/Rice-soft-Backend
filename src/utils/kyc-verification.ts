@@ -5,6 +5,7 @@ import type {
   SurepassVerificationSnapshot,
   VehicleVerificationDetails,
 } from '../models/kyc-verification.model';
+import type { TransportType } from '../models/transporter.model';
 
 export function buildSurepassSnapshot<TMapped>(
   envelope: SurepassApiEnvelope<TMapped>
@@ -84,6 +85,7 @@ export function mergeVehicleVerificationDetailsPatch(
   return {
     ...existing,
     ...(patch.rc !== undefined ? { rc: patch.rc } : {}),
+    ...(patch.rc_full !== undefined ? { rc_full: patch.rc_full } : {}),
     ...(patch.rc_challan !== undefined ? { rc_challan: patch.rc_challan } : {}),
   };
 }
@@ -123,4 +125,35 @@ export function mergeVehicleVerificationSnapshot(
     ...existing,
     [key]: snapshot,
   };
+}
+
+function hasKycSnapshot(
+  kyc: EntityKycVerificationDetails,
+  key: keyof EntityKycVerificationDetails
+): boolean {
+  const value = kyc[key];
+  return (
+    value !== undefined &&
+    value !== null &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    'verified_at' in value
+  );
+}
+
+/** Registered → GST or PAN snapshot; unregistered → Aadhaar snapshot. */
+export function isTransporterKycVerified(
+  transportType: TransportType,
+  kyc: EntityKycVerificationDetails
+): boolean {
+  if (transportType === 'unregistered') {
+    return hasKycSnapshot(kyc, 'aadhaar');
+  }
+
+  return (
+    hasKycSnapshot(kyc, 'gst_advanced') ||
+    hasKycSnapshot(kyc, 'gst') ||
+    hasKycSnapshot(kyc, 'pan_comprehensive') ||
+    hasKycSnapshot(kyc, 'pan')
+  );
 }

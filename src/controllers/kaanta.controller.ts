@@ -10,6 +10,7 @@ import { AuthRequest } from '../middleware/auth.middleware';
 import { uploadToS3, validateFileSize, validateFileType } from '../utils/s3-upload';
 import { appConfig } from '../config/app.config';
 import { inwardSlipPassService } from '../services/inward-slip-pass.service';
+import { paymentAdviceService } from '../services/payment-advice.service';
 
 export class KaantaController {
   async getAll(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
@@ -108,6 +109,12 @@ export class KaantaController {
 
       const kaanta = await kaantaDAO.create(kaantaData);
 
+      await paymentAdviceService.syncLinkedPendingFromKaanta({
+        saudaId: kaanta.sauda_id,
+        inwardSlipPassId: kaanta.inward_slip_pass_id,
+        updatedBy: req.user?.userId,
+      });
+
       const kaantaResponse: KaantaResponse = {
         id: kaanta.id,
         kaanta_id: kaanta.kaanta_id,
@@ -158,6 +165,12 @@ export class KaantaController {
         throw new NotFoundError('Kaanta not found');
       }
 
+      await paymentAdviceService.syncLinkedPendingFromKaanta({
+        saudaId: kaanta.sauda_id,
+        inwardSlipPassId: kaanta.inward_slip_pass_id,
+        updatedBy: req.user?.userId,
+      });
+
       const kaantaResponse: KaantaResponse = {
         id: kaanta.id,
         kaanta_id: kaanta.kaanta_id,
@@ -191,16 +204,17 @@ export class KaantaController {
       if (!existing) {
         throw new NotFoundError('Kaanta not found');
       }
-      const ispForKaanta = await inwardSlipPassDAO.findById(existing.inward_slip_pass_id);
-      if (!ispForKaanta) {
-        throw new NotFoundError('Inward slip pass not found');
-      }
-      await inwardSlipPassService.assertNoHigherSlipKaantaAfterThisIsp(ispForKaanta.slip_number);
 
       const deleted = await kaantaDAO.delete(id);
       if (!deleted) {
         throw new NotFoundError('Kaanta not found');
       }
+
+      await paymentAdviceService.syncLinkedPendingFromKaanta({
+        saudaId: existing.sauda_id,
+        inwardSlipPassId: existing.inward_slip_pass_id,
+        updatedBy: req.user?.userId,
+      });
 
       return ResponseHandler.success(res, null, 'Kaanta deleted successfully (associated lot also deleted)');
     } catch (error) {

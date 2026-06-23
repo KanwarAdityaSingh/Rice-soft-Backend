@@ -53,30 +53,6 @@ export class InwardSlipPassService {
     }
   }
 
-  /**
-   * Kaanta on ISP-N cannot be deleted while any higher-numbered ISP still has any kaanta.
-   */
-  async assertNoHigherSlipKaantaAfterThisIsp(slipNumber: string | null | undefined): Promise<void> {
-    if (!slipNumber) return;
-    const seq = parseIspSequence(slipNumber);
-    if (seq === null) return;
-
-    const r = await db.query<{ example: string | null }>(
-      `SELECT isp.slip_number AS example
-       FROM kaantas k
-       INNER JOIN inward_slip_passes isp ON isp.id = k.inward_slip_pass_id
-       WHERE (regexp_match(isp.slip_number, '^ISP-(\\d+)$', 'i'))[1]::int > $1
-       ORDER BY (regexp_match(isp.slip_number, '^ISP-(\\d+)$', 'i'))[1]::int ASC
-       LIMIT 1`,
-      [seq]
-    );
-    if (r.rows.length > 0 && r.rows[0].example) {
-      throw new ConflictError(
-        `Cannot delete this kaanta: a higher-numbered slip still has kaanta (${r.rows[0].example}). Remove those first.`
-      );
-    }
-  }
-
   async deleteById(inwardSlipPassId: string): Promise<void> {
     const client = await db.getClient();
     try {

@@ -25,7 +25,7 @@ router.get('/lookupPAN', authenticate, transporterController.lookupPAN.bind(tran
  * @route   GET /api/v1/transporters/verifyBankAccount
  * @desc    Verify bank account details using Surepass API
  * @access  Private
- * @query   id_number: string (9-18 digits), ifsc: string (11 chars)
+ * @query   id_number: string (9-18 digits), ifsc: string (11 chars), transporter_id: UUID (optional, persist bank KYC)
  */
 router.get('/verifyBankAccount', authenticate, transporterController.verifyBankAccount.bind(transporterController));
 
@@ -33,7 +33,7 @@ router.get('/verifyBankAccount', authenticate, transporterController.verifyBankA
  * @route   GET /api/v1/transporters
  * @desc    Get all transporters
  * @access  Private
- * @query   include_inactive: boolean
+ * @query   include_inactive: boolean, is_verified: boolean (optional filter)
  */
 router.get('/', authenticate, transporterController.getAll.bind(transporterController));
 

@@ -7,13 +7,18 @@ import type {
   SurepassApiEnvelope,
   VehicleVerificationDetails,
 } from '../models/kyc-verification.model';
+import type { DriverLicenseVerificationResult } from '../models/driver.model';
+import { surepassDriverVerificationDetails } from '../models/driver.model';
 import {
   buildSurepassSnapshot,
+  isTransporterKycVerified,
   mergeEntityKycSnapshot,
   mergeVehicleVerificationSnapshot,
   parseEntityKycDetails,
   parseVehicleVerificationDetails,
 } from '../utils/kyc-verification';
+import type { TransportType } from '../models/transporter.model';
+import { driverProfileFromMapped } from '../utils/driver-license';
 
 const ENTITY_KYC_TABLES: Record<'vendor' | 'broker' | 'transporter', string> = {
   vendor: 'vendors',
@@ -29,10 +34,14 @@ function entityKycKeyForVerification(
       return 'pan';
     case 'pan_comprehensive':
       return 'pan_comprehensive';
+    case 'pan_contact':
+      return 'pan_contact';
     case 'gst':
       return 'gst';
     case 'gst_advanced':
       return 'gst_advanced';
+    case 'gstin_by_pan':
+      return 'gstin_by_pan';
     case 'aadhaar':
       return 'aadhaar';
     case 'bank':
@@ -51,6 +60,9 @@ function vehicleKeyForVerification(
 ): keyof VehicleVerificationDetails | null {
   if (verificationKey === 'rc') {
     return 'rc';
+  }
+  if (verificationKey === 'rc_full') {
+    return 'rc_full';
   }
   if (verificationKey === 'rc_challan') {
     return 'rc_challan';
@@ -93,6 +105,10 @@ export class KycPersistenceService {
       [entityId, JSON.stringify(merged)]
     );
 
+    if (entityType === 'transporter') {
+      await this.syncTransporterVerificationStatus(entityId);
+    }
+
     logger.info('Surepass verification snapshot saved', {
       entityType,
       entityId,
@@ -100,26 +116,54 @@ export class KycPersistenceService {
     });
   }
 
-  static async saveDriverVerification<TMapped>(
+  static async saveDriverVerification(
     driverId: string,
-    envelope: SurepassApiEnvelope<TMapped>
+    envelope: SurepassApiEnvelope<DriverLicenseVerificationResult>
   ): Promise<void> {
-    const snapshot = buildSurepassSnapshot(envelope);
+    const mapped = envelope.mapped;
+    const snapshot = surepassDriverVerificationDetails(
+      mapped,
+      envelope.raw as unknown as Record<string, unknown>
+    );
+    const profile = driverProfileFromMapped(mapped);
+
     await db.query(
       `UPDATE drivers
        SET verification_details = $2::jsonb,
+           name = COALESCE($3, name),
+           date_of_birth = COALESCE($4::date, date_of_birth),
+           license_expires_at = COALESCE($5::date, license_expires_at),
+           address = COALESCE($6, address),
+           pincode = COALESCE($7, pincode),
+           gender = COALESCE($8, gender),
+           profile_image = COALESCE($9, profile_image),
+           vehicle_classes = CASE
+             WHEN $10::text[] IS NOT NULL AND cardinality($10::text[]) > 0 THEN $10::text[]
+             ELSE vehicle_classes
+           END,
            is_verified = true,
            verified_at = CURRENT_TIMESTAMP,
            updated_at = CURRENT_TIMESTAMP
        WHERE id = $1`,
-      [driverId, JSON.stringify(snapshot)]
+      [
+        driverId,
+        JSON.stringify(snapshot),
+        profile.name,
+        profile.date_of_birth,
+        profile.license_expires_at,
+        profile.address,
+        profile.pincode,
+        profile.gender,
+        profile.profile_image,
+        profile.vehicle_classes,
+      ]
     );
     logger.info('Driver Surepass verification snapshot saved', { driverId });
   }
 
   static async saveVehicleVerification<TMapped>(
     vehicleId: string,
-    verificationKey: 'rc' | 'rc_challan',
+    verificationKey: 'rc' | 'rc_full' | 'rc_challan',
     envelope: SurepassApiEnvelope<TMapped>
   ): Promise<void> {
     const vehicleKey = vehicleKeyForVerification(verificationKey);
@@ -149,7 +193,7 @@ export class KycPersistenceService {
     ];
     const values: unknown[] = [vehicleId, JSON.stringify(merged)];
 
-    if (verificationKey === 'rc') {
+    if (verificationKey === 'rc' || verificationKey === 'rc_full') {
       updates.push('is_verified = true', 'verified_at = CURRENT_TIMESTAMP');
     }
     if (verificationKey === 'rc_challan') {
@@ -172,6 +216,32 @@ export class KycPersistenceService {
     });
   }
 
+  static async syncTransporterVerificationStatus(entityId: string): Promise<void> {
+    const existingResult = await db.query<{
+      transport_type: TransportType;
+      kyc_verification_details: unknown;
+    }>(
+      `SELECT transport_type, kyc_verification_details FROM transporters WHERE id = $1`,
+      [entityId]
+    );
+    if (existingResult.rows.length === 0) {
+      return;
+    }
+
+    const row = existingResult.rows[0];
+    const kyc = parseEntityKycDetails(row.kyc_verification_details);
+    const verified = isTransporterKycVerified(row.transport_type, kyc);
+
+    await db.query(
+      `UPDATE transporters
+       SET is_verified = $2,
+           verified_at = CASE WHEN $2 THEN CURRENT_TIMESTAMP ELSE NULL END,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1`,
+      [entityId, verified]
+    );
+  }
+
   static async persistIfRequested<TMapped>(
     options:
       | {
@@ -190,12 +260,15 @@ export class KycPersistenceService {
     const { entity_type, entity_id, verification_key, email } = options;
 
     if (entity_type === 'driver') {
-      await this.saveDriverVerification(entity_id, envelope);
+      await this.saveDriverVerification(
+        entity_id,
+        envelope as SurepassApiEnvelope<DriverLicenseVerificationResult>
+      );
       return;
     }
 
     if (entity_type === 'vehicle') {
-      if (verification_key !== 'rc' && verification_key !== 'rc_challan') {
+      if (verification_key !== 'rc' && verification_key !== 'rc_full' && verification_key !== 'rc_challan') {
         return;
       }
       await this.saveVehicleVerification(entity_id, verification_key, envelope);

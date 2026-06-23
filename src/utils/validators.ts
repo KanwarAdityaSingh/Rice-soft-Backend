@@ -1,6 +1,7 @@
 import Joi from 'joi';
 import { ValidationError } from './errors';
 import { BAG_TYPE_VALUES } from '../constants/bag-types';
+import { normalizeDriverDobForSurepass } from './driver-license';
 
 export const validate = <T>(schema: Joi.Schema, data: any): T => {
   const { error, value } = schema.validate(data, { abortEarly: false });
@@ -174,8 +175,10 @@ const surepassVerificationSnapshotSchema = Joi.object({
 export const kycVerificationDetailsSchema = Joi.object({
   pan: surepassVerificationSnapshotSchema.optional(),
   pan_comprehensive: surepassVerificationSnapshotSchema.optional(),
+  pan_contact: surepassVerificationSnapshotSchema.optional(),
   gst: surepassVerificationSnapshotSchema.optional(),
   gst_advanced: surepassVerificationSnapshotSchema.optional(),
+  gstin_by_pan: surepassVerificationSnapshotSchema.optional(),
   aadhaar: surepassVerificationSnapshotSchema.optional(),
   bank: surepassVerificationSnapshotSchema.optional(),
   driving_license: surepassVerificationSnapshotSchema.optional(),
@@ -186,6 +189,7 @@ export const kycVerificationDetailsSchema = Joi.object({
 
 export const vehicleVerificationDetailsSchema = Joi.object({
   rc: surepassVerificationSnapshotSchema.optional(),
+  rc_full: surepassVerificationSnapshotSchema.optional(),
   rc_challan: surepassVerificationSnapshotSchema.optional(),
 }).optional();
 
@@ -487,6 +491,8 @@ export const createTransporterSchema = Joi.object({
   vehicle_numbers: Joi.array().items(Joi.string().max(50)).optional(),
   bank_details: bankDetailsSchema.optional(),
   is_active: Joi.boolean().optional(),
+  is_verified: Joi.boolean().optional(),
+  verified_at: Joi.string().optional().allow(null, ''),
   created_by: Joi.string().optional().uuid(),
   kyc_verification_details: kycVerificationDetailsSchema,
 });
@@ -508,6 +514,8 @@ export const updateTransporterSchema = Joi.object({
   vehicle_numbers: Joi.array().items(Joi.string().max(50)).optional(),
   bank_details: bankDetailsSchema.optional(),
   is_active: Joi.boolean().optional(),
+  is_verified: Joi.boolean().optional(),
+  verified_at: Joi.string().optional().allow(null, ''),
   updated_by: Joi.string().optional().uuid(),
   kyc_verification_details: kycVerificationDetailsSchema,
 }).min(1);
@@ -715,6 +723,8 @@ export const updateVehicleSchema = Joi.object({
   permit_validity: Joi.date().optional().allow(null).iso(),
   challan_details: Joi.array().optional().allow(null),
   transporter_ids: Joi.array().items(Joi.string().uuid()).optional().allow(null),
+  is_verified: Joi.boolean().optional().allow(null),
+  verified_at: Joi.date().optional().allow(null).iso(),
   verification_details: vehicleVerificationDetailsSchema,
   is_active: Joi.boolean().optional(),
   updated_by: Joi.string().optional().uuid(),
@@ -889,6 +899,20 @@ export const createPaymentAdviceSchema = Joi.object({
   return value;
 });
 
+export const paymentAdvicePreviewQuerySchema = Joi.object({
+  sauda_id: Joi.string().optional().uuid(),
+  inward_slip_pass_id: Joi.string().optional().uuid(),
+  godown_id: Joi.string().optional().uuid(),
+  total_charges: Joi.number().optional().min(0).precision(2).default(0),
+}).custom((value, helpers) => {
+  if (!value.sauda_id && !value.inward_slip_pass_id) {
+    return helpers.error('any.custom', {
+      message: 'Either sauda_id or inward_slip_pass_id must be provided',
+    });
+  }
+  return value;
+});
+
 export const updatePaymentAdviceSchema = Joi.object({
   sauda_id: Joi.string().optional().uuid().allow(null, ''),
   inward_slip_pass_id: Joi.string().optional().uuid().allow(null, ''),
@@ -917,6 +941,7 @@ export const updatePaymentAdviceSchema = Joi.object({
   payment_slip_image_url: Joi.string().optional().allow(null, '').uri(),
   notes: Joi.string().optional().allow(null, '').max(1000),
   updated_by: Joi.string().optional().uuid(),
+  charges: Joi.array().items(paymentAdviceChargeSchema).optional(),
 }).custom((value) => {
   // Convert empty strings to null
   if (value.payer_id === '') value.payer_id = null;
@@ -1264,9 +1289,44 @@ const driverPhoneSchema = Joi.string()
     return helpers.error('string.pattern.base', { name: 'phone' });
   }, 'Indian phone validation');
 
+const optionalDriverLicenseSchema = Joi.string()
+  .trim()
+  .min(5)
+  .max(50)
+  .pattern(/^[A-Za-z0-9\-/\s]+$/, 'driving license number');
+
+const driverVerifyDobSchema = Joi.string()
+  .optional()
+  .allow(null, '')
+  .custom((value, helpers) => {
+    if (value === null || value === undefined || String(value).trim() === '') {
+      return undefined;
+    }
+    const normalized = normalizeDriverDobForSurepass(value);
+    if (!normalized) {
+      return helpers.error('any.invalid');
+    }
+    return normalized;
+  }, 'driver DOB normalization');
+
 export const verifyDriverSchema = Joi.object({
-  license_number: driverLicenseSchema,
-  dob: Joi.string().optional().allow(null, '').isoDate(),
+  license_number: optionalDriverLicenseSchema.optional(),
+  id_number: optionalDriverLicenseSchema.optional(),
+  dob: driverVerifyDobSchema,
+  date_of_birth: driverVerifyDobSchema,
+  driver_id: uuidSchema.optional(),
+  entity_type: Joi.string().optional().valid('vendor', 'broker', 'transporter', 'driver', 'vehicle'),
+  entity_id: uuidSchema.optional(),
+  persist_entity_type: Joi.string().optional().valid('vendor', 'broker', 'transporter', 'driver', 'vehicle'),
+  persist_entity_id: uuidSchema.optional(),
+}).or('license_number', 'id_number');
+
+/** Saved-driver verify: licence defaults to stored value on the record. */
+export const verifyDriverByIdSchema = Joi.object({
+  license_number: optionalDriverLicenseSchema.optional(),
+  id_number: optionalDriverLicenseSchema.optional(),
+  dob: driverVerifyDobSchema,
+  date_of_birth: driverVerifyDobSchema,
 });
 
 export const rcChallanDetailsSchema = Joi.object({
@@ -1275,15 +1335,36 @@ export const rcChallanDetailsSchema = Joi.object({
   engine_number: Joi.string().required().trim().min(3).max(30),
   state_only: Joi.boolean().optional().default(false),
   state_portal: Joi.array().items(Joi.string().trim().uppercase().length(2)).optional(),
+  entity_type: Joi.string().optional().valid('vendor', 'broker', 'transporter', 'driver', 'vehicle'),
+  entity_id: uuidSchema.optional(),
+  persist_entity_type: Joi.string().optional().valid('vendor', 'broker', 'transporter', 'driver', 'vehicle'),
+  persist_entity_id: uuidSchema.optional(),
 });
+
+export const rcFullSchema = Joi.object({
+  id_number: Joi.string().required().trim().uppercase().min(4).max(20),
+  state_only: Joi.boolean().optional().default(false),
+  state_portal: Joi.array().items(Joi.string().trim().uppercase().length(2)).optional(),
+  entity_type: Joi.string().optional().valid('vendor', 'broker', 'transporter', 'driver', 'vehicle'),
+  entity_id: uuidSchema.optional(),
+  persist_entity_type: Joi.string().optional().valid('vendor', 'broker', 'transporter', 'driver', 'vehicle'),
+  persist_entity_id: uuidSchema.optional(),
+});
+
+const driverOptionalDateSchema = Joi.string().optional().allow(null, '').isoDate();
 
 export const createDriverSchema = Joi.object({
   license_number: driverLicenseSchema,
   phone: driverPhoneSchema,
   name: Joi.string().optional().allow(null, '').min(1).max(255),
-  date_of_birth: Joi.string().optional().allow(null, '').isoDate(),
-  license_expires_at: Joi.string().optional().allow(null, '').isoDate(),
+  date_of_birth: driverOptionalDateSchema,
+  license_expires_at: driverOptionalDateSchema,
+  doe: driverOptionalDateSchema,
   address: Joi.string().optional().allow(null, '').max(2000),
+  pincode: Joi.string().optional().allow(null, '').max(10),
+  gender: Joi.string().optional().allow(null, '').max(10),
+  profile_image: Joi.string().optional().allow(null, ''),
+  vehicle_classes: Joi.array().items(Joi.string().trim().max(20)).optional(),
   is_verified: Joi.boolean().optional(),
   verified_at: Joi.string().optional().allow(null, ''),
   verification_details: Joi.any().optional().allow(null),
@@ -1294,9 +1375,14 @@ export const updateDriverSchema = Joi.object({
   license_number: driverLicenseSchema.optional(),
   phone: driverPhoneSchema.optional(),
   name: Joi.string().optional().allow(null, '').min(1).max(255),
-  date_of_birth: Joi.string().optional().allow(null, '').isoDate(),
-  license_expires_at: Joi.string().optional().allow(null, '').isoDate(),
+  date_of_birth: driverOptionalDateSchema,
+  license_expires_at: driverOptionalDateSchema,
+  doe: driverOptionalDateSchema,
   address: Joi.string().optional().allow(null, '').max(2000),
+  pincode: Joi.string().optional().allow(null, '').max(10),
+  gender: Joi.string().optional().allow(null, '').max(10),
+  profile_image: Joi.string().optional().allow(null, ''),
+  vehicle_classes: Joi.array().items(Joi.string().trim().max(20)).optional(),
   is_verified: Joi.boolean().optional(),
   verified_at: Joi.string().optional().allow(null, ''),
   verification_details: Joi.any().optional().allow(null),

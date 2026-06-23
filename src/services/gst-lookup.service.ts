@@ -1,11 +1,14 @@
 import { logger } from '../utils/logger';
-import { ValidationError, BadRequestError, InternalServerError } from '../utils/errors';
+import { ValidationError, BadRequestError, InternalServerError, AppError } from '../utils/errors';
+import { normalizeVehicleNumber } from '../utils/vehicle-number';
 import { appConfig } from '../config/app.config';
 import type { DriverLicenseVerificationResult } from '../models/driver.model';
 import type { SurepassApiEnvelope, SurepassApiResponse } from '../models/kyc-verification.model';
 import {
   normalizeDrivingLicenseForProvider,
   normalizeDrivingLicenseForStorage,
+  normalizeDriverDobForSurepass,
+  parseDrivingLicenseExpiryDate,
 } from '../utils/driver-license';
 
 /**
@@ -207,6 +210,43 @@ export interface PANComprehensiveResult {
   [key: string]: unknown;
 }
 
+export interface GstinByPanListItem {
+  gstin: string;
+  state?: string;
+  state_code?: string;
+  active_status?: string;
+}
+
+export interface GstinByPanResult {
+  pan_number?: string;
+  client_id?: string;
+  gstin_list?: GstinByPanListItem[];
+}
+
+export interface GstinByPanMapped {
+  pan_number: string;
+  client_id?: string;
+  gstin_list: GstinByPanListItem[];
+  /** Deduped GSTINs where active_status is Active (case-insensitive). */
+  active_gstins: string[];
+  /** First active GSTIN, if any — useful for auto-select in forms. */
+  primary_gstin: string | null;
+}
+
+export interface PanToEmailMobileResult {
+  client_id?: string;
+  id_number?: string;
+  email_id?: string[];
+  mobile_number?: string[];
+}
+
+export interface PanContactMapped {
+  pan_number: string;
+  client_id?: string;
+  email_ids: string[];
+  mobile_numbers: string[];
+}
+
 /**
  * Surepass RC Verification API Response Interface
  */
@@ -278,6 +318,70 @@ export interface RcChallanDetailsResult {
   };
 }
 
+/** Surepass RC Full API — comprehensive registration record. */
+export interface RcFullResult {
+  client_id?: string;
+  rc_number: string;
+  registration_date?: string | null;
+  owner_name?: string | null;
+  father_name?: string | null;
+  present_address?: string | null;
+  permanent_address?: string | null;
+  mobile_number?: string | null;
+  vehicle_category?: string | null;
+  vehicle_chasi_number?: string | null;
+  vehicle_engine_number?: string | null;
+  maker_description?: string | null;
+  maker_model?: string | null;
+  body_type?: string | null;
+  fuel_type?: string | null;
+  color?: string | null;
+  norms_type?: string | null;
+  fit_up_to?: string | null;
+  financer?: string | null;
+  financed?: boolean | null;
+  insurance_company?: string | null;
+  insurance_policy_number?: string | null;
+  insurance_upto?: string | null;
+  manufacturing_date?: string | null;
+  manufacturing_date_formatted?: string | null;
+  registered_at?: string | null;
+  latest_by?: string | null;
+  less_info?: boolean | null;
+  tax_upto?: string | null;
+  tax_paid_upto?: string | null;
+  cubic_capacity?: string | null;
+  vehicle_gross_weight?: string | null;
+  no_cylinders?: string | null;
+  seat_capacity?: string | null;
+  sleeper_capacity?: string | null;
+  standing_capacity?: string | null;
+  wheelbase?: string | null;
+  unladen_weight?: string | null;
+  vehicle_category_description?: string | null;
+  pucc_number?: string | null;
+  pucc_upto?: string | null;
+  permit_number?: string | null;
+  permit_issue_date?: string | null;
+  permit_valid_from?: string | null;
+  permit_valid_upto?: string | null;
+  permit_type?: string | null;
+  national_permit_number?: string | null;
+  national_permit_upto?: string | null;
+  national_permit_issued_by?: string | null;
+  non_use_status?: string | null;
+  non_use_from?: string | null;
+  non_use_to?: string | null;
+  blacklist_status?: string | null;
+  noc_details?: unknown;
+  owner_number?: string | null;
+  rc_status?: string | null;
+  masked_name?: boolean | null;
+  challan_details?: unknown;
+  variant?: string | null;
+  [key: string]: unknown;
+}
+
 /**
  * Surepass Driving License Verification API response (fields may vary slightly by API version).
  */
@@ -287,18 +391,35 @@ export interface SurepassDLVerificationResponse {
   message: string;
   message_code?: string;
   data?: {
+    client_id?: string;
     full_name?: string;
     name?: string;
     holder_name?: string;
     license_number?: string;
     dl_number?: string;
     id_number?: string;
+    state?: string;
     dob?: string;
     date_of_birth?: string;
     date_of_birth_in_words?: string;
     doe?: string;
     date_of_expiry?: string;
+    transport_doe?: string;
+    doi?: string;
+    transport_doi?: string;
     age?: string | number;
+    gender?: string;
+    blood_group?: string;
+    vehicle_classes?: string[];
+    father_or_husband_name?: string;
+    permanent_address?: string;
+    temporary_address?: string;
+    permanent_zip?: string;
+    temporary_zip?: string;
+    profile_image?: string;
+    has_image?: boolean;
+    ola_name?: string;
+    ola_code?: string;
     address?: string | Record<string, unknown>;
     [key: string]: unknown;
   };
@@ -403,25 +524,30 @@ export class GSTLookupService {
       body: JSON.stringify(body),
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      logger.error(`Surepass ${logLabel} HTTP error`, {
-        status: response.status,
-        statusText: response.statusText,
-        error: errorText,
-      });
-      throw new BadRequestError(`${logLabel} failed: ${response.statusText}`);
+    const responseText = await response.text();
+    let apiResponse: SurepassApiResponse<TData> | null = null;
+
+    if (responseText) {
+      try {
+        apiResponse = JSON.parse(responseText) as SurepassApiResponse<TData>;
+      } catch {
+        logger.error(`Surepass ${logLabel} non-JSON response`, {
+          status: response.status,
+          statusText: response.statusText,
+          error: responseText,
+        });
+        throw new BadRequestError(`${logLabel} failed: ${response.statusText}`);
+      }
     }
 
-    const apiResponse = (await response.json()) as SurepassApiResponse<TData>;
-
-    if (apiResponse.status_code !== 200 || apiResponse.success !== true) {
+    if (!response.ok || !apiResponse || apiResponse.status_code !== 200 || apiResponse.success !== true) {
       logger.warn(`Surepass ${logLabel} returned error`, {
-        status_code: apiResponse.status_code,
-        message: apiResponse.message,
-        success: apiResponse.success,
+        httpStatus: response.status,
+        status_code: apiResponse?.status_code,
+        message: apiResponse?.message,
+        success: apiResponse?.success,
       });
-      throw new BadRequestError(apiResponse.message || `${logLabel} failed`);
+      throw new BadRequestError(apiResponse?.message || `${logLabel} failed: ${response.statusText}`);
     }
 
     return apiResponse;
@@ -792,6 +918,136 @@ export class GSTLookupService {
   }
 
   /**
+   * List GSTINs registered against a PAN via Surepass Corporate GSTIN-by-PAN API.
+   */
+  static async lookupGstinByPan(
+    panNumber: string
+  ): Promise<SurepassApiEnvelope<GstinByPanMapped>> {
+    const pan = panNumber.trim().toUpperCase();
+    if (!this.validatePANFormat(pan)) {
+      throw new ValidationError('Invalid PAN number format. Expected format: ABCDE1234F');
+    }
+
+    logger.info('GSTIN-by-PAN lookup requested', { panNumber: pan });
+
+    try {
+      const config = appConfig.apis.surepass;
+      const raw = await this.callSurepass<GstinByPanResult>(
+        config.gstinByPanUrl,
+        { id_number: pan },
+        'GSTIN by PAN'
+      );
+
+      if (!raw.data) {
+        throw new BadRequestError('GSTIN-by-PAN lookup returned no data');
+      }
+
+      const mapped = this.mapGstinByPanResult(pan, raw.data);
+      logger.info('GSTIN-by-PAN lookup successful', {
+        panNumber: pan,
+        gstinCount: mapped.gstin_list.length,
+        activeCount: mapped.active_gstins.length,
+      });
+      return { mapped, raw };
+    } catch (error) {
+      logger.error('GSTIN-by-PAN lookup failed', { panNumber: pan, error });
+      if (error instanceof ValidationError || error instanceof BadRequestError) {
+        throw error;
+      }
+      throw new InternalServerError('Failed to fetch GSTIN list from external API');
+    }
+  }
+
+  static mapGstinByPanResult(panNumber: string, data: GstinByPanResult): GstinByPanMapped {
+    const gstinList = Array.isArray(data.gstin_list) ? data.gstin_list : [];
+    const activeGstins: string[] = [];
+    const seenActive = new Set<string>();
+
+    for (const item of gstinList) {
+      const gstin = item.gstin?.trim().toUpperCase();
+      if (!gstin) {
+        continue;
+      }
+      const isActive = (item.active_status || '').trim().toLowerCase() === 'active';
+      if (isActive && !seenActive.has(gstin)) {
+        seenActive.add(gstin);
+        activeGstins.push(gstin);
+      }
+    }
+
+    return {
+      pan_number: data.pan_number?.trim().toUpperCase() || panNumber,
+      client_id: data.client_id,
+      gstin_list: gstinList.map((item) => ({
+        gstin: item.gstin?.trim().toUpperCase() || item.gstin,
+        state: item.state,
+        state_code: item.state_code,
+        active_status: item.active_status,
+      })),
+      active_gstins: activeGstins,
+      primary_gstin: activeGstins[0] ?? null,
+    };
+  }
+
+  /**
+   * Lookup email addresses and mobile numbers linked to a PAN via Surepass.
+   */
+  static async lookupPanContact(
+    panNumber: string
+  ): Promise<SurepassApiEnvelope<PanContactMapped>> {
+    const pan = panNumber.trim().toUpperCase();
+    if (!this.validatePANFormat(pan)) {
+      throw new ValidationError('Invalid PAN number format. Expected format: ABCDE1234F');
+    }
+
+    logger.info('PAN contact lookup requested', { panNumber: pan });
+
+    try {
+      const config = appConfig.apis.surepass;
+      const raw = await this.callSurepass<PanToEmailMobileResult>(
+        config.panToEmailMobileUrl,
+        { id_number: pan },
+        'PAN to email/mobile'
+      );
+
+      if (!raw.data) {
+        throw new BadRequestError('PAN contact lookup returned no data');
+      }
+
+      const mapped = this.mapPanContactResult(pan, raw.data);
+      logger.info('PAN contact lookup successful', {
+        panNumber: pan,
+        emailCount: mapped.email_ids.length,
+        mobileCount: mapped.mobile_numbers.length,
+      });
+      return { mapped, raw };
+    } catch (error) {
+      logger.error('PAN contact lookup failed', { panNumber: pan, error });
+      if (error instanceof ValidationError || error instanceof BadRequestError) {
+        throw error;
+      }
+      throw new InternalServerError('Failed to fetch PAN contact details from external API');
+    }
+  }
+
+  static mapPanContactResult(panNumber: string, data: PanToEmailMobileResult): PanContactMapped {
+    const normalizeEmail = (value: string) => value.trim().toLowerCase();
+    const emailIds = Array.isArray(data.email_id)
+      ? [...new Set(data.email_id.map((e) => normalizeEmail(String(e))).filter(Boolean))]
+      : [];
+    const mobileNumbers = Array.isArray(data.mobile_number)
+      ? [...new Set(data.mobile_number.map((m) => String(m).trim()).filter(Boolean))]
+      : [];
+
+    return {
+      pan_number: data.id_number?.trim().toUpperCase() || panNumber,
+      client_id: data.client_id,
+      email_ids: emailIds,
+      mobile_numbers: mobileNumbers,
+    };
+  }
+
+  /**
    * Map Surepass GSTIN Advanced response to application business data format
    */
   static mapGSTAdvancedToBusinessData(gstData: GSTINAdvancedResult): MappedBusinessData {
@@ -1091,7 +1347,7 @@ export class GSTLookupService {
     vehicleNumber: string
   ): Promise<SurepassApiEnvelope<VehicleVerificationResult>> {
     try {
-      const cleanedVehicleNumber = vehicleNumber.trim().toUpperCase().replace(/\s+/g, '');
+      const cleanedVehicleNumber = normalizeVehicleNumber(vehicleNumber);
 
       if (!cleanedVehicleNumber) {
         throw new ValidationError('Vehicle number is required');
@@ -1200,6 +1456,94 @@ export class GSTLookupService {
   }
 
   /**
+   * Fetch full RC details via Surepass RC Full API
+   */
+  static async lookupRcFull(idNumber: string): Promise<SurepassApiEnvelope<RcFullResult>> {
+    const cleaned = idNumber.trim().toUpperCase().replace(/\s+/g, '');
+
+    if (!cleaned) {
+      throw new ValidationError('id_number is required');
+    }
+
+    logger.info('RC full lookup requested', { idNumber: cleaned });
+
+    try {
+      const config = appConfig.apis.surepass;
+      const raw = await this.callSurepass<RcFullResult>(
+        config.rcFullUrl,
+        { id_number: cleaned },
+        'RC Full'
+      );
+
+      if (!raw.data) {
+        throw new BadRequestError('RC full lookup returned no data');
+      }
+
+      logger.info('RC full lookup successful', {
+        idNumber: cleaned,
+        rcNumber: raw.data.rc_number,
+        ownerName: raw.data.owner_name,
+      });
+
+      return { mapped: raw.data, raw };
+    } catch (error) {
+      logger.error('RC full lookup failed', { idNumber: cleaned, error });
+      if (error instanceof ValidationError || error instanceof BadRequestError) {
+        throw error;
+      }
+      throw new InternalServerError('Failed to fetch RC full details from external API');
+    }
+  }
+
+  /**
+   * RC full lookup followed by challan details using rc/chassis/engine from the RC full response.
+   * Challan failure does not fail the overall RC full result.
+   */
+  static async lookupRcFullWithChallanDetails(
+    idNumber: string,
+    challanOptions?: Pick<RcChallanDetailsRequest, 'state_only' | 'state_portal'>
+  ): Promise<{
+    rcFull: SurepassApiEnvelope<RcFullResult>;
+    rcChallan: SurepassApiEnvelope<RcChallanDetailsResult> | null;
+    rcChallanError: string | null;
+  }> {
+    const rcFull = await this.lookupRcFull(idNumber);
+    const { rc_number, vehicle_chasi_number, vehicle_engine_number } = rcFull.mapped;
+
+    const rcNumber = rc_number?.trim().toUpperCase().replace(/\s+/g, '') || '';
+    const chassisNumber = vehicle_chasi_number?.trim().toUpperCase().replace(/\s+/g, '') || '';
+    const engineNumber = vehicle_engine_number?.trim().toUpperCase().replace(/\s+/g, '') || '';
+
+    if (!rcNumber || !chassisNumber || !engineNumber) {
+      const message = 'Chassis or engine number not available from RC full response';
+      logger.warn('Skipping RC challan lookup after RC full', {
+        rcNumber: rcNumber || idNumber,
+        hasChassis: Boolean(chassisNumber),
+        hasEngine: Boolean(engineNumber),
+      });
+      return { rcFull, rcChallan: null, rcChallanError: message };
+    }
+
+    try {
+      const rcChallan = await this.lookupRcChallanDetails({
+        rc_number: rcNumber,
+        chassis_number: chassisNumber,
+        engine_number: engineNumber,
+        state_only: challanOptions?.state_only,
+        state_portal: challanOptions?.state_portal,
+      });
+      return { rcFull, rcChallan, rcChallanError: null };
+    } catch (error) {
+      const message = error instanceof AppError ? error.message : 'RC challan lookup failed';
+      logger.warn('RC challan lookup failed after RC full success', {
+        rcNumber,
+        message,
+      });
+      return { rcFull, rcChallan: null, rcChallanError: message };
+    }
+  }
+
+  /**
    * Verify Indian driving licence via Surepass API (does not persist a driver record).
    */
   static async verifyDrivingLicense(
@@ -1212,10 +1556,13 @@ export class GSTLookupService {
       throw new ValidationError('Driving licence number is required');
     }
 
+    let normalizedDob: string | null = null;
     if (dob !== undefined && dob !== null && String(dob).trim() !== '') {
-      const dobRegex = /^\d{4}-\d{2}-\d{2}$/;
-      if (!dobRegex.test(String(dob).trim())) {
-        throw new ValidationError('Invalid date of birth format. Expected format: YYYY-MM-DD');
+      normalizedDob = normalizeDriverDobForSurepass(dob);
+      if (!normalizedDob) {
+        throw new ValidationError(
+          'Invalid date of birth format. Use YYYY-MM-DD, DD-MM-YYYY, or ISO date'
+        );
       }
     }
 
@@ -1224,8 +1571,8 @@ export class GSTLookupService {
     try {
       const config = appConfig.apis.surepass;
       const body: Record<string, string> = { id_number: idForProvider };
-      if (dob !== undefined && dob !== null && String(dob).trim() !== '') {
-        body.dob = String(dob).trim();
+      if (normalizedDob) {
+        body.dob = normalizedDob;
       }
 
       const raw = await this.callSurepass<NonNullable<SurepassDLVerificationResponse['data']>>(
@@ -1284,9 +1631,9 @@ export class GSTLookupService {
       '';
 
     const doe =
-      (data.doe as string | undefined) ||
-      (data.date_of_expiry as string | undefined) ||
-      '';
+      parseDrivingLicenseExpiryDate(
+        (data.doe as string | undefined) || (data.date_of_expiry as string | undefined)
+      ) || '';
 
     const age = data.age !== undefined && data.age !== null ? data.age : null;
 
@@ -1295,8 +1642,16 @@ export class GSTLookupService {
     const temporaryAddress = data.temporary_address as string | undefined;
     if (permanentAddress?.trim()) {
       address = permanentAddress.trim();
+      const zip = (data.permanent_zip as string | undefined)?.trim();
+      if (zip) {
+        address = `${address}, ${zip}`;
+      }
     } else if (temporaryAddress?.trim()) {
       address = temporaryAddress.trim();
+      const zip = (data.temporary_zip as string | undefined)?.trim();
+      if (zip) {
+        address = `${address}, ${zip}`;
+      }
     }
 
     const addr = data.address;
@@ -1320,6 +1675,15 @@ export class GSTLookupService {
         parts.map(String).join(', ');
     }
 
+    const vehicleClasses = Array.isArray(data.vehicle_classes)
+      ? data.vehicle_classes.map(String)
+      : undefined;
+
+    const pincode =
+      (data.permanent_zip as string | undefined)?.trim() ||
+      (data.temporary_zip as string | undefined)?.trim() ||
+      null;
+
     return {
       license_number: lic,
       full_name: fullName,
@@ -1327,6 +1691,18 @@ export class GSTLookupService {
       date_of_expiry: doe,
       age,
       address,
+      pincode,
+      state: (data.state as string | undefined)?.trim() || null,
+      gender: (data.gender as string | undefined)?.trim() || null,
+      blood_group: (data.blood_group as string | undefined)?.trim() || null,
+      vehicle_classes: vehicleClasses,
+      father_or_husband_name: (data.father_or_husband_name as string | undefined)?.trim() || null,
+      date_of_issue: (data.doi as string | undefined)?.trim() || null,
+      transport_date_of_expiry: parseDrivingLicenseExpiryDate(data.transport_doe as string | undefined),
+      profile_image: (data.profile_image as string | undefined) || null,
+      has_image: data.has_image === true,
+      ola_name: (data.ola_name as string | undefined)?.trim() || null,
+      ola_code: (data.ola_code as string | undefined)?.trim() || null,
     };
   }
 }

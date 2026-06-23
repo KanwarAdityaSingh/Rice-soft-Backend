@@ -3,7 +3,7 @@ import { ResponseHandler } from '../utils/response';
 import { ValidationError } from '../utils/errors';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { gstLookupService } from '../services/gst-lookup.service';
-import { validate, verifyDriverSchema, rcChallanDetailsSchema } from '../utils/validators';
+import { validate, verifyDriverSchema, rcChallanDetailsSchema, rcFullSchema } from '../utils/validators';
 import type { RcChallanDetailsRequest } from '../services/gst-lookup.service';
 import { parsePersistKycRequest, saveKycSnapshotForEntity } from '../utils/kyc-persist-request';
 
@@ -59,11 +59,15 @@ export class KycController {
 
   async verifyDrivingLicense(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const { license_number, dob } = validate<{ license_number: string; dob?: string }>(
-        verifyDriverSchema,
-        req.body
-      );
+      const body = validate<{
+        license_number?: string;
+        id_number?: string;
+        dob?: string;
+        date_of_birth?: string;
+      }>(verifyDriverSchema, req.body);
 
+      const license_number = body.license_number ?? body.id_number!;
+      const dob = body.dob ?? body.date_of_birth;
       const envelope = await gstLookupService.verifyDrivingLicense(license_number, dob);
       await saveKycSnapshotForEntity(
         parsePersistKycRequest(req, 'driving_license'),
@@ -167,6 +171,58 @@ export class KycController {
     }
   }
 
+  async lookupGstinByPan(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const panNumber = req.query.pan_number as string;
+      if (!panNumber) {
+        throw new ValidationError('pan_number is required');
+      }
+
+      const envelope = await gstLookupService.lookupGstinByPan(panNumber);
+      await saveKycSnapshotForEntity(
+        parsePersistKycRequest(req, 'gstin_by_pan'),
+        envelope
+      );
+
+      return ResponseHandler.success(
+        res,
+        {
+          ...envelope.mapped,
+          surepass_response: envelope.raw,
+        },
+        'GSTIN list fetched successfully for PAN'
+      );
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async lookupPanContact(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const panNumber = req.query.pan_number as string;
+      if (!panNumber) {
+        throw new ValidationError('pan_number is required');
+      }
+
+      const envelope = await gstLookupService.lookupPanContact(panNumber);
+      await saveKycSnapshotForEntity(
+        parsePersistKycRequest(req, 'pan_contact'),
+        envelope
+      );
+
+      return ResponseHandler.success(
+        res,
+        {
+          ...envelope.mapped,
+          surepass_response: envelope.raw,
+        },
+        'PAN contact details fetched successfully'
+      );
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async lookupRcChallanDetails(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const payload = validate<RcChallanDetailsRequest>(rcChallanDetailsSchema, req.body);
@@ -181,6 +237,51 @@ export class KycController {
         res,
         { ...envelope.mapped, surepass_response: envelope.raw },
         'RC challan details fetched successfully'
+      );
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async lookupRcFull(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const payload = validate<{
+        id_number: string;
+        state_only?: boolean;
+        state_portal?: string[];
+      }>(rcFullSchema, req.body);
+
+      const result = await gstLookupService.lookupRcFullWithChallanDetails(payload.id_number, {
+        state_only: payload.state_only,
+        state_portal: payload.state_portal,
+      });
+
+      const persist = parsePersistKycRequest(req, 'rc_full');
+      await saveKycSnapshotForEntity(persist, result.rcFull);
+
+      if (result.rcChallan) {
+        await saveKycSnapshotForEntity(
+          persist ? { ...persist, verification_key: 'rc_challan' } : undefined,
+          result.rcChallan
+        );
+      }
+
+      return ResponseHandler.success(
+        res,
+        {
+          ...result.rcFull.mapped,
+          surepass_response: result.rcFull.raw,
+          rc_challan: result.rcChallan
+            ? {
+                ...result.rcChallan.mapped,
+                surepass_response: result.rcChallan.raw,
+              }
+            : null,
+          rc_challan_error: result.rcChallanError,
+        },
+        result.rcChallan
+          ? 'RC full and challan details fetched successfully'
+          : 'RC full details fetched successfully'
       );
     } catch (error) {
       next(error);

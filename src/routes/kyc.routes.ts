@@ -30,9 +30,9 @@ router.get(
 
 /**
  * @route   POST /api/v1/kyc/driving-license/verify
- * @desc    Verify driving licence via Surepass
+ * @desc    Verify driving licence via Surepass (same as Surepass POST driving-license/driving-license)
  * @access  Private
- * @body    license_number: string, dob: string (optional, YYYY-MM-DD)
+ * @body    license_number or id_number: string, dob: string (optional, YYYY-MM-DD), entity_type?, entity_id? (persist)
  */
 router.post(
   '/driving-license/verify',
@@ -77,6 +77,30 @@ router.get(
 );
 
 /**
+ * @route   GET /api/v1/kyc/gstin/by-pan
+ * @desc    List GSTINs for a PAN via Surepass Corporate GSTIN-by-PAN API
+ * @access  Private
+ * @query   pan_number: string (10 chars), entity_type?, entity_id? (optional persist)
+ */
+router.get(
+  '/gstin/by-pan',
+  authenticate,
+  kycController.lookupGstinByPan.bind(kycController)
+);
+
+/**
+ * @route   GET /api/v1/kyc/pan/contact
+ * @desc    Lookup emails and mobiles linked to a PAN via Surepass
+ * @access  Private
+ * @query   pan_number: string (10 chars), entity_type?, entity_id? (optional persist)
+ */
+router.get(
+  '/pan/contact',
+  authenticate,
+  kycController.lookupPanContact.bind(kycController)
+);
+
+/**
  * @route   POST /api/v1/kyc/rc/challan-details
  * @desc    Fetch RC challan details via Surepass
  * @access  Private
@@ -86,6 +110,18 @@ router.post(
   '/rc/challan-details',
   authenticate,
   kycController.lookupRcChallanDetails.bind(kycController)
+);
+
+/**
+ * @route   POST /api/v1/kyc/rc/full
+ * @desc    Fetch full RC details via Surepass
+ * @access  Private
+ * @body    id_number: string (vehicle registration number)
+ */
+router.post(
+  '/rc/full',
+  authenticate,
+  kycController.lookupRcFull.bind(kycController)
 );
 
 export default router;

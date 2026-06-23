@@ -7,9 +7,9 @@ const router = Router();
 
 /**
  * @route   GET /api/v1/drivers
- * @desc    List drivers
+ * @desc    List drivers (active only by default)
  * @access  Private
- * @query   include_inactive: boolean (optional)
+ * @query   include_inactive: boolean, is_active: boolean, is_verified: boolean
  */
 router.get('/', authenticate, driverController.getAll.bind(driverController));
 
@@ -26,11 +26,24 @@ router.get(
 
 /**
  * @route   POST /api/v1/drivers/verify
- * @desc    Verify driving licence via Surepass (does NOT create a driver)
+ * @desc    Verify driving licence via Surepass; auto-updates driver when driver_id or matching license exists
  * @access  Private
- * @body    { license_number: string }
+ * @body    license_number or id_number, dob (optional), driver_id (optional)
  */
 router.post('/verify', authenticate, driverController.verifyDriver.bind(driverController));
+
+/**
+ * @route   POST /api/v1/drivers/:id/verify
+ * @desc    Verify a saved driver via Surepass DL API; sets is_verified and profile fields
+ * @access  Private
+ * @body    license_number or id_number (optional, defaults to stored license), dob (optional)
+ */
+router.post(
+  '/:id/verify',
+  authenticate,
+  auditLog('UPDATE', 'drivers'),
+  driverController.verifyById.bind(driverController)
+);
 
 /**
  * @route   GET /api/v1/drivers/:id

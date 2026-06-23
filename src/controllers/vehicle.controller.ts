@@ -13,7 +13,16 @@ export class VehicleController {
   async getAll(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const transporterId = req.query.transporter_id as string | undefined;
-      const isActive = req.query.is_active === 'true' ? true : req.query.is_active === 'false' ? false : undefined;
+      const includeInactive = req.query.include_inactive === 'true';
+      let isActive: boolean | undefined;
+      if (includeInactive) {
+        isActive = undefined;
+      } else if (req.query.is_active === 'false') {
+        isActive = false;
+      } else {
+        // Default: active vehicles only (is_active=true or omitted)
+        isActive = true;
+      }
 
       const vehicles = await vehicleDAO.findAll(transporterId, isActive);
 

@@ -14,11 +14,16 @@ export interface PurchaseSummary {
   total_weight: number; // Sum of received_weight from all lots
   
   // Step 1: Base calculation
-  base_amount: number; // Sum of lot amounts (received_weight × rate)
+  base_amount: number; // Sum of lot amounts (received_weight × rate), or gross kaanta weight × rate
   
-  // Step 2: Cash discount
+  // Step 1b: Dana (when kaanta + is_dana_required)
+  dana_deduction_kg?: number;
+  dana_deduction_amount?: number;
+  amount_after_dana?: number; // base_amount - dana_deduction_amount
+  
+  // Step 2: Cash discount (% applied to base_amount; rupees = fixed sauda amount)
   cash_discount_amount: number;
-  amount_after_discount: number; // base_amount - cash_discount
+  amount_after_discount: number; // amount_after_dana - cash_discount
   
   // Step 3: Broker commission (deducted from vendor payable)
   broker_commission_amount: number;
@@ -100,6 +105,9 @@ export interface SaudaBreakdown {
   total_bags: number;
   total_weight: number;
   base_amount: number;
+  dana_deduction_kg?: number;
+  dana_deduction_amount?: number;
+  amount_after_dana?: number;
   cash_discount_amount: number;
   amount_after_discount: number;
   broker_commission_amount: number;
@@ -166,6 +174,9 @@ export interface KaantaMetricSummary {
   total_bags: number;
   total_weight_kg: number;
   base_amount: number;
+  dana_deduction_kg?: number;
+  dana_deduction_amount?: number;
+  amount_after_dana?: number;
   cash_discount_amount: number;
   amount_after_discount: number;
   broker_commission_amount: number;

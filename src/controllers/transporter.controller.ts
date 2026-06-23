@@ -15,6 +15,7 @@ import {
 import { CreateTransporterDTO, UpdateTransporterDTO, TransporterResponse, Transporter } from '../models/transporter.model';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { gstLookupService } from '../services/gst-lookup.service';
+import { kycPersistenceService } from '../services/kyc-persistence.service';
 import { parseEntityKycDetails } from '../utils/kyc-verification';
 
 function toTransporterResponse(transporter: Transporter): TransporterResponse {
@@ -31,6 +32,8 @@ function toTransporterResponse(transporter: Transporter): TransporterResponse {
     vehicle_ids: transporter.vehicle_ids,
     bank_details: transporter.bank_details,
     is_active: transporter.is_active,
+    is_verified: transporter.is_verified,
+    verified_at: transporter.verified_at?.toISOString() ?? null,
     created_at: transporter.created_at.toISOString(),
     updated_at: transporter.updated_at.toISOString(),
     kyc_verification_details: parseEntityKycDetails(transporter.kyc_verification_details),
@@ -41,8 +44,14 @@ export class TransporterController {
   async getAll(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const includeInactive = req.query.include_inactive === 'true';
-      
-      const transporters = await transporterDAO.findAll(includeInactive);
+      let isVerified: boolean | undefined;
+      if (req.query.is_verified === 'true') {
+        isVerified = true;
+      } else if (req.query.is_verified === 'false') {
+        isVerified = false;
+      }
+
+      const transporters = await transporterDAO.findAll({ includeInactive, isVerified });
 
       const transporterResponses: TransporterResponse[] = transporters.map(toTransporterResponse);
 
@@ -294,6 +303,11 @@ export class TransporterController {
         id_number.trim(),
         ifsc.trim()
       );
+
+      const transporterId = req.query.transporter_id as string | undefined;
+      if (transporterId) {
+        await kycPersistenceService.saveEntityVerification('transporter', transporterId, 'bank', envelope);
+      }
 
       return ResponseHandler.success(
         res,

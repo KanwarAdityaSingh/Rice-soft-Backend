@@ -1,6 +1,8 @@
 import { db } from '../database/connection';
 import { Vehicle, CreateVehicleDTO, UpdateVehicleDTO } from '../models/vehicle.model';
 import { logger } from '../utils/logger';
+import { ConflictError } from '../utils/errors';
+import { normalizeVehicleNumber, VEHICLE_NUMBER_CANONICAL_SQL } from '../utils/vehicle-number';
 import {
   mergeVehicleVerificationDetailsPatch,
   parseVehicleVerificationDetails,
@@ -50,38 +52,44 @@ export class VehicleDAO {
   }
 
   async findByVehicleNumber(vehicleNumber: string): Promise<Vehicle | null> {
+    const normalized = normalizeVehicleNumber(vehicleNumber);
     const query = `
       SELECT id, vehicle_number, rc_number, owner_name, vehicle_class, fuel_type,
              maker_model, registration_date, insurance_validity, fitness_validity,
              permit_validity, challan_details, transporter_ids, is_verified, verified_at, verification_details,
              is_active, created_at, updated_at, created_by, updated_by
       FROM vehicles
-      WHERE vehicle_number = $1
+      WHERE ${VEHICLE_NUMBER_CANONICAL_SQL} = $1
     `;
-    const result = await db.query<Vehicle>(query, [vehicleNumber]);
+    const result = await db.query<Vehicle>(query, [normalized]);
     return result.rows[0] || null;
   }
 
   async vehicleNumberExists(vehicleNumber: string, excludeId?: string): Promise<boolean> {
-    let query = `SELECT EXISTS(SELECT 1 FROM vehicles WHERE vehicle_number = $1`;
-    const params: any[] = [vehicleNumber];
-    
+    const normalized = normalizeVehicleNumber(vehicleNumber);
+    let query = `
+      SELECT EXISTS(
+        SELECT 1 FROM vehicles
+        WHERE ${VEHICLE_NUMBER_CANONICAL_SQL} = $1
+    `;
+    const params: unknown[] = [normalized];
+
     if (excludeId) {
       query += ` AND id != $2`;
       params.push(excludeId);
     }
-    
+
     query += `) as exists`;
-    
+
     const result = await db.query<{ exists: boolean }>(query, params);
     return result.rows[0].exists;
   }
 
   async create(vehicleData: CreateVehicleDTO): Promise<Vehicle> {
-    // Check if vehicle number already exists
-    const exists = await this.vehicleNumberExists(vehicleData.vehicle_number);
+    const normalizedNumber = normalizeVehicleNumber(vehicleData.vehicle_number);
+    const exists = await this.vehicleNumberExists(normalizedNumber);
     if (exists) {
-      throw new Error('Vehicle number already exists');
+      throw new ConflictError('Vehicle number already exists');
     }
 
     const verificationDetails = mergeVehicleVerificationDetailsPatch(
@@ -104,7 +112,7 @@ export class VehicleDAO {
     `;
 
     const values = [
-      vehicleData.vehicle_number.toUpperCase().trim(),
+      normalizedNumber,
       vehicleData.rc_number || null,
       vehicleData.owner_name || null,
       vehicleData.vehicle_class || null,
@@ -123,25 +131,51 @@ export class VehicleDAO {
       vehicleData.created_by || null,
     ];
 
-    const result = await db.query<Vehicle>(query, values);
-    const vehicle = result.rows[0];
+    try {
+      const result = await db.query<Vehicle>(query, values);
+      const vehicle = result.rows[0];
 
-    logger.info('Vehicle created', {
-      vehicleId: vehicle.id,
-      vehicleNumber: vehicle.vehicle_number,
-      transporterIds: vehicle.transporter_ids,
-    });
+      logger.info('Vehicle created', {
+        vehicleId: vehicle.id,
+        vehicleNumber: vehicle.vehicle_number,
+        transporterIds: vehicle.transporter_ids,
+      });
 
-    // Note: Transporter sync is handled by database trigger
-    return vehicle;
+      return vehicle;
+    } catch (error: unknown) {
+      if (isVehicleNumberUniqueViolation(error)) {
+        throw new ConflictError(
+          'Vehicle number already exists on another record. Remove the duplicate vehicle or use the existing entry.'
+        );
+      }
+      throw error;
+    }
   }
 
   async update(id: string, vehicleData: UpdateVehicleDTO): Promise<Vehicle | null> {
-    // Check if vehicle number is being changed and if it already exists
-    if (vehicleData.vehicle_number) {
-      const exists = await this.vehicleNumberExists(vehicleData.vehicle_number, id);
-      if (exists) {
-        throw new Error('Vehicle number already exists');
+    const existing = await this.findById(id);
+    if (!existing) {
+      return null;
+    }
+
+    if (vehicleData.vehicle_number !== undefined) {
+      const normalizedNumber = normalizeVehicleNumber(vehicleData.vehicle_number);
+
+      if (existing.vehicle_number !== normalizedNumber) {
+        // Canonical may match (HR55AZ/6789 → HR55AZ6789) but literal UPDATE still hits UNIQUE
+        const exists = await this.vehicleNumberExists(normalizedNumber, id);
+        if (exists) {
+          throw new ConflictError(
+            'Vehicle number already exists on another record. Remove the duplicate vehicle or use the existing entry.'
+          );
+        }
+      }
+
+      // Skip column update when already stored canonically
+      if (existing.vehicle_number === normalizedNumber) {
+        delete vehicleData.vehicle_number;
+      } else {
+        vehicleData.vehicle_number = normalizedNumber;
       }
     }
 
@@ -151,7 +185,7 @@ export class VehicleDAO {
 
     if (vehicleData.vehicle_number !== undefined) {
       fields.push(`vehicle_number = $${paramCount++}`);
-      values.push(vehicleData.vehicle_number.toUpperCase().trim());
+      values.push(vehicleData.vehicle_number);
     }
     if (vehicleData.rc_number !== undefined) {
       fields.push(`rc_number = $${paramCount++}`);
@@ -236,19 +270,27 @@ export class VehicleDAO {
                 is_active, created_at, updated_at, created_by, updated_by
     `;
 
-    const result = await db.query<Vehicle>(query, values);
-    const vehicle = result.rows[0] || null;
+    try {
+      const result = await db.query<Vehicle>(query, values);
+      const vehicle = result.rows[0] || null;
 
-    if (vehicle) {
-      logger.info('Vehicle updated', {
-        vehicleId: vehicle.id,
-        vehicleNumber: vehicle.vehicle_number,
-        transporterIds: vehicle.transporter_ids,
-      });
+      if (vehicle) {
+        logger.info('Vehicle updated', {
+          vehicleId: vehicle.id,
+          vehicleNumber: vehicle.vehicle_number,
+          transporterIds: vehicle.transporter_ids,
+        });
+      }
+
+      return vehicle;
+    } catch (error: unknown) {
+      if (isVehicleNumberUniqueViolation(error)) {
+        throw new ConflictError(
+          'Vehicle number already exists on another record. Remove the duplicate vehicle or use the existing entry.'
+        );
+      }
+      throw error;
     }
-
-    // Note: Transporter sync is handled by database trigger
-    return vehicle;
   }
 
   async delete(id: string): Promise<boolean> {
@@ -283,5 +325,16 @@ export class VehicleDAO {
 }
 
 export const vehicleDAO = new VehicleDAO();
+
+function isVehicleNumberUniqueViolation(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code: string }).code === '23505' &&
+    (!('constraint' in error) ||
+      String((error as { constraint?: string }).constraint ?? '').includes('vehicle_number'))
+  );
+}
 
 

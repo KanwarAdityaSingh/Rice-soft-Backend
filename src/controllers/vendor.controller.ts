@@ -49,7 +49,8 @@ function verificationErrorFromUnknown(err: unknown): string {
 }
 
 /**
- * After insert or bank_details update: Surepass + mark verified. Throws only for missing auth (caller should pre-check).
+ * After insert/update: Surepass lookup, persist snapshot, then name match + mark verified.
+ * Snapshot is saved even when the account holder name does not match (verification still fails).
  */
 async function tryVerifyBankAfterSave(
   vendorId: string,
@@ -65,11 +66,11 @@ async function tryVerifyBankAfterSave(
     throw new ValidationError('Invalid bank account for verification');
   }
   const envelope = await gstLookupService.verifyBankAccount(accountDigits, ifsc);
+  await kycPersistenceService.saveEntityVerification('vendor', vendorId, 'bank', envelope);
   assertEnteredAccountHolderMatchesBankRecord(
     bankDetails.account_holder_name,
     envelope.mapped.account_holder_name
   );
-  await kycPersistenceService.saveEntityVerification('vendor', vendorId, 'bank', envelope);
   await vendorDAO.markBankDetailsVerified(vendorId, userId);
 }
 
@@ -788,8 +789,8 @@ export class VendorController {
       }
 
       const envelope = await gstLookupService.verifyBankAccount(accountDigits, ifsc);
-      assertEnteredAccountHolderMatchesBankRecord(enteredName, envelope.mapped.account_holder_name);
       await kycPersistenceService.saveEntityVerification('vendor', id, 'bank', envelope);
+      assertEnteredAccountHolderMatchesBankRecord(enteredName, envelope.mapped.account_holder_name);
 
       const updated = await vendorDAO.markBankDetailsVerified(id, req.user.userId);
       if (!updated) {

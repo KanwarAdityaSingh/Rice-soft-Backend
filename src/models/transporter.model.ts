@@ -35,6 +35,8 @@ export interface Transporter {
   vehicle_ids: string[]; // Array of vehicle UUIDs
   bank_details: BankDetails;
   is_active: boolean;
+  is_verified: boolean;
+  verified_at: Date | null;
   created_at: Date;
   updated_at: Date;
   created_by: string | null;
@@ -55,6 +57,8 @@ export interface CreateTransporterDTO {
   vehicle_ids?: string[];
   bank_details?: BankDetails;
   is_active?: boolean;
+  is_verified?: boolean;
+  verified_at?: string | null;
   created_by?: string;
   kyc_verification_details?: EntityKycVerificationDetails;
 }
@@ -71,6 +75,8 @@ export interface UpdateTransporterDTO {
   vehicle_ids?: string[];
   bank_details?: BankDetails;
   is_active?: boolean;
+  is_verified?: boolean;
+  verified_at?: string | null;
   updated_by?: string;
   kyc_verification_details?: EntityKycVerificationDetails;
 }
@@ -88,6 +94,8 @@ export interface TransporterResponse {
   vehicle_ids: string[];
   bank_details: BankDetails;
   is_active: boolean;
+  is_verified: boolean;
+  verified_at: string | null;
   created_at: string;
   updated_at: string;
   kyc_verification_details: EntityKycVerificationDetails;

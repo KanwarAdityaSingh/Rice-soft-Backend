@@ -1,4 +1,5 @@
 import { CreatePaymentAdviceChargeDTO, PaymentAdviceChargeResponse } from './payment-advice-charge.model';
+import type { PurchaseSummary } from './purchase-summary.model';
 
 export type PaymentAdviceStatus = 'pending' | 'completed' | 'failed';
 
@@ -95,6 +96,8 @@ export interface UpdatePaymentAdviceDTO {
   payment_slip_image_url?: string;
   notes?: string;
   updated_by?: string;
+  /** When provided, replaces all charges for this payment advice (same shape as create). */
+  charges?: CreatePaymentAdviceChargeDTO[];
 }
 
 export interface PaymentAdviceResponse {
@@ -129,5 +132,23 @@ export interface PaymentAdviceResponse {
   updated_at: string;
   charges?: PaymentAdviceChargeResponse[];
   net_payable?: number;
+}
+
+/** Consolidated payload for PA create/edit preview (same rules as save). */
+export interface PaymentAdvicePreviewResponse {
+  sauda_id: string | null;
+  inward_slip_pass_id: string | null;
+  bill_weight: number | null;
+  kanta_weight: number | null;
+  dana_deduction: number | null;
+  final_weight: number | null;
+  total_bags: number;
+  total_weight: number;
+  /** Floored purchase-summary final_total_amount (PA amount before charges). */
+  amount: number;
+  total_charges: number;
+  /** amount − total_charges, floored to whole rupees. */
+  net_payable: number;
+  summary: PurchaseSummary;
 }
 
