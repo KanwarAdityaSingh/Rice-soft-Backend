@@ -12,12 +12,14 @@ import { surepassDriverVerificationDetails } from '../models/driver.model';
 import {
   buildSurepassSnapshot,
   isTransporterKycVerified,
+  isVendorKycVerified,
   mergeEntityKycSnapshot,
   mergeVehicleVerificationSnapshot,
   parseEntityKycDetails,
   parseVehicleVerificationDetails,
 } from '../utils/kyc-verification';
 import type { TransportType } from '../models/transporter.model';
+import type { VendorRegistrationType } from '../models/vendor.model';
 import { driverProfileFromMapped } from '../utils/driver-license';
 
 const ENTITY_KYC_TABLES: Record<'vendor' | 'broker' | 'transporter', string> = {
@@ -107,6 +109,9 @@ export class KycPersistenceService {
 
     if (entityType === 'transporter') {
       await this.syncTransporterVerificationStatus(entityId);
+    }
+    if (entityType === 'vendor') {
+      await this.syncVendorVerificationStatus(entityId);
     }
 
     logger.info('Surepass verification snapshot saved', {
@@ -234,6 +239,32 @@ export class KycPersistenceService {
 
     await db.query(
       `UPDATE transporters
+       SET is_verified = $2,
+           verified_at = CASE WHEN $2 THEN CURRENT_TIMESTAMP ELSE NULL END,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1`,
+      [entityId, verified]
+    );
+  }
+
+  static async syncVendorVerificationStatus(entityId: string): Promise<void> {
+    const existingResult = await db.query<{
+      registration_type: VendorRegistrationType;
+      kyc_verification_details: unknown;
+    }>(
+      `SELECT registration_type, kyc_verification_details FROM vendors WHERE id = $1`,
+      [entityId]
+    );
+    if (existingResult.rows.length === 0) {
+      return;
+    }
+
+    const row = existingResult.rows[0];
+    const kyc = parseEntityKycDetails(row.kyc_verification_details);
+    const verified = isVendorKycVerified(row.registration_type, kyc);
+
+    await db.query(
+      `UPDATE vendors
        SET is_verified = $2,
            verified_at = CASE WHEN $2 THEN CURRENT_TIMESTAMP ELSE NULL END,
            updated_at = CURRENT_TIMESTAMP

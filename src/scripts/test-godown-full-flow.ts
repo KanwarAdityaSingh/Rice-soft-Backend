@@ -74,6 +74,7 @@ async function ensureMasterData() {
       gst_number: '27AABCT1234A1Z5',
       pan_number: 'AABCT1234A',
     },
+    registration_type: 'registered',
     type: 'purchaser',
     is_active: true,
     created_by: adminId,

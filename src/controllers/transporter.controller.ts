@@ -11,12 +11,47 @@ import {
   NotFoundError,
   ConflictError,
   ValidationError,
+  UnauthorizedError,
 } from '../utils/errors';
-import { CreateTransporterDTO, UpdateTransporterDTO, TransporterResponse, Transporter } from '../models/transporter.model';
+import {
+  BankDetails,
+  CreateTransporterDTO,
+  UpdateTransporterDTO,
+  TransporterResponse,
+  Transporter,
+} from '../models/transporter.model';
+import type { EntityKycVerificationDetails } from '../models/kyc-verification.model';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { gstLookupService } from '../services/gst-lookup.service';
 import { kycPersistenceService } from '../services/kyc-persistence.service';
 import { parseEntityKycDetails } from '../utils/kyc-verification';
+import { applyBankVerificationFromSnapshot } from '../utils/apply-bank-verification-from-snapshot';
+import { logger } from '../utils/logger';
+
+const LENIENT_BANK_VERIFY_FAIL_MESSAGE_CREATE =
+  'Transporter created but bank account holder name does not match the verification snapshot.';
+const LENIENT_BANK_VERIFY_FAIL_MESSAGE_UPDATE =
+  'Transporter updated but bank account holder name does not match the verification snapshot.';
+const BANK_VERIFY_SUCCESS_MESSAGE = 'Bank details verified successfully.';
+
+async function tryVerifyBankAfterSave(
+  transporterId: string,
+  bankDetails: BankDetails,
+  kycVerificationDetails: EntityKycVerificationDetails | undefined | null,
+  userId: string | undefined
+) {
+  return applyBankVerificationFromSnapshot({
+    bankDetails,
+    kycVerificationDetails,
+    userId,
+    markVerified: async (verifiedBy) => {
+      await transporterDAO.markBankDetailsVerified(transporterId, verifiedBy);
+    },
+    setVerificationError: async (message) => {
+      await transporterDAO.setBankVerificationError(transporterId, message);
+    },
+  });
+}
 
 function toTransporterResponse(transporter: Transporter): TransporterResponse {
   return {
@@ -31,6 +66,9 @@ function toTransporterResponse(transporter: Transporter): TransporterResponse {
     vehicle_numbers: transporter.vehicle_numbers,
     vehicle_ids: transporter.vehicle_ids,
     bank_details: transporter.bank_details,
+    bank_details_verified_at: transporter.bank_details_verified_at?.toISOString() ?? null,
+    bank_details_verified_by: transporter.bank_details_verified_by ?? null,
+    bank_verification_error: transporter.bank_verification_error ?? null,
     is_active: transporter.is_active,
     is_verified: transporter.is_verified,
     verified_at: transporter.verified_at?.toISOString() ?? null,
@@ -51,7 +89,15 @@ export class TransporterController {
         isVerified = false;
       }
 
-      const transporters = await transporterDAO.findAll({ includeInactive, isVerified });
+      const bankVerifiedRaw = req.query.bank_verified as string | undefined;
+      let bankVerified: boolean | undefined;
+      if (bankVerifiedRaw === 'true') {
+        bankVerified = true;
+      } else if (bankVerifiedRaw === 'false') {
+        bankVerified = false;
+      }
+
+      const transporters = await transporterDAO.findAll({ includeInactive, isVerified, bankVerified });
 
       const transporterResponses: TransporterResponse[] = transporters.map(toTransporterResponse);
 
@@ -79,9 +125,21 @@ export class TransporterController {
   async create(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const transporterData = validate<CreateTransporterDTO>(createTransporterSchema, req.body);
+      const verifyBank = transporterData.verify_bank === true;
+      if (verifyBank && !req.user?.userId) {
+        throw new ValidationError('verify_bank requires an authenticated user');
+      }
+
+      const { verify_bank: _verifyBank, ...transporterPayload } = transporterData;
+
+      if (verifyBank && !transporterPayload.kyc_verification_details?.bank) {
+        throw new ValidationError(
+          'verify_bank requires kyc_verification_details.bank from a prior GET /api/v1/kyc/bank/verify call'
+        );
+      }
 
       // Check if email already exists (check all emails from contact_persons)
-      for (const contactPerson of transporterData.contact_persons ?? []) {
+      for (const contactPerson of transporterPayload.contact_persons ?? []) {
         if (contactPerson.emails) {
           for (const email of contactPerson.emails) {
             if (email && email.trim() !== '') {
@@ -95,24 +153,24 @@ export class TransporterController {
       }
 
       // Check if GST number already exists (if provided)
-      if (transporterData.gst_number) {
-        const gstExists = await transporterDAO.gstExists(transporterData.gst_number);
+      if (transporterPayload.gst_number) {
+        const gstExists = await transporterDAO.gstExists(transporterPayload.gst_number);
         if (gstExists) {
           throw new ConflictError('GST number already exists');
         }
       }
 
       // Check if PAN number already exists (if provided)
-      if (transporterData.pan_number) {
-        const panExists = await transporterDAO.panExists(transporterData.pan_number);
+      if (transporterPayload.pan_number) {
+        const panExists = await transporterDAO.panExists(transporterPayload.pan_number);
         if (panExists) {
           throw new ConflictError('PAN number already exists');
         }
       }
 
       // Check if Aadhaar number already exists (if provided)
-      if (transporterData.aadhar_number) {
-        const aadharExists = await transporterDAO.aadharExists(transporterData.aadhar_number);
+      if (transporterPayload.aadhar_number) {
+        const aadharExists = await transporterDAO.aadharExists(transporterPayload.aadhar_number);
         if (aadharExists) {
           throw new ConflictError('Aadhaar number already exists');
         }
@@ -120,10 +178,39 @@ export class TransporterController {
 
       // Set created_by from authenticated user
       if (req.user) {
-        transporterData.created_by = req.user.userId;
+        transporterPayload.created_by = req.user.userId;
       }
 
-      const transporter = await transporterDAO.create(transporterData);
+      const transporter = await transporterDAO.create(transporterPayload);
+
+      if (verifyBank && transporter.bank_details) {
+        const verifyResult = await tryVerifyBankAfterSave(
+          transporter.id,
+          transporter.bank_details,
+          parseEntityKycDetails(transporter.kyc_verification_details),
+          req.user?.userId
+        );
+        const refreshed = await transporterDAO.findById(transporter.id);
+        if (verifyResult.status === 'verified') {
+          return ResponseHandler.created(
+            res,
+            toTransporterResponse(refreshed ?? transporter),
+            'Transporter created successfully',
+            { verification_message: BANK_VERIFY_SUCCESS_MESSAGE }
+          );
+        }
+        logger.warn('Bank name mismatch after transporter create', {
+          transporterId: transporter.id,
+          status: verifyResult.status,
+          error: verifyResult.message,
+        });
+        return ResponseHandler.created(
+          res,
+          toTransporterResponse(refreshed ?? transporter),
+          LENIENT_BANK_VERIFY_FAIL_MESSAGE_CREATE,
+          { verification_error: verifyResult.message, bank_verification_flagged: true }
+        );
+      }
 
       return ResponseHandler.created(res, toTransporterResponse(transporter), 'Transporter created successfully');
     } catch (error) {
@@ -185,14 +272,65 @@ export class TransporterController {
         }
       }
 
+      const verifyBank = transporterData.verify_bank === true;
+      if (verifyBank && !req.user?.userId) {
+        throw new ValidationError('verify_bank requires an authenticated user');
+      }
+
       // Set updated_by from authenticated user
       if (req.user) {
         transporterData.updated_by = req.user.userId;
       }
 
-      const transporter = await transporterDAO.update(id, transporterData);
+      const { verify_bank: _verifyBank, ...updatePayload } = transporterData;
+
+      if (verifyBank) {
+        const payloadHasBank = Boolean(updatePayload.kyc_verification_details?.bank);
+        const existingHasBank = Boolean(
+          parseEntityKycDetails(existingTransporter.kyc_verification_details).bank
+        );
+        if (!payloadHasBank && !existingHasBank) {
+          throw new ValidationError(
+            'verify_bank requires kyc_verification_details.bank from a prior GET /api/v1/kyc/bank/verify call'
+          );
+        }
+      }
+
+      const transporter = await transporterDAO.update(id, updatePayload);
       if (!transporter) {
         throw new NotFoundError('Transporter not found after update');
+      }
+
+      if (verifyBank && transporter.bank_details) {
+        const kycForCompare = parseEntityKycDetails(transporter.kyc_verification_details);
+        const verifyResult = await tryVerifyBankAfterSave(
+          transporter.id,
+          transporter.bank_details,
+          kycForCompare,
+          req.user?.userId
+        );
+        const refreshed = await transporterDAO.findById(transporter.id);
+        if (verifyResult.status === 'verified') {
+          return ResponseHandler.success(
+            res,
+            toTransporterResponse(refreshed ?? transporter),
+            'Transporter updated successfully',
+            200,
+            { verification_message: BANK_VERIFY_SUCCESS_MESSAGE }
+          );
+        }
+        logger.warn('Bank name mismatch after transporter update', {
+          transporterId: transporter.id,
+          status: verifyResult.status,
+          error: verifyResult.message,
+        });
+        return ResponseHandler.success(
+          res,
+          toTransporterResponse(refreshed ?? transporter),
+          LENIENT_BANK_VERIFY_FAIL_MESSAGE_UPDATE,
+          200,
+          { verification_error: verifyResult.message, bank_verification_flagged: true }
+        );
       }
 
       return ResponseHandler.success(res, toTransporterResponse(transporter), 'Transporter updated successfully');
@@ -216,6 +354,55 @@ export class TransporterController {
       }
 
       return ResponseHandler.success(res, null, 'Transporter deleted successfully');
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Confirms stored bank_details for this transporter via Surepass and persists verification metadata.
+   */
+  async confirmBankVerification(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const id = validate<string>(uuidSchema, req.params.id);
+      if (!req.user?.userId) {
+        throw new UnauthorizedError('Authentication required');
+      }
+
+      const transporter = await transporterDAO.findById(id);
+      if (!transporter) {
+        throw new NotFoundError('Transporter not found');
+      }
+
+      if (!transporter.bank_details?.account_holder_name?.trim()) {
+        throw new ValidationError(
+          'Transporter must have account_holder_name in bank_details before confirmation'
+        );
+      }
+
+      const verifyResult = await tryVerifyBankAfterSave(
+        id,
+        transporter.bank_details,
+        parseEntityKycDetails(transporter.kyc_verification_details),
+        req.user.userId
+      );
+
+      const updated = await transporterDAO.findById(id);
+      if (!updated) {
+        throw new NotFoundError('Transporter not found');
+      }
+
+      if (verifyResult.status !== 'verified') {
+        return ResponseHandler.success(
+          res,
+          toTransporterResponse(updated),
+          LENIENT_BANK_VERIFY_FAIL_MESSAGE_UPDATE,
+          200,
+          { verification_error: verifyResult.message, bank_verification_flagged: true }
+        );
+      }
+
+      return ResponseHandler.success(res, toTransporterResponse(updated), 'Bank details verified and saved');
     } catch (error) {
       next(error);
     }

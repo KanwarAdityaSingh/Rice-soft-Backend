@@ -38,8 +38,13 @@ export function assertEnteredAccountHolderMatchesBankRecord(
     normalizeAccountHolderNameForComparison(enteredTrimmed) !==
     normalizeAccountHolderNameForComparison(bankTrimmed)
   ) {
-    throw new BadRequestError(
-      `Account holder name does not match bank records. Bank: "${bankTrimmed}". Entered: "${enteredTrimmed}".`
-    );
+    throw new BadRequestError(buildAccountHolderMismatchMessage(bankTrimmed, enteredTrimmed));
   }
+}
+
+export function buildAccountHolderMismatchMessage(
+  bankRecordName: string,
+  enteredName: string
+): string {
+  return `Account holder name does not match bank records. Bank: "${bankRecordName}". Entered: "${enteredName}".`;
 }

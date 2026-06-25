@@ -199,6 +199,7 @@ export class LeadService {
       contact_persons: contactPersons,
       address: lead.address || businessData.address,
       business_details: lead.business_details || businessData.business_details,
+      registration_type: 'registered' as const,
       bank_details: businessData.bank_details || null,
       type: businessData.type || 'both',
       is_active: true,

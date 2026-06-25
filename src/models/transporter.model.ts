@@ -10,6 +10,7 @@ export interface Address {
 }
 
 export interface BankDetails {
+  account_holder_name?: string;
   bank_name?: string;
   ifsc_code?: string;
   account_number?: string;
@@ -34,6 +35,9 @@ export interface Transporter {
   vehicle_numbers: string[]; // Deprecated - use vehicle_ids instead
   vehicle_ids: string[]; // Array of vehicle UUIDs
   bank_details: BankDetails;
+  bank_details_verified_at: Date | null;
+  bank_details_verified_by: string | null;
+  bank_verification_error: string | null;
   is_active: boolean;
   is_verified: boolean;
   verified_at: Date | null;
@@ -56,6 +60,7 @@ export interface CreateTransporterDTO {
   vehicle_numbers?: string[]; // Deprecated - use vehicle_ids instead
   vehicle_ids?: string[];
   bank_details?: BankDetails;
+  verify_bank?: boolean;
   is_active?: boolean;
   is_verified?: boolean;
   verified_at?: string | null;
@@ -74,6 +79,7 @@ export interface UpdateTransporterDTO {
   vehicle_numbers?: string[]; // Deprecated - use vehicle_ids instead
   vehicle_ids?: string[];
   bank_details?: BankDetails;
+  verify_bank?: boolean;
   is_active?: boolean;
   is_verified?: boolean;
   verified_at?: string | null;
@@ -93,6 +99,9 @@ export interface TransporterResponse {
   vehicle_numbers: string[]; // Deprecated - use vehicle_ids instead
   vehicle_ids: string[];
   bank_details: BankDetails;
+  bank_details_verified_at: string | null;
+  bank_details_verified_by: string | null;
+  bank_verification_error: string | null;
   is_active: boolean;
   is_verified: boolean;
   verified_at: string | null;

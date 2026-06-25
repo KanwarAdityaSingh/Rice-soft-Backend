@@ -30,10 +30,22 @@ router.get('/lookupPAN', authenticate, transporterController.lookupPAN.bind(tran
 router.get('/verifyBankAccount', authenticate, transporterController.verifyBankAccount.bind(transporterController));
 
 /**
+ * @route   POST /api/v1/transporters/confirm-bank-verification/:id
+ * @desc    Verify stored bank_details via Surepass and set bank_details_verified_at / _by
+ * @access  Private
+ */
+router.post(
+  '/confirm-bank-verification/:id',
+  authenticate,
+  auditLog('UPDATE', 'transporters'),
+  transporterController.confirmBankVerification.bind(transporterController)
+);
+
+/**
  * @route   GET /api/v1/transporters
  * @desc    Get all transporters
  * @access  Private
- * @query   include_inactive: boolean, is_verified: boolean (optional filter)
+ * @query   include_inactive: boolean, is_verified: boolean, bank_verified: boolean
  */
 router.get('/', authenticate, transporterController.getAll.bind(transporterController));
 
@@ -58,7 +70,7 @@ router.post(
 
 /**
  * @route   PUT /api/v1/transporters/:id
- * @desc    Update transporter
+ * @desc    Update transporter (optional verify_bank + bank_details for one-step Surepass verification)
  * @access  Private
  */
 router.put(

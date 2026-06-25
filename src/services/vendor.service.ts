@@ -1,16 +1,13 @@
 import { vendorDAO } from '../dao/vendor.dao';
 import { NotFoundError, ConflictError, ValidationError } from '../utils/errors';
 import { CreateVendorDTO, UpdateVendorDTO, Vendor, VendorType } from '../models/vendor.model';
+import { VendorListFilters } from '../dao/vendor.dao';
 import { gstLookupService } from './gst-lookup.service';
 import { logger } from '../utils/logger';
 
 export class VendorService {
-  async getAllVendors(
-    includeInactive: boolean,
-    type?: VendorType,
-    bankVerified?: boolean
-  ): Promise<Vendor[]> {
-    return await vendorDAO.findAll(includeInactive, type, bankVerified);
+  async getAllVendors(filters: VendorListFilters = {}): Promise<Vendor[]> {
+    return await vendorDAO.findAll(filters);
   }
 
   async getVendorById(id: string): Promise<Vendor> {
@@ -44,6 +41,13 @@ export class VendorService {
       const panExists = await vendorDAO.panExists(vendorData.business_details.pan_number);
       if (panExists) {
         throw new ConflictError('PAN number already exists');
+      }
+    }
+
+    if (vendorData.aadhar_number) {
+      const aadharExists = await vendorDAO.aadharExists(vendorData.aadhar_number);
+      if (aadharExists) {
+        throw new ConflictError('Aadhaar number already exists');
       }
     }
 
@@ -87,6 +91,13 @@ export class VendorService {
       const panExists = await vendorDAO.panExists(vendorData.business_details.pan_number, id);
       if (panExists) {
         throw new ConflictError('PAN number already exists');
+      }
+    }
+
+    if (vendorData.aadhar_number) {
+      const aadharExists = await vendorDAO.aadharExists(vendorData.aadhar_number, id);
+      if (aadharExists) {
+        throw new ConflictError('Aadhaar number already exists');
       }
     }
 
@@ -165,6 +176,7 @@ export class VendorService {
         ...mappedData.business_details,
         gst_number: gstNumber,
       },
+      registration_type: 'registered',
       bank_details: brokerDetails?.bank_details || null,
       type: type as any,
       is_active: true,
@@ -216,6 +228,7 @@ export class VendorService {
         ...mappedData.business_details,
         pan_number: panNumber,
       },
+      registration_type: 'registered',
       bank_details: bankDetails || null,
       type: type as any,
       is_active: true,

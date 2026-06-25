@@ -1,31 +1,51 @@
 import { db } from '../database/connection';
-import { Vendor, CreateVendorDTO, UpdateVendorDTO, VendorType } from '../models/vendor.model';
-import { mergeEntityKycDetailsPatch, parseEntityKycDetails } from '../utils/kyc-verification';
+import {
+  Vendor,
+  CreateVendorDTO,
+  UpdateVendorDTO,
+  VendorType,
+  VendorRegistrationType,
+} from '../models/vendor.model';
+import {
+  mergeEntityKycDetailsPatch,
+  parseEntityKycDetails,
+  isVendorKycVerified,
+} from '../utils/kyc-verification';
 import { logger } from '../utils/logger';
 
 const VENDOR_SELECT_COLUMNS = `
       id, business_name, contact_persons, contact_person, email, phone, address, business_details,
-             bank_details, type, is_active, user_id, lead_id, created_at, updated_at, created_by, updated_by,
+             aadhar_number, registration_type, bank_details, type, is_active, is_verified, verified_at,
+             user_id, lead_id, created_at, updated_at, created_by, updated_by,
              last_enquiry_date, google_location_link, business_card_url,
              bank_details_verified_at, bank_details_verified_by, bank_verification_error,
              kyc_verification_details`;
 
+export interface VendorListFilters {
+  includeInactive?: boolean;
+  type?: VendorType;
+  bankVerified?: boolean;
+  isVerified?: boolean;
+  registrationType?: VendorRegistrationType;
+}
+
 export class VendorDAO {
-  /**
-   * @param bankVerified - true: only vendors with confirmed bank; false: only never confirmed; undefined: all
-   */
-  async findAll(
-    includeInactive = false,
-    type?: VendorType,
-    bankVerified?: boolean
-  ): Promise<Vendor[]> {
+  async findAll(filters: VendorListFilters = {}): Promise<Vendor[]> {
+    const {
+      includeInactive = false,
+      type,
+      bankVerified,
+      isVerified,
+      registrationType,
+    } = filters;
+
     let query = `
       SELECT ${VENDOR_SELECT_COLUMNS}
       FROM vendors
       WHERE 1=1
     `;
-    
-    const params: any[] = [];
+
+    const params: unknown[] = [];
     let paramCount = 1;
 
     if (!includeInactive) {
@@ -41,6 +61,17 @@ export class VendorDAO {
       query += ` AND bank_details_verified_at IS NOT NULL`;
     } else if (bankVerified === false) {
       query += ` AND bank_details_verified_at IS NULL`;
+    }
+
+    if (isVerified === true) {
+      query += ` AND is_verified = true`;
+    } else if (isVerified === false) {
+      query += ` AND is_verified = false`;
+    }
+
+    if (registrationType) {
+      query += ` AND registration_type = $${paramCount++}`;
+      params.push(registrationType);
     }
 
     query += ` ORDER BY business_name ASC`;
@@ -90,25 +121,26 @@ export class VendorDAO {
   }
 
   async create(vendorData: CreateVendorDTO & { user_id?: string }): Promise<Vendor> {
-    // Extract first contact person data for legacy fields
     const firstContactPerson = vendorData.contact_persons[0];
     const contactPersonName = firstContactPerson.name;
     const primaryPhone = firstContactPerson.phones[0];
     const primaryEmail = firstContactPerson.emails?.[0]?.trim() || null;
 
-    const kycDetails = mergeEntityKycDetailsPatch(
-      {},
-      vendorData.kyc_verification_details
-    );
+    const kycDetails = mergeEntityKycDetailsPatch({}, vendorData.kyc_verification_details);
+    const isVerified =
+      vendorData.is_verified !== undefined
+        ? vendorData.is_verified
+        : isVendorKycVerified(vendorData.registration_type, kycDetails);
 
     const query = `
-      INSERT INTO vendors (business_name, contact_persons, contact_person, email, phone, address, business_details, 
-                          bank_details, type, is_active, created_by, user_id, lead_id, google_location_link, business_card_url,
+      INSERT INTO vendors (business_name, contact_persons, contact_person, email, phone, address, business_details,
+                          aadhar_number, registration_type, bank_details, type, is_active, is_verified, verified_at,
+                          created_by, user_id, lead_id, google_location_link, business_card_url,
                           kyc_verification_details)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
       RETURNING ${VENDOR_SELECT_COLUMNS}
     `;
-    
+
     const values = [
       vendorData.business_name,
       JSON.stringify(vendorData.contact_persons),
@@ -117,9 +149,13 @@ export class VendorDAO {
       primaryPhone,
       JSON.stringify(vendorData.address),
       JSON.stringify(vendorData.business_details),
+      vendorData.aadhar_number || null,
+      vendorData.registration_type,
       vendorData.bank_details ? JSON.stringify(vendorData.bank_details) : null,
       vendorData.type,
       vendorData.is_active !== undefined ? vendorData.is_active : true,
+      isVerified,
+      isVerified ? vendorData.verified_at || new Date() : null,
       vendorData.created_by || null,
       vendorData.user_id || null,
       vendorData.lead_id || null,
@@ -134,7 +170,8 @@ export class VendorDAO {
     logger.info('Vendor created', {
       vendorId: vendor.id,
       business_name: vendor.business_name,
-      type: vendor.type
+      type: vendor.type,
+      registration_type: vendor.registration_type,
     });
 
     return vendor;
@@ -142,7 +179,7 @@ export class VendorDAO {
 
   async update(id: string, vendorData: UpdateVendorDTO): Promise<Vendor | null> {
     const updateFields: string[] = [];
-    const values: any[] = [];
+    const values: unknown[] = [];
     let paramCount = 1;
 
     if (vendorData.business_name !== undefined) {
@@ -153,8 +190,7 @@ export class VendorDAO {
     if (vendorData.contact_persons !== undefined) {
       updateFields.push(`contact_persons = $${paramCount++}`);
       values.push(JSON.stringify(vendorData.contact_persons));
-      
-      // Also update legacy fields from first contact person
+
       const firstContactPerson = vendorData.contact_persons[0];
       if (firstContactPerson) {
         updateFields.push(`contact_person = $${paramCount++}`);
@@ -176,6 +212,16 @@ export class VendorDAO {
       values.push(JSON.stringify(vendorData.business_details));
     }
 
+    if (vendorData.aadhar_number !== undefined) {
+      updateFields.push(`aadhar_number = $${paramCount++}`);
+      values.push(vendorData.aadhar_number || null);
+    }
+
+    if (vendorData.registration_type !== undefined) {
+      updateFields.push(`registration_type = $${paramCount++}`);
+      values.push(vendorData.registration_type);
+    }
+
     if (vendorData.bank_details !== undefined) {
       updateFields.push(`bank_details = $${paramCount++}`);
       values.push(JSON.stringify(vendorData.bank_details));
@@ -192,6 +238,15 @@ export class VendorDAO {
     if (vendorData.is_active !== undefined) {
       updateFields.push(`is_active = $${paramCount++}`);
       values.push(vendorData.is_active);
+    }
+
+    if (vendorData.is_verified !== undefined) {
+      updateFields.push(`is_verified = $${paramCount++}`);
+      values.push(vendorData.is_verified);
+      updateFields.push(`verified_at = $${paramCount++}`);
+      values.push(
+        vendorData.is_verified ? vendorData.verified_at || new Date() : null
+      );
     }
 
     if (vendorData.updated_by !== undefined) {
@@ -215,8 +270,11 @@ export class VendorDAO {
     }
 
     if (vendorData.kyc_verification_details !== undefined) {
-      const existingRow = await db.query<{ kyc_verification_details: unknown }>(
-        `SELECT kyc_verification_details FROM vendors WHERE id = $1`,
+      const existingRow = await db.query<{
+        kyc_verification_details: unknown;
+        registration_type: VendorRegistrationType;
+      }>(
+        `SELECT kyc_verification_details, registration_type FROM vendors WHERE id = $1`,
         [id]
       );
       const merged = mergeEntityKycDetailsPatch(
@@ -225,6 +283,32 @@ export class VendorDAO {
       );
       updateFields.push(`kyc_verification_details = $${paramCount++}::jsonb`);
       values.push(JSON.stringify(merged));
+
+      if (vendorData.is_verified === undefined) {
+        const registrationType =
+          vendorData.registration_type ??
+          existingRow.rows[0]?.registration_type ??
+          'registered';
+        const verified = isVendorKycVerified(registrationType, merged);
+        updateFields.push(`is_verified = $${paramCount++}`);
+        values.push(verified);
+        updateFields.push(`verified_at = $${paramCount++}`);
+        values.push(verified ? new Date() : null);
+      }
+    } else if (
+      vendorData.registration_type !== undefined &&
+      vendorData.is_verified === undefined
+    ) {
+      const existingRow = await db.query<{ kyc_verification_details: unknown }>(
+        `SELECT kyc_verification_details FROM vendors WHERE id = $1`,
+        [id]
+      );
+      const kyc = parseEntityKycDetails(existingRow.rows[0]?.kyc_verification_details);
+      const verified = isVendorKycVerified(vendorData.registration_type, kyc);
+      updateFields.push(`is_verified = $${paramCount++}`);
+      values.push(verified);
+      updateFields.push(`verified_at = $${paramCount++}`);
+      values.push(verified ? new Date() : null);
     }
 
     if (updateFields.length === 0) {
@@ -235,7 +319,7 @@ export class VendorDAO {
     values.push(id);
 
     const query = `
-      UPDATE vendors 
+      UPDATE vendors
       SET ${updateFields.join(', ')}
       WHERE id = $${paramCount}
       RETURNING ${VENDOR_SELECT_COLUMNS}
@@ -247,7 +331,7 @@ export class VendorDAO {
     if (vendor) {
       logger.info('Vendor updated', {
         vendorId: vendor.id,
-        business_name: vendor.business_name
+        business_name: vendor.business_name,
       });
     }
 
@@ -274,11 +358,6 @@ export class VendorDAO {
     return row || null;
   }
 
-  /**
-   * Persist last bank verification failure (lenient create / update flows).
-   * Non-null message also sets is_active = false so failed bank checks cannot trade as active vendors.
-   * Pass null to clear the error only (does not change is_active).
-   */
   async setBankVerificationError(id: string, message: string | null): Promise<Vendor | null> {
     const query =
       message === null
@@ -301,10 +380,6 @@ export class VendorDAO {
     return result.rows[0] || null;
   }
 
-  /**
-   * If this vendor is (or will be treated as) a purchase party on any sauda, has bank_details on file,
-   * and bank has never been verified (verified_at / verified_by null), mark inactive.
-   */
   async deactivatePurchaserVendorIfBankUnverified(vendorId: string): Promise<Vendor | null> {
     const query = `
       UPDATE vendors v
@@ -327,37 +402,51 @@ export class VendorDAO {
   async delete(id: string): Promise<void> {
     const query = 'DELETE FROM vendors WHERE id = $1';
     await db.query(query, [id]);
-    
+
     logger.info('Vendor deleted', { vendorId: id });
   }
 
   async emailExists(email: string, excludeId?: string): Promise<boolean> {
-    const query = excludeId 
+    const query = excludeId
       ? 'SELECT 1 FROM vendors WHERE email = $1 AND id != $2 LIMIT 1'
       : 'SELECT 1 FROM vendors WHERE email = $1 LIMIT 1';
-    
+
     const values = excludeId ? [email, excludeId] : [email];
     const result = await db.query(query, values);
     return result.rows.length > 0;
   }
 
   async gstExists(gstNumber: string, excludeId?: string): Promise<boolean> {
-    const query = excludeId 
+    const query = excludeId
       ? `SELECT 1 FROM vendors WHERE business_details->>'gst_number' = $1 AND id != $2 LIMIT 1`
       : `SELECT 1 FROM vendors WHERE business_details->>'gst_number' = $1 LIMIT 1`;
-    
+
     const values = excludeId ? [gstNumber, excludeId] : [gstNumber];
     const result = await db.query(query, values);
     return result.rows.length > 0;
   }
 
   async panExists(panNumber: string, excludeId?: string): Promise<boolean> {
-    const query = excludeId 
+    const query = excludeId
       ? `SELECT 1 FROM vendors WHERE business_details->>'pan_number' = $1 AND id != $2 LIMIT 1`
       : `SELECT 1 FROM vendors WHERE business_details->>'pan_number' = $1 LIMIT 1`;
-    
+
     const values = excludeId ? [panNumber, excludeId] : [panNumber];
     const result = await db.query(query, values);
+    return result.rows.length > 0;
+  }
+
+  async aadharExists(aadharNumber: string, excludeId?: string): Promise<boolean> {
+    let query = `SELECT 1 FROM vendors WHERE aadhar_number = $1`;
+    const params: unknown[] = [aadharNumber];
+
+    if (excludeId) {
+      query += ` AND id != $2`;
+      params.push(excludeId);
+    }
+
+    query += ` LIMIT 1`;
+    const result = await db.query(query, params);
     return result.rows.length > 0;
   }
 }

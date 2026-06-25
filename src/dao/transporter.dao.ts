@@ -6,17 +6,19 @@ import type { TransportType } from '../models/transporter.model';
 
 const TRANSPORTER_SELECT_COLUMNS = `
       id, business_name, contact_persons, contact_person, phone, email, address, gst_number, pan_number,
-      aadhar_number, transport_type, vehicle_numbers, vehicle_ids, bank_details, is_active, is_verified,
-      verified_at, created_at, updated_at, created_by, updated_by, kyc_verification_details`;
+      aadhar_number, transport_type, vehicle_numbers, vehicle_ids, bank_details,
+      bank_details_verified_at, bank_details_verified_by, bank_verification_error,
+      is_active, is_verified, verified_at, created_at, updated_at, created_by, updated_by, kyc_verification_details`;
 
 export interface TransporterListFilters {
   includeInactive?: boolean;
   isVerified?: boolean;
+  bankVerified?: boolean;
 }
 
 export class TransporterDAO {
   async findAll(filters: TransporterListFilters = {}): Promise<Transporter[]> {
-    const { includeInactive = false, isVerified } = filters;
+    const { includeInactive = false, isVerified, bankVerified } = filters;
     let query = `
       SELECT ${TRANSPORTER_SELECT_COLUMNS}
       FROM transporters
@@ -33,6 +35,12 @@ export class TransporterDAO {
       query += ` AND is_verified = true`;
     } else if (isVerified === false) {
       query += ` AND is_verified = false`;
+    }
+
+    if (bankVerified === true) {
+      query += ` AND bank_details_verified_at IS NOT NULL`;
+    } else if (bankVerified === false) {
+      query += ` AND bank_details_verified_at IS NULL`;
     }
 
     query += ` ORDER BY business_name ASC`;
@@ -183,6 +191,9 @@ export class TransporterDAO {
     if (transporterData.bank_details !== undefined) {
       fields.push(`bank_details = $${paramCount++}`);
       values.push(JSON.stringify(transporterData.bank_details));
+      fields.push(`bank_details_verified_at = NULL`);
+      fields.push(`bank_details_verified_by = NULL`);
+      fields.push(`bank_verification_error = NULL`);
     }
     if (transporterData.is_active !== undefined) {
       fields.push(`is_active = $${paramCount++}`);
@@ -280,6 +291,36 @@ export class TransporterDAO {
       logger.info('Transporter deleted', { id });
     }
     return deleted;
+  }
+
+  async markBankDetailsVerified(id: string, verifiedByUserId: string): Promise<Transporter | null> {
+    const query = `
+      UPDATE transporters
+      SET bank_details_verified_at = CURRENT_TIMESTAMP,
+          bank_details_verified_by = $2,
+          bank_verification_error = NULL,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = $1
+      RETURNING ${TRANSPORTER_SELECT_COLUMNS}
+    `;
+    const result = await db.query<Transporter>(query, [id, verifiedByUserId]);
+    const row = result.rows[0];
+    if (row) {
+      logger.info('Transporter bank details marked verified', { id });
+    }
+    return row || null;
+  }
+
+  async setBankVerificationError(id: string, message: string | null): Promise<Transporter | null> {
+    const query = `
+      UPDATE transporters
+      SET bank_verification_error = $2,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = $1
+      RETURNING ${TRANSPORTER_SELECT_COLUMNS}
+    `;
+    const result = await db.query<Transporter>(query, [id, message]);
+    return result.rows[0] || null;
   }
 
   async gstExists(gstNumber: string, excludeId?: string): Promise<boolean> {

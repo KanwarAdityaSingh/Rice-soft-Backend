@@ -14,7 +14,6 @@ import {
   ValidationError,
   UnauthorizedError,
 } from '../utils/errors';
-import { assertEnteredAccountHolderMatchesBankRecord } from '../utils/bank-account-holder-match';
 import {
   Address,
   BankDetails,
@@ -24,54 +23,44 @@ import {
   Vendor,
   VendorResponse,
   VendorType,
+  VendorRegistrationType,
 } from '../models/vendor.model';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { gstLookupService } from '../services/gst-lookup.service';
 import { kycPersistenceService } from '../services/kyc-persistence.service';
 import { parseEntityKycDetails } from '../utils/kyc-verification';
+import { applyBankVerificationFromSnapshot } from '../utils/apply-bank-verification-from-snapshot';
 import { appConfig } from '../config/app.config';
 import { logger } from '../utils/logger';
 import Joi from 'joi';
 import { bankDetailsForVerifySchema } from '../utils/validators';
 
 const LENIENT_BANK_VERIFY_FAIL_MESSAGE =
-  'Vendor created but bank could not be verified.';
+  'Vendor created but bank account holder name does not match the verification snapshot.';
 
 const LENIENT_BANK_VERIFY_FAIL_MESSAGE_UPDATE =
-  'Vendor updated but bank could not be verified.';
+  'Vendor updated but bank account holder name does not match the verification snapshot.';
 
-/** Returned in `verification_message` when Surepass bank check + DB mark succeed at create/update */
+/** Returned in `verification_message` when bank snapshot check + DB mark succeed at create/update */
 const BANK_VERIFY_SUCCESS_MESSAGE = 'Bank details verified successfully.';
 
-function verificationErrorFromUnknown(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  return String(err);
-}
-
-/**
- * After insert/update: Surepass lookup, persist snapshot, then name match + mark verified.
- * Snapshot is saved even when the account holder name does not match (verification still fails).
- */
 async function tryVerifyBankAfterSave(
   vendorId: string,
   bankDetails: BankDetails,
+  kycVerificationDetails: ReturnType<typeof parseEntityKycDetails>,
   userId: string | undefined
-): Promise<void> {
-  if (!userId) {
-    throw new ValidationError('Bank verification requires an authenticated user');
-  }
-  const accountDigits = (bankDetails.account_number ?? '').replace(/\D/g, '');
-  const ifsc = (bankDetails.ifsc_code ?? '').trim().toUpperCase();
-  if (accountDigits.length < 9 || accountDigits.length > 18 || !ifsc) {
-    throw new ValidationError('Invalid bank account for verification');
-  }
-  const envelope = await gstLookupService.verifyBankAccount(accountDigits, ifsc);
-  await kycPersistenceService.saveEntityVerification('vendor', vendorId, 'bank', envelope);
-  assertEnteredAccountHolderMatchesBankRecord(
-    bankDetails.account_holder_name,
-    envelope.mapped.account_holder_name
-  );
-  await vendorDAO.markBankDetailsVerified(vendorId, userId);
+) {
+  return applyBankVerificationFromSnapshot({
+    bankDetails,
+    kycVerificationDetails,
+    userId,
+    markVerified: async (verifiedBy) => {
+      await vendorDAO.markBankDetailsVerified(vendorId, verifiedBy);
+    },
+    setVerificationError: async (message) => {
+      await vendorDAO.setBankVerificationError(vendorId, message);
+    },
+  });
 }
 
 function toVendorResponse(vendor: Vendor): VendorResponse {
@@ -81,9 +70,13 @@ function toVendorResponse(vendor: Vendor): VendorResponse {
     contact_persons: vendor.contact_persons,
     address: vendor.address,
     business_details: vendor.business_details,
+    aadhar_number: vendor.aadhar_number ?? null,
+    registration_type: vendor.registration_type,
     bank_details: vendor.bank_details,
     type: vendor.type,
     is_active: vendor.is_active,
+    is_verified: vendor.is_verified,
+    verified_at: vendor.verified_at?.toISOString() ?? null,
     user_id: vendor.user_id,
     lead_id: vendor.lead_id || null,
     created_at: vendor.created_at.toISOString(),
@@ -96,6 +89,37 @@ function toVendorResponse(vendor: Vendor): VendorResponse {
     bank_verification_error: vendor.bank_verification_error ?? null,
     kyc_verification_details: parseEntityKycDetails(vendor.kyc_verification_details),
   };
+}
+
+function assertVendorRegistrationFields(
+  registrationType: VendorRegistrationType,
+  businessDetails: CreateVendorDTO['business_details'],
+  aadharNumber?: string | null
+): void {
+  if (registrationType === 'registered') {
+    const hasGst = Boolean(businessDetails.gst_number?.trim());
+    const hasPan = Boolean(businessDetails.pan_number?.trim());
+    if (!hasGst && !hasPan) {
+      throw new ValidationError('Registered vendors require GST or PAN in business_details');
+    }
+    return;
+  }
+
+  if (!aadharNumber?.trim()) {
+    throw new ValidationError('Unregistered vendors require aadhar_number');
+  }
+}
+
+function assertVendorRegistrationOnUpdate(existing: Vendor, update: UpdateVendorDTO): void {
+  const registrationType = update.registration_type ?? existing.registration_type;
+  const businessDetails = {
+    ...existing.business_details,
+    ...update.business_details,
+  };
+  const aadharNumber =
+    update.aadhar_number !== undefined ? update.aadhar_number : existing.aadhar_number;
+
+  assertVendorRegistrationFields(registrationType, businessDetails, aadharNumber);
 }
 
 export class VendorController {
@@ -111,7 +135,29 @@ export class VendorController {
         bankVerified = false;
       }
 
-      const vendors = await vendorDAO.findAll(includeInactive, type, bankVerified);
+      let isVerified: boolean | undefined;
+      if (req.query.is_verified === 'true') {
+        isVerified = true;
+      } else if (req.query.is_verified === 'false') {
+        isVerified = false;
+      }
+
+      const registrationType = req.query.registration_type as VendorRegistrationType | undefined;
+      if (
+        registrationType &&
+        registrationType !== 'registered' &&
+        registrationType !== 'unregistered'
+      ) {
+        throw new ValidationError('registration_type must be registered or unregistered');
+      }
+
+      const vendors = await vendorDAO.findAll({
+        includeInactive,
+        type,
+        bankVerified,
+        isVerified,
+        registrationType,
+      });
 
       const vendorResponses: VendorResponse[] = vendors.map(toVendorResponse);
 
@@ -145,6 +191,12 @@ export class VendorController {
       }
 
       const { verify_bank: _verifyBank, ...vendorPayload } = vendorData;
+
+      if (verifyBank && !vendorPayload.kyc_verification_details?.bank) {
+        throw new ValidationError(
+          'verify_bank requires kyc_verification_details.bank from a prior GET /api/v1/kyc/bank/verify call'
+        );
+      }
 
       // Get first contact person for user creation and validation
       const firstContactPerson = vendorPayload.contact_persons[0];
@@ -180,6 +232,19 @@ export class VendorController {
           throw new ConflictError('PAN number already exists');
         }
       }
+
+      if (vendorPayload.aadhar_number) {
+        const aadharExists = await vendorDAO.aadharExists(vendorPayload.aadhar_number);
+        if (aadharExists) {
+          throw new ConflictError('Aadhaar number already exists');
+        }
+      }
+
+      assertVendorRegistrationFields(
+        vendorPayload.registration_type,
+        vendorPayload.business_details,
+        vendorPayload.aadhar_number
+      );
 
       // Generate username from first contact person name (first part before space, lowercase, remove special chars)
       let baseUsername = firstContactPerson.name
@@ -227,30 +292,32 @@ export class VendorController {
       const vendor = await vendorDAO.create(vendorWithUser);
 
       if (verifyBank && vendor.bank_details) {
-        try {
-          await tryVerifyBankAfterSave(vendor.id, vendor.bank_details, req.user?.userId);
-          const refreshed = await vendorDAO.findById(vendor.id);
+        const verifyResult = await tryVerifyBankAfterSave(
+          vendor.id,
+          vendor.bank_details,
+          parseEntityKycDetails(vendor.kyc_verification_details),
+          req.user?.userId
+        );
+        const refreshed = await vendorDAO.findById(vendor.id);
+        if (verifyResult.status === 'verified') {
           return ResponseHandler.created(
             res,
             toVendorResponse(refreshed ?? vendor),
             'Vendor created successfully',
             { verification_message: BANK_VERIFY_SUCCESS_MESSAGE }
           );
-        } catch (verifyErr) {
-          const errMsg = verificationErrorFromUnknown(verifyErr);
-          logger.warn('Bank verification failed after vendor create (lenient)', {
-            vendorId: vendor.id,
-            error: errMsg,
-          });
-          await vendorDAO.setBankVerificationError(vendor.id, errMsg);
-          const refreshed = await vendorDAO.findById(vendor.id);
-          return ResponseHandler.created(
-            res,
-            toVendorResponse(refreshed ?? vendor),
-            LENIENT_BANK_VERIFY_FAIL_MESSAGE,
-            { verification_error: errMsg }
-          );
         }
+        logger.warn('Bank name mismatch after vendor create', {
+          vendorId: vendor.id,
+          status: verifyResult.status,
+          error: verifyResult.message,
+        });
+        return ResponseHandler.created(
+          res,
+          toVendorResponse(refreshed ?? vendor),
+          LENIENT_BANK_VERIFY_FAIL_MESSAGE,
+          { verification_error: verifyResult.message, bank_verification_flagged: true }
+        );
       }
 
       return ResponseHandler.created(res, toVendorResponse(vendor), 'Vendor created successfully');
@@ -286,6 +353,21 @@ export class VendorController {
         }
       }
 
+      if (vendorData.aadhar_number) {
+        const aadharExists = await vendorDAO.aadharExists(vendorData.aadhar_number, id);
+        if (aadharExists) {
+          throw new ConflictError('Aadhaar number already exists');
+        }
+      }
+
+      if (
+        vendorData.registration_type !== undefined ||
+        vendorData.business_details !== undefined ||
+        vendorData.aadhar_number !== undefined
+      ) {
+        assertVendorRegistrationOnUpdate(existingVendor, vendorData);
+      }
+
       const verifyBank = vendorData.verify_bank === true;
       if (verifyBank && !req.user?.userId) {
         throw new ValidationError('verify_bank requires an authenticated user');
@@ -298,6 +380,18 @@ export class VendorController {
 
       const { verify_bank: _verifyBank, ...updatePayload } = vendorData;
 
+      if (verifyBank) {
+        const payloadHasBank = Boolean(updatePayload.kyc_verification_details?.bank);
+        const existingHasBank = Boolean(
+          parseEntityKycDetails(existingVendor.kyc_verification_details).bank
+        );
+        if (!payloadHasBank && !existingHasBank) {
+          throw new ValidationError(
+            'verify_bank requires kyc_verification_details.bank from a prior GET /api/v1/kyc/bank/verify call'
+          );
+        }
+      }
+
       const vendor = await vendorDAO.update(id, updatePayload);
       if (!vendor) {
         throw new NotFoundError('Vendor not found after update');
@@ -308,9 +402,14 @@ export class VendorController {
       }
 
       if (verifyBank && vendor.bank_details) {
-        try {
-          await tryVerifyBankAfterSave(vendor.id, vendor.bank_details, req.user?.userId);
-          const refreshed = await vendorDAO.findById(vendor.id);
+        const verifyResult = await tryVerifyBankAfterSave(
+          vendor.id,
+          vendor.bank_details,
+          parseEntityKycDetails(vendor.kyc_verification_details),
+          req.user?.userId
+        );
+        const refreshed = await vendorDAO.findById(vendor.id);
+        if (verifyResult.status === 'verified') {
           return ResponseHandler.success(
             res,
             toVendorResponse(refreshed ?? vendor),
@@ -318,22 +417,19 @@ export class VendorController {
             200,
             { verification_message: BANK_VERIFY_SUCCESS_MESSAGE }
           );
-        } catch (verifyErr) {
-          const errMsg = verificationErrorFromUnknown(verifyErr);
-          logger.warn('Bank verification failed after vendor update (lenient)', {
-            vendorId: vendor.id,
-            error: errMsg,
-          });
-          await vendorDAO.setBankVerificationError(vendor.id, errMsg);
-          const refreshed = await vendorDAO.findById(vendor.id);
-          return ResponseHandler.success(
-            res,
-            toVendorResponse(refreshed ?? vendor),
-            LENIENT_BANK_VERIFY_FAIL_MESSAGE_UPDATE,
-            200,
-            { verification_error: errMsg }
-          );
         }
+        logger.warn('Bank name mismatch after vendor update', {
+          vendorId: vendor.id,
+          status: verifyResult.status,
+          error: verifyResult.message,
+        });
+        return ResponseHandler.success(
+          res,
+          toVendorResponse(refreshed ?? vendor),
+          LENIENT_BANK_VERIFY_FAIL_MESSAGE_UPDATE,
+          200,
+          { verification_error: verifyResult.message, bank_verification_flagged: true }
+        );
       }
 
       return ResponseHandler.success(res, toVendorResponse(vendor), 'Vendor updated successfully');
@@ -423,6 +519,56 @@ export class VendorController {
   }
 
   /**
+   * Lookup Aadhaar Number via Surepass and check availability in system
+   */
+  async lookupAadhaar(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const aadhaarNumber = req.query.aadhaar_number as string;
+
+      if (!aadhaarNumber) {
+        throw new ValidationError('Aadhaar number is required');
+      }
+
+      const envelope = await gstLookupService.validateAadhaar(aadhaarNumber);
+      const cleaned = aadhaarNumber.replace(/\s/g, '');
+
+      const vendorId = req.query.vendor_id as string | undefined;
+      if (vendorId) {
+        await kycPersistenceService.saveEntityVerification('vendor', vendorId, 'aadhaar', envelope);
+      }
+
+      const aadharExists = await vendorDAO.aadharExists(cleaned);
+      if (aadharExists) {
+        return ResponseHandler.success(
+          res,
+          {
+            aadhaar_data: envelope.mapped,
+            surepass_response: envelope.raw,
+            is_valid: true,
+            already_exists: true,
+            message: 'Aadhaar number is valid but already exists in system',
+          },
+          'Aadhaar number validation completed'
+        );
+      }
+
+      return ResponseHandler.success(
+        res,
+        {
+          aadhaar_data: envelope.mapped,
+          surepass_response: envelope.raw,
+          is_valid: true,
+          already_exists: false,
+          message: 'Aadhaar number is valid and available',
+        },
+        'Aadhaar number validation completed'
+      );
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
    * Quick create vendor from GST number
    * Fetches GST details and creates vendor with minimal additional input
    */
@@ -445,6 +591,13 @@ export class VendorController {
           then: bankDetailsForVerifySchema.required(),
           otherwise: Joi.object().optional(),
         }),
+        kyc_verification_details: Joi.when('verify_bank', {
+          is: true,
+          then: Joi.object({
+            bank: Joi.object().required(),
+          }).required(),
+          otherwise: Joi.object().optional(),
+        }),
       });
 
       const body = validate(quickCreateSchema, req.body) as {
@@ -453,11 +606,18 @@ export class VendorController {
         type: VendorType;
         bank_details?: BankDetails;
         verify_bank?: boolean;
+        kyc_verification_details?: CreateVendorDTO['kyc_verification_details'];
       };
-      const { gst_number, contact_persons, type, bank_details, verify_bank } = body;
+      const { gst_number, contact_persons, type, bank_details, verify_bank, kyc_verification_details } =
+        body;
       const verifyBank = verify_bank === true;
       if (verifyBank && !req.user?.userId) {
         throw new ValidationError('verify_bank requires an authenticated user');
+      }
+      if (verifyBank && !kyc_verification_details?.bank) {
+        throw new ValidationError(
+          'verify_bank requires kyc_verification_details.bank from a prior GET /api/v1/kyc/bank/verify call'
+        );
       }
 
       // Validate GST format
@@ -493,7 +653,9 @@ export class VendorController {
         contact_persons,
         address: mappedData.address,
         business_details: mappedData.business_details,
+        registration_type: 'registered',
         bank_details: bank_details ?? undefined,
+        kyc_verification_details,
         type,
         is_active: true,
         created_by: req.user?.userId,
@@ -508,30 +670,35 @@ export class VendorController {
       );
 
       if (verifyBank && vendor.bank_details) {
-        try {
-          await tryVerifyBankAfterSave(vendor.id, vendor.bank_details, req.user?.userId);
-          const refreshed = await vendorDAO.findById(vendor.id);
+        const verifyResult = await tryVerifyBankAfterSave(
+          vendor.id,
+          vendor.bank_details,
+          parseEntityKycDetails(
+            (await vendorDAO.findById(vendor.id))?.kyc_verification_details ??
+              vendor.kyc_verification_details
+          ),
+          req.user?.userId
+        );
+        const refreshed = await vendorDAO.findById(vendor.id);
+        if (verifyResult.status === 'verified') {
           return ResponseHandler.created(
             res,
             toVendorResponse(refreshed ?? vendor),
             'Vendor created from GST successfully',
             { verification_message: BANK_VERIFY_SUCCESS_MESSAGE }
           );
-        } catch (verifyErr) {
-          const errMsg = verificationErrorFromUnknown(verifyErr);
-          logger.warn('Bank verification failed after GST vendor create (lenient)', {
-            vendorId: vendor.id,
-            error: errMsg,
-          });
-          await vendorDAO.setBankVerificationError(vendor.id, errMsg);
-          const refreshed = await vendorDAO.findById(vendor.id);
-          return ResponseHandler.created(
-            res,
-            toVendorResponse(refreshed ?? vendor),
-            LENIENT_BANK_VERIFY_FAIL_MESSAGE,
-            { verification_error: errMsg }
-          );
         }
+        logger.warn('Bank name mismatch after GST vendor create', {
+          vendorId: vendor.id,
+          status: verifyResult.status,
+          error: verifyResult.message,
+        });
+        return ResponseHandler.created(
+          res,
+          toVendorResponse(refreshed ?? vendor),
+          LENIENT_BANK_VERIFY_FAIL_MESSAGE,
+          { verification_error: verifyResult.message, bank_verification_flagged: true }
+        );
       }
 
       return ResponseHandler.created(res, toVendorResponse(vendor), 'Vendor created from GST successfully');
@@ -571,6 +738,13 @@ export class VendorController {
           then: bankDetailsForVerifySchema.required(),
           otherwise: Joi.object().optional(),
         }),
+        kyc_verification_details: Joi.when('verify_bank', {
+          is: true,
+          then: Joi.object({
+            bank: Joi.object().required(),
+          }).required(),
+          otherwise: Joi.object().optional(),
+        }),
       });
 
       const body = validate(quickCreateSchema, req.body) as {
@@ -581,11 +755,26 @@ export class VendorController {
         type: VendorType;
         bank_details?: BankDetails;
         verify_bank?: boolean;
+        kyc_verification_details?: CreateVendorDTO['kyc_verification_details'];
       };
-      const { pan_number, business_name, contact_persons, address, type, bank_details, verify_bank } = body;
+      const {
+        pan_number,
+        business_name,
+        contact_persons,
+        address,
+        type,
+        bank_details,
+        verify_bank,
+        kyc_verification_details,
+      } = body;
       const verifyBank = verify_bank === true;
       if (verifyBank && !req.user?.userId) {
         throw new ValidationError('verify_bank requires an authenticated user');
+      }
+      if (verifyBank && !kyc_verification_details?.bank) {
+        throw new ValidationError(
+          'verify_bank requires kyc_verification_details.bank from a prior GET /api/v1/kyc/bank/verify call'
+        );
       }
 
       // Validate PAN format
@@ -625,7 +814,9 @@ export class VendorController {
           ...mappedData.business_details,
           pan_number,
         },
+        registration_type: 'registered',
         bank_details: bank_details ?? undefined,
+        kyc_verification_details,
         type,
         is_active: true,
         created_by: req.user?.userId,
@@ -640,30 +831,32 @@ export class VendorController {
       );
 
       if (verifyBank && vendor.bank_details) {
-        try {
-          await tryVerifyBankAfterSave(vendor.id, vendor.bank_details, req.user?.userId);
-          const refreshed = await vendorDAO.findById(vendor.id);
+        const verifyResult = await tryVerifyBankAfterSave(
+          vendor.id,
+          vendor.bank_details,
+          parseEntityKycDetails(vendor.kyc_verification_details),
+          req.user?.userId
+        );
+        const refreshed = await vendorDAO.findById(vendor.id);
+        if (verifyResult.status === 'verified') {
           return ResponseHandler.created(
             res,
             toVendorResponse(refreshed ?? vendor),
             'Vendor created from PAN successfully',
             { verification_message: BANK_VERIFY_SUCCESS_MESSAGE }
           );
-        } catch (verifyErr) {
-          const errMsg = verificationErrorFromUnknown(verifyErr);
-          logger.warn('Bank verification failed after PAN vendor create (lenient)', {
-            vendorId: vendor.id,
-            error: errMsg,
-          });
-          await vendorDAO.setBankVerificationError(vendor.id, errMsg);
-          const refreshed = await vendorDAO.findById(vendor.id);
-          return ResponseHandler.created(
-            res,
-            toVendorResponse(refreshed ?? vendor),
-            LENIENT_BANK_VERIFY_FAIL_MESSAGE,
-            { verification_error: errMsg }
-          );
         }
+        logger.warn('Bank name mismatch after PAN vendor create', {
+          vendorId: vendor.id,
+          status: verifyResult.status,
+          error: verifyResult.message,
+        });
+        return ResponseHandler.created(
+          res,
+          toVendorResponse(refreshed ?? vendor),
+          LENIENT_BANK_VERIFY_FAIL_MESSAGE,
+          { verification_error: verifyResult.message, bank_verification_flagged: true }
+        );
       }
 
       return ResponseHandler.created(res, toVendorResponse(vendor), 'Vendor created from PAN successfully');
@@ -768,33 +961,32 @@ export class VendorController {
         throw new NotFoundError('Vendor not found');
       }
 
-      const bd = vendor.bank_details;
-      const accountDigits = (bd?.account_number ?? '').replace(/\D/g, '');
-      const ifsc = (bd?.ifsc_code ?? '').trim().toUpperCase();
-
-      if (!bd || accountDigits.length < 9 || accountDigits.length > 18) {
-        throw new ValidationError(
-          'Vendor must have a valid bank account number (9–18 digits) in bank_details before confirmation'
-        );
-      }
-      if (!ifsc) {
-        throw new ValidationError('Vendor must have IFSC in bank_details before confirmation');
-      }
-
-      const enteredName = bd.account_holder_name?.trim();
-      if (!enteredName) {
+      if (!vendor.bank_details?.account_holder_name?.trim()) {
         throw new ValidationError(
           'Vendor must have account_holder_name in bank_details before confirmation'
         );
       }
 
-      const envelope = await gstLookupService.verifyBankAccount(accountDigits, ifsc);
-      await kycPersistenceService.saveEntityVerification('vendor', id, 'bank', envelope);
-      assertEnteredAccountHolderMatchesBankRecord(enteredName, envelope.mapped.account_holder_name);
+      const verifyResult = await tryVerifyBankAfterSave(
+        id,
+        vendor.bank_details,
+        parseEntityKycDetails(vendor.kyc_verification_details),
+        req.user.userId
+      );
 
-      const updated = await vendorDAO.markBankDetailsVerified(id, req.user.userId);
+      const updated = await vendorDAO.findById(id);
       if (!updated) {
         throw new NotFoundError('Vendor not found');
+      }
+
+      if (verifyResult.status !== 'verified') {
+        return ResponseHandler.success(
+          res,
+          toVendorResponse(updated),
+          LENIENT_BANK_VERIFY_FAIL_MESSAGE_UPDATE,
+          200,
+          { verification_error: verifyResult.message, bank_verification_flagged: true }
+        );
       }
 
       return ResponseHandler.success(res, toVendorResponse(updated), 'Bank details verified and saved');

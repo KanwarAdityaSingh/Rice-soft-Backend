@@ -101,6 +101,40 @@ const businessDetailsSchema = Joi.object({
   business_type: Joi.string().optional().valid('individual', 'partnership', 'company', 'llp'),
 });
 
+const vendorAadharSchema = Joi.string()
+  .optional()
+  .allow(null, '')
+  .length(12)
+  .pattern(/^[0-9]{12}$/);
+
+function validateVendorRegistrationFields(
+  value: {
+    registration_type?: string;
+    business_details?: { pan_number?: string; gst_number?: string };
+    aadhar_number?: string;
+  },
+  helpers: Joi.CustomHelpers
+) {
+  const registrationType = value.registration_type;
+  if (!registrationType) {
+    return value;
+  }
+
+  const hasPan = Boolean(value.business_details?.pan_number?.trim());
+  const hasGst = Boolean(value.business_details?.gst_number?.trim());
+  const hasAadhar = Boolean(value.aadhar_number?.trim());
+
+  if (registrationType === 'registered' && !hasPan && !hasGst) {
+    return helpers.error('custom.vendorGstOrPanRequired');
+  }
+
+  if (registrationType === 'unregistered' && !hasAadhar) {
+    return helpers.error('custom.vendorAadharRequired');
+  }
+
+  return value;
+}
+
 // Business details validation schema for brokers
 // - Individual: requires PAN or Aadhaar
 // - Company: requires GST number
@@ -204,6 +238,8 @@ export const createVendorSchema = Joi.object({
   ).required().min(1),
   address: addressSchema.required(),
   business_details: businessDetailsSchema.required(),
+  aadhar_number: vendorAadharSchema,
+  registration_type: Joi.string().required().valid('registered', 'unregistered'),
   bank_details: Joi.when('verify_bank', {
     is: true,
     then: bankDetailsForVerifySchema.required(),
@@ -212,9 +248,17 @@ export const createVendorSchema = Joi.object({
   verify_bank: Joi.boolean().optional(),
   type: Joi.string().required().valid('purchaser', 'seller', 'both'),
   is_active: Joi.boolean().optional(),
+  is_verified: Joi.boolean().optional(),
+  verified_at: Joi.string().optional().allow(null, ''),
   google_location_link: Joi.string().optional().allow(null, '').max(500),
   kyc_verification_details: kycVerificationDetailsSchema,
-});
+})
+  .custom(validateVendorRegistrationFields)
+  .messages({
+    'custom.vendorGstOrPanRequired':
+      'Registered vendors require GST or PAN in business_details',
+    'custom.vendorAadharRequired': 'Unregistered vendors require aadhar_number',
+  });
 
 export const updateVendorSchema = Joi.object({
   business_name: Joi.string().optional().min(2).max(255),
@@ -227,6 +271,8 @@ export const updateVendorSchema = Joi.object({
   ).optional().min(1),
   address: addressSchema.optional(),
   business_details: businessDetailsSchema.optional(),
+  aadhar_number: vendorAadharSchema,
+  registration_type: Joi.string().optional().valid('registered', 'unregistered'),
   bank_details: Joi.when('verify_bank', {
     is: true,
     then: bankDetailsForVerifySchema.required(),
@@ -235,9 +281,12 @@ export const updateVendorSchema = Joi.object({
   verify_bank: Joi.boolean().optional(),
   type: Joi.string().optional().valid('purchaser', 'seller', 'both'),
   is_active: Joi.boolean().optional(),
+  is_verified: Joi.boolean().optional(),
+  verified_at: Joi.string().optional().allow(null, ''),
   google_location_link: Joi.string().optional().allow(null, '').max(500),
   kyc_verification_details: kycVerificationDetailsSchema,
-}).min(1);
+})
+  .min(1);
 
 // Sales Party validation schemas (no type — sales parties are always buyers)
 export const createSalesPartySchema = Joi.object({
@@ -489,7 +538,12 @@ export const createTransporterSchema = Joi.object({
   aadhar_number: Joi.string().optional().allow(null, '').length(12).pattern(/^[0-9]{12}$/),
   transport_type: Joi.string().required().valid('registered', 'unregistered'),
   vehicle_numbers: Joi.array().items(Joi.string().max(50)).optional(),
-  bank_details: bankDetailsSchema.optional(),
+  bank_details: Joi.when('verify_bank', {
+    is: true,
+    then: bankDetailsForVerifySchema.required(),
+    otherwise: bankDetailsSchema.optional(),
+  }),
+  verify_bank: Joi.boolean().optional(),
   is_active: Joi.boolean().optional(),
   is_verified: Joi.boolean().optional(),
   verified_at: Joi.string().optional().allow(null, ''),
@@ -512,7 +566,12 @@ export const updateTransporterSchema = Joi.object({
   aadhar_number: Joi.string().optional().allow(null, '').length(12).pattern(/^[0-9]{12}$/),
   transport_type: Joi.string().optional().valid('registered', 'unregistered'),
   vehicle_numbers: Joi.array().items(Joi.string().max(50)).optional(),
-  bank_details: bankDetailsSchema.optional(),
+  bank_details: Joi.when('verify_bank', {
+    is: true,
+    then: bankDetailsForVerifySchema.required(),
+    otherwise: bankDetailsSchema.optional(),
+  }),
+  verify_bank: Joi.boolean().optional(),
   is_active: Joi.boolean().optional(),
   is_verified: Joi.boolean().optional(),
   verified_at: Joi.string().optional().allow(null, ''),

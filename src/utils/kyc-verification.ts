@@ -142,11 +142,13 @@ function hasKycSnapshot(
 }
 
 /** Registered → GST or PAN snapshot; unregistered → Aadhaar snapshot. */
-export function isTransporterKycVerified(
-  transportType: TransportType,
+export type RegistrationType = 'registered' | 'unregistered';
+
+export function isRegistrationKycVerified(
+  registrationType: RegistrationType,
   kyc: EntityKycVerificationDetails
 ): boolean {
-  if (transportType === 'unregistered') {
+  if (registrationType === 'unregistered') {
     return hasKycSnapshot(kyc, 'aadhaar');
   }
 
@@ -156,4 +158,19 @@ export function isTransporterKycVerified(
     hasKycSnapshot(kyc, 'pan_comprehensive') ||
     hasKycSnapshot(kyc, 'pan')
   );
+}
+
+/** Registered → GST or PAN snapshot; unregistered → Aadhaar snapshot. */
+export function isTransporterKycVerified(
+  transportType: TransportType,
+  kyc: EntityKycVerificationDetails
+): boolean {
+  return isRegistrationKycVerified(transportType, kyc);
+}
+
+export function isVendorKycVerified(
+  registrationType: RegistrationType,
+  kyc: EntityKycVerificationDetails
+): boolean {
+  return isRegistrationKycVerified(registrationType, kyc);
 }

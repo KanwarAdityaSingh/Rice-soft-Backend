@@ -22,6 +22,14 @@ router.get('/lookupGST', authenticate, vendorController.lookupGST.bind(vendorCon
 router.get('/lookupPAN', authenticate, vendorController.lookupPAN.bind(vendorController));
 
 /**
+ * @route   GET /api/v1/vendors/lookupAadhaar
+ * @desc    Lookup Aadhaar via Surepass and check availability
+ * @access  Private
+ * @query   aadhaar_number: string (12 digits), vendor_id: uuid (optional, persist snapshot)
+ */
+router.get('/lookupAadhaar', authenticate, vendorController.lookupAadhaar.bind(vendorController));
+
+/**
  * @route   GET /api/v1/vendors/checkExists
  * @desc    Check if vendor exists by GST or PAN number
  * @access  Private
@@ -72,7 +80,8 @@ router.post(
  * @route   GET /api/v1/vendors/getAllVendors
  * @desc    Get all vendors
  * @access  Private
- * @query   include_inactive: boolean, type: purchaser|seller|both, bank_verified: true|false (filter by Surepass confirmation)
+ * @query   include_inactive: boolean, type: purchaser|seller|both, bank_verified: true|false,
+ *          is_verified: true|false, registration_type: registered|unregistered
  */
 router.get('/getAllVendors', authenticate, vendorController.getAll.bind(vendorController));
 

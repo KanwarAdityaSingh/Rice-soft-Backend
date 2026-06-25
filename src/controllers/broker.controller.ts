@@ -17,7 +17,6 @@ import {
   InternalServerError,
   UnauthorizedError,
 } from '../utils/errors';
-import { assertEnteredAccountHolderMatchesBankRecord } from '../utils/bank-account-holder-match';
 import {
   BankDetails,
   Broker,
@@ -30,47 +29,36 @@ import { AuthRequest } from '../middleware/auth.middleware';
 import { gstLookupService } from '../services/gst-lookup.service';
 import { kycPersistenceService } from '../services/kyc-persistence.service';
 import { parseEntityKycDetails } from '../utils/kyc-verification';
+import { applyBankVerificationFromSnapshot } from '../utils/apply-bank-verification-from-snapshot';
 import { logger } from '../utils/logger';
 import { bankDetailsForVerifySchema } from '../utils/validators';
 import Joi from 'joi';
 
 const LENIENT_BANK_VERIFY_FAIL_MESSAGE =
-  'Broker created but bank could not be verified.';
+  'Broker created but bank account holder name does not match the verification snapshot.';
 
 const LENIENT_BANK_VERIFY_FAIL_MESSAGE_UPDATE =
-  'Broker updated but bank could not be verified.';
+  'Broker updated but bank account holder name does not match the verification snapshot.';
 
 const BANK_VERIFY_SUCCESS_MESSAGE = 'Bank details verified successfully.';
 
-function verificationErrorFromUnknown(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  return String(err);
-}
-
-/**
- * After insert/update: Surepass lookup, persist snapshot, then name match + mark verified.
- * Snapshot is saved even when the account holder name does not match (verification still fails).
- */
 async function tryVerifyBankAfterSave(
   brokerId: string,
   bankDetails: BankDetails,
+  kycVerificationDetails: ReturnType<typeof parseEntityKycDetails>,
   userId: string | undefined
-): Promise<void> {
-  if (!userId) {
-    throw new ValidationError('Bank verification requires an authenticated user');
-  }
-  const accountDigits = (bankDetails.account_number ?? '').replace(/\D/g, '');
-  const ifsc = (bankDetails.ifsc_code ?? '').trim().toUpperCase();
-  if (accountDigits.length < 9 || accountDigits.length > 18 || !ifsc) {
-    throw new ValidationError('Invalid bank account for verification');
-  }
-  const envelope = await gstLookupService.verifyBankAccount(accountDigits, ifsc);
-  await kycPersistenceService.saveEntityVerification('broker', brokerId, 'bank', envelope);
-  assertEnteredAccountHolderMatchesBankRecord(
-    bankDetails.account_holder_name,
-    envelope.mapped.account_holder_name
-  );
-  await brokerDAO.markBankDetailsVerified(brokerId, userId);
+) {
+  return applyBankVerificationFromSnapshot({
+    bankDetails,
+    kycVerificationDetails,
+    userId,
+    markVerified: async (verifiedBy) => {
+      await brokerDAO.markBankDetailsVerified(brokerId, verifiedBy);
+    },
+    setVerificationError: async (message) => {
+      await brokerDAO.setBankVerificationError(brokerId, message);
+    },
+  });
 }
 
 function toBrokerResponse(broker: Broker): BrokerResponse {
@@ -179,6 +167,12 @@ export class BrokerController {
       }
 
       const { verify_bank: _verifyBank, ...brokerPayload } = brokerData;
+
+      if (verifyBank && !brokerPayload.kyc_verification_details?.bank) {
+        throw new ValidationError(
+          'verify_bank requires kyc_verification_details.bank from a prior GET /api/v1/kyc/bank/verify call'
+        );
+      }
 
       // Get first contact person for validation and user creation
       const firstContactPerson = brokerPayload.contact_persons[0];
@@ -291,30 +285,32 @@ export class BrokerController {
       }
 
       if (verifyBank && broker.bank_details) {
-        try {
-          await tryVerifyBankAfterSave(broker.id, broker.bank_details, req.user?.userId);
-          const refreshed = await brokerDAO.findById(broker.id);
+        const verifyResult = await tryVerifyBankAfterSave(
+          broker.id,
+          broker.bank_details,
+          parseEntityKycDetails(broker.kyc_verification_details),
+          req.user?.userId
+        );
+        const refreshed = await brokerDAO.findById(broker.id);
+        if (verifyResult.status === 'verified') {
           return ResponseHandler.created(
             res,
             toBrokerResponse(refreshed ?? broker),
             'Broker created successfully',
             { verification_message: BANK_VERIFY_SUCCESS_MESSAGE }
           );
-        } catch (verifyErr) {
-          const errMsg = verificationErrorFromUnknown(verifyErr);
-          logger.warn('Bank verification failed after broker create (lenient)', {
-            brokerId: broker.id,
-            error: errMsg,
-          });
-          await brokerDAO.setBankVerificationError(broker.id, errMsg);
-          const refreshed = await brokerDAO.findById(broker.id);
-          return ResponseHandler.created(
-            res,
-            toBrokerResponse(refreshed ?? broker),
-            LENIENT_BANK_VERIFY_FAIL_MESSAGE,
-            { verification_error: errMsg }
-          );
         }
+        logger.warn('Bank name mismatch after broker create', {
+          brokerId: broker.id,
+          status: verifyResult.status,
+          error: verifyResult.message,
+        });
+        return ResponseHandler.created(
+          res,
+          toBrokerResponse(refreshed ?? broker),
+          LENIENT_BANK_VERIFY_FAIL_MESSAGE,
+          { verification_error: verifyResult.message, bank_verification_flagged: true }
+        );
       }
 
       return ResponseHandler.created(res, toBrokerResponse(broker), 'Broker created successfully');
@@ -378,6 +374,18 @@ export class BrokerController {
 
       const { verify_bank: _verifyBank, ...updatePayload } = brokerData;
 
+      if (verifyBank) {
+        const payloadHasBank = Boolean(updatePayload.kyc_verification_details?.bank);
+        const existingHasBank = Boolean(
+          parseEntityKycDetails(existingBroker.kyc_verification_details).bank
+        );
+        if (!payloadHasBank && !existingHasBank) {
+          throw new ValidationError(
+            'verify_bank requires kyc_verification_details.bank from a prior GET /api/v1/kyc/bank/verify call'
+          );
+        }
+      }
+
       let broker;
       try {
         broker = await brokerDAO.update(id, updatePayload);
@@ -395,9 +403,14 @@ export class BrokerController {
       }
 
       if (verifyBank && broker.bank_details) {
-        try {
-          await tryVerifyBankAfterSave(broker.id, broker.bank_details, req.user?.userId);
-          const refreshed = await brokerDAO.findById(broker.id);
+        const verifyResult = await tryVerifyBankAfterSave(
+          broker.id,
+          broker.bank_details,
+          parseEntityKycDetails(broker.kyc_verification_details),
+          req.user?.userId
+        );
+        const refreshed = await brokerDAO.findById(broker.id);
+        if (verifyResult.status === 'verified') {
           return ResponseHandler.success(
             res,
             toBrokerResponse(refreshed ?? broker),
@@ -405,22 +418,19 @@ export class BrokerController {
             200,
             { verification_message: BANK_VERIFY_SUCCESS_MESSAGE }
           );
-        } catch (verifyErr) {
-          const errMsg = verificationErrorFromUnknown(verifyErr);
-          logger.warn('Bank verification failed after broker update (lenient)', {
-            brokerId: broker.id,
-            error: errMsg,
-          });
-          await brokerDAO.setBankVerificationError(broker.id, errMsg);
-          const refreshed = await brokerDAO.findById(broker.id);
-          return ResponseHandler.success(
-            res,
-            toBrokerResponse(refreshed ?? broker),
-            LENIENT_BANK_VERIFY_FAIL_MESSAGE_UPDATE,
-            200,
-            { verification_error: errMsg }
-          );
         }
+        logger.warn('Bank name mismatch after broker update', {
+          brokerId: broker.id,
+          status: verifyResult.status,
+          error: verifyResult.message,
+        });
+        return ResponseHandler.success(
+          res,
+          toBrokerResponse(refreshed ?? broker),
+          LENIENT_BANK_VERIFY_FAIL_MESSAGE_UPDATE,
+          200,
+          { verification_error: verifyResult.message, bank_verification_flagged: true }
+        );
       }
 
       return ResponseHandler.success(res, toBrokerResponse(broker), 'Broker updated successfully');
@@ -639,6 +649,13 @@ export class BrokerController {
           then: bankDetailsForVerifySchema.required(),
           otherwise: Joi.object().optional(),
         }),
+        kyc_verification_details: Joi.when('verify_bank', {
+          is: true,
+          then: Joi.object({
+            bank: Joi.object().required(),
+          }).required(),
+          otherwise: Joi.object().optional(),
+        }),
       });
 
       const body = validate(quickCreateSchema, req.body) as {
@@ -650,6 +667,7 @@ export class BrokerController {
         broker_details?: CreateBrokerDTO['broker_details'];
         bank_details?: BankDetails;
         verify_bank?: boolean;
+        kyc_verification_details?: CreateBrokerDTO['kyc_verification_details'];
       };
       const {
         pan_number,
@@ -660,10 +678,16 @@ export class BrokerController {
         broker_details,
         bank_details,
         verify_bank,
+        kyc_verification_details,
       } = body;
       const verifyBank = verify_bank === true;
       if (verifyBank && !req.user?.userId) {
         throw new ValidationError('verify_bank requires an authenticated user');
+      }
+      if (verifyBank && !kyc_verification_details?.bank) {
+        throw new ValidationError(
+          'verify_bank requires kyc_verification_details.bank from a prior GET /api/v1/kyc/bank/verify call'
+        );
       }
 
       // Validate PAN format
@@ -719,6 +743,7 @@ export class BrokerController {
         },
         broker_details: broker_details ?? undefined,
         bank_details: bank_details ?? undefined,
+        kyc_verification_details,
         type,
         is_active: true,
         created_by: req.user?.userId,
@@ -735,30 +760,32 @@ export class BrokerController {
       }
 
       if (verifyBank && broker.bank_details) {
-        try {
-          await tryVerifyBankAfterSave(broker.id, broker.bank_details, req.user?.userId);
-          const refreshed = await brokerDAO.findById(broker.id);
+        const verifyResult = await tryVerifyBankAfterSave(
+          broker.id,
+          broker.bank_details,
+          parseEntityKycDetails(broker.kyc_verification_details),
+          req.user?.userId
+        );
+        const refreshed = await brokerDAO.findById(broker.id);
+        if (verifyResult.status === 'verified') {
           return ResponseHandler.created(
             res,
             toBrokerResponse(refreshed ?? broker),
             'Broker created from PAN successfully',
             { verification_message: BANK_VERIFY_SUCCESS_MESSAGE }
           );
-        } catch (verifyErr) {
-          const errMsg = verificationErrorFromUnknown(verifyErr);
-          logger.warn('Bank verification failed after PAN broker create (lenient)', {
-            brokerId: broker.id,
-            error: errMsg,
-          });
-          await brokerDAO.setBankVerificationError(broker.id, errMsg);
-          const refreshed = await brokerDAO.findById(broker.id);
-          return ResponseHandler.created(
-            res,
-            toBrokerResponse(refreshed ?? broker),
-            LENIENT_BANK_VERIFY_FAIL_MESSAGE,
-            { verification_error: errMsg }
-          );
         }
+        logger.warn('Bank name mismatch after PAN broker create', {
+          brokerId: broker.id,
+          status: verifyResult.status,
+          error: verifyResult.message,
+        });
+        return ResponseHandler.created(
+          res,
+          toBrokerResponse(refreshed ?? broker),
+          LENIENT_BANK_VERIFY_FAIL_MESSAGE,
+          { verification_error: verifyResult.message, bank_verification_flagged: true }
+        );
       }
 
       return ResponseHandler.created(
@@ -816,6 +843,13 @@ export class BrokerController {
           then: bankDetailsForVerifySchema.required(),
           otherwise: Joi.object().optional(),
         }),
+        kyc_verification_details: Joi.when('verify_bank', {
+          is: true,
+          then: Joi.object({
+            bank: Joi.object().required(),
+          }).required(),
+          otherwise: Joi.object().optional(),
+        }),
       });
 
       const body = validate(quickCreateSchema, req.body) as {
@@ -825,11 +859,25 @@ export class BrokerController {
         broker_details?: CreateBrokerDTO['broker_details'];
         bank_details?: BankDetails;
         verify_bank?: boolean;
+        kyc_verification_details?: CreateBrokerDTO['kyc_verification_details'];
       };
-      const { gst_number, contact_persons, type, broker_details, bank_details, verify_bank } = body;
+      const {
+        gst_number,
+        contact_persons,
+        type,
+        broker_details,
+        bank_details,
+        verify_bank,
+        kyc_verification_details,
+      } = body;
       const verifyBank = verify_bank === true;
       if (verifyBank && !req.user?.userId) {
         throw new ValidationError('verify_bank requires an authenticated user');
+      }
+      if (verifyBank && !kyc_verification_details?.bank) {
+        throw new ValidationError(
+          'verify_bank requires kyc_verification_details.bank from a prior GET /api/v1/kyc/bank/verify call'
+        );
       }
 
       // Validate GST format
@@ -890,6 +938,7 @@ export class BrokerController {
         },
         broker_details: broker_details ?? undefined,
         bank_details: bank_details ?? undefined,
+        kyc_verification_details,
         type,
         is_active: true,
         created_by: req.user?.userId,
@@ -906,30 +955,32 @@ export class BrokerController {
       }
 
       if (verifyBank && broker.bank_details) {
-        try {
-          await tryVerifyBankAfterSave(broker.id, broker.bank_details, req.user?.userId);
-          const refreshed = await brokerDAO.findById(broker.id);
+        const verifyResult = await tryVerifyBankAfterSave(
+          broker.id,
+          broker.bank_details,
+          parseEntityKycDetails(broker.kyc_verification_details),
+          req.user?.userId
+        );
+        const refreshed = await brokerDAO.findById(broker.id);
+        if (verifyResult.status === 'verified') {
           return ResponseHandler.created(
             res,
             toBrokerResponse(refreshed ?? broker),
             'Broker created from GST successfully',
             { verification_message: BANK_VERIFY_SUCCESS_MESSAGE }
           );
-        } catch (verifyErr) {
-          const errMsg = verificationErrorFromUnknown(verifyErr);
-          logger.warn('Bank verification failed after GST broker create (lenient)', {
-            brokerId: broker.id,
-            error: errMsg,
-          });
-          await brokerDAO.setBankVerificationError(broker.id, errMsg);
-          const refreshed = await brokerDAO.findById(broker.id);
-          return ResponseHandler.created(
-            res,
-            toBrokerResponse(refreshed ?? broker),
-            LENIENT_BANK_VERIFY_FAIL_MESSAGE,
-            { verification_error: errMsg }
-          );
         }
+        logger.warn('Bank name mismatch after GST broker create', {
+          brokerId: broker.id,
+          status: verifyResult.status,
+          error: verifyResult.message,
+        });
+        return ResponseHandler.created(
+          res,
+          toBrokerResponse(refreshed ?? broker),
+          LENIENT_BANK_VERIFY_FAIL_MESSAGE,
+          { verification_error: verifyResult.message, bank_verification_flagged: true }
+        );
       }
 
       return ResponseHandler.created(
@@ -943,7 +994,7 @@ export class BrokerController {
   }
 
   /**
-   * Confirms stored bank_details for this broker via Surepass and persists verification metadata.
+   * Confirms stored bank_details against a prior KYC bank verification snapshot.
    * POST after the client has saved account + IFSC on the broker (or uses existing saved values).
    */
   async confirmBankVerification(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
@@ -958,33 +1009,32 @@ export class BrokerController {
         throw new NotFoundError('Broker not found');
       }
 
-      const bd = broker.bank_details;
-      const accountDigits = (bd?.account_number ?? '').replace(/\D/g, '');
-      const ifsc = (bd?.ifsc_code ?? '').trim().toUpperCase();
-
-      if (!bd || accountDigits.length < 9 || accountDigits.length > 18) {
-        throw new ValidationError(
-          'Broker must have a valid bank account number (9–18 digits) in bank_details before confirmation'
-        );
-      }
-      if (!ifsc) {
-        throw new ValidationError('Broker must have IFSC in bank_details before confirmation');
-      }
-
-      const enteredName = bd.account_holder_name?.trim();
-      if (!enteredName) {
+      if (!broker.bank_details?.account_holder_name?.trim()) {
         throw new ValidationError(
           'Broker must have account_holder_name in bank_details before confirmation'
         );
       }
 
-      const envelope = await gstLookupService.verifyBankAccount(accountDigits, ifsc);
-      await kycPersistenceService.saveEntityVerification('broker', id, 'bank', envelope);
-      assertEnteredAccountHolderMatchesBankRecord(enteredName, envelope.mapped.account_holder_name);
+      const verifyResult = await tryVerifyBankAfterSave(
+        id,
+        broker.bank_details,
+        parseEntityKycDetails(broker.kyc_verification_details),
+        req.user.userId
+      );
 
-      const updated = await brokerDAO.markBankDetailsVerified(id, req.user.userId);
+      const updated = await brokerDAO.findById(id);
       if (!updated) {
         throw new NotFoundError('Broker not found');
+      }
+
+      if (verifyResult.status !== 'verified') {
+        return ResponseHandler.success(
+          res,
+          toBrokerResponse(updated),
+          LENIENT_BANK_VERIFY_FAIL_MESSAGE_UPDATE,
+          200,
+          { verification_error: verifyResult.message, bank_verification_flagged: true }
+        );
       }
 
       return ResponseHandler.success(res, toBrokerResponse(updated), 'Bank details verified and saved');

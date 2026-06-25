@@ -31,6 +31,9 @@ export interface BankDetails {
 
 export type VendorType = 'purchaser' | 'seller' | 'both';
 
+/** Registered → GST/PAN; unregistered → Aadhaar (mirrors transporter transport_type). */
+export type VendorRegistrationType = 'registered' | 'unregistered';
+
 export interface Vendor {
   id: string;
   business_name: string;
@@ -41,9 +44,13 @@ export interface Vendor {
   phone: string;
   address: Address;
   business_details: BusinessDetails;
+  aadhar_number: string | null;
+  registration_type: VendorRegistrationType;
   bank_details: BankDetails | null;
   type: VendorType;
   is_active: boolean;
+  is_verified: boolean;
+  verified_at: Date | null;
   user_id: string | null;
   lead_id: string | null;
   created_at: Date;
@@ -66,9 +73,13 @@ export interface CreateVendorDTO {
   contact_persons: ContactPerson[];
   address: Address;
   business_details: BusinessDetails;
+  aadhar_number?: string;
+  registration_type: VendorRegistrationType;
   bank_details?: BankDetails;
   type: VendorType;
   is_active?: boolean;
+  is_verified?: boolean;
+  verified_at?: string | null;
   created_by?: string;
   user_id?: string;
   lead_id?: string;
@@ -85,9 +96,13 @@ export interface UpdateVendorDTO {
   contact_persons?: ContactPerson[];
   address?: Address;
   business_details?: BusinessDetails;
+  aadhar_number?: string;
+  registration_type?: VendorRegistrationType;
   bank_details?: BankDetails;
   type?: VendorType;
   is_active?: boolean;
+  is_verified?: boolean;
+  verified_at?: string | null;
   lead_id?: string;
   updated_by?: string;
   google_location_link?: string;
@@ -103,9 +118,13 @@ export interface VendorResponse {
   contact_persons: ContactPerson[];
   address: Address;
   business_details: BusinessDetails;
+  aadhar_number: string | null;
+  registration_type: VendorRegistrationType;
   bank_details: BankDetails | null;
   type: VendorType;
   is_active: boolean;
+  is_verified: boolean;
+  verified_at: string | null;
   user_id: string | null;
   lead_id: string | null;
   created_at: string;

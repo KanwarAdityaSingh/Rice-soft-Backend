@@ -634,6 +634,7 @@ export class LeadController {
           contact_persons: contactPersons,
           address: lead.address || { street: '', city: '', state: '', pincode: '', country: '' },
           business_details: lead.business_details || { pan_number: '', gst_number: '', industry: '', company_size: '', annual_revenue: 0 },
+          registration_type: 'registered' as const,
           type: 'both' as const, // Default to 'both' for converted leads
           is_active: true,
           created_by: req.user?.userId,

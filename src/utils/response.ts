@@ -9,11 +9,16 @@ export interface ApiResponse<T = any> {
   verification_error?: string;
   /** Present when optional post-steps (e.g. bank verification) succeeded */
   verification_message?: string;
+  /** True when bank account holder name does not match the KYC verification snapshot */
+  bank_verification_flagged?: boolean;
   timestamp: string;
   isSessionValid?: boolean;
 }
 
-export type SuccessResponseExtras = Pick<ApiResponse, 'verification_error' | 'verification_message'>;
+export type SuccessResponseExtras = Pick<
+  ApiResponse,
+  'verification_error' | 'verification_message' | 'bank_verification_flagged'
+>;
 
 export class ResponseHandler {
   static success<T>(
