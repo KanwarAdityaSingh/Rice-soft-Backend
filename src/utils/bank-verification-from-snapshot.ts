@@ -17,6 +17,9 @@ export interface BankSnapshotVerificationResult {
   message?: string;
   bank_account_holder_name?: string;
   entered_account_holder_name?: string;
+  /** Set when verified via OpenAI name similarity (score >= threshold). */
+  name_similarity_score?: number;
+  verification_method?: 'exact' | 'llm_similarity';
 }
 
 function accountDigits(value: string | undefined | null): string {
@@ -125,5 +128,10 @@ export function compareBankDetailsWithKycSnapshot(
     };
   }
 
-  return { status: 'verified' };
+  return {
+    status: 'verified',
+    verification_method: 'exact',
+    bank_account_holder_name: bankHolderName,
+    entered_account_holder_name: enteredName,
+  };
 }

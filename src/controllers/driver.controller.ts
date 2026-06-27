@@ -11,9 +11,11 @@ import {
 } from '../utils/validators';
 import { NotFoundError, ConflictError, ValidationError } from '../utils/errors';
 import { CreateDriverDTO, DriverResponse, UpdateDriverDTO } from '../models/driver.model';
+import { resolveTransportDoeForCreate } from '../utils/driver-license';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { gstLookupService } from '../services/gst-lookup.service';
 import { kycPersistenceService } from '../services/kyc-persistence.service';
+import { parseLicenseOcrUpload, drivingLicenseOcrPayload } from '../utils/license-ocr-request';
 
 function dateOnlyFromDb(value: Date | string | null | undefined): string | null {
   if (value == null) {
@@ -32,6 +34,10 @@ function toResponse(driver: {
   name: string | null;
   date_of_birth: Date | string | null;
   license_expires_at: Date | string | null;
+  transport_license_expires_at?: Date | string | null;
+  father_or_husband_name?: string | null;
+  state?: string | null;
+  city_name?: string | null;
   address: string | null;
   pincode: string | null;
   gender: string | null;
@@ -45,6 +51,7 @@ function toResponse(driver: {
   updated_at: Date;
 }): DriverResponse {
   const licenseExpiresAt = dateOnlyFromDb(driver.license_expires_at);
+  const transportExpiresAt = dateOnlyFromDb(driver.transport_license_expires_at ?? null);
   return {
     id: driver.id,
     license_number: driver.license_number,
@@ -53,6 +60,11 @@ function toResponse(driver: {
     date_of_birth: dateOnlyFromDb(driver.date_of_birth),
     license_expires_at: licenseExpiresAt,
     doe: licenseExpiresAt,
+    transport_license_expires_at: transportExpiresAt,
+    transport_doe: transportExpiresAt,
+    father_or_husband_name: driver.father_or_husband_name ?? null,
+    state: driver.state ?? null,
+    city_name: driver.city_name ?? null,
     address: driver.address,
     pincode: driver.pincode,
     gender: driver.gender,
@@ -64,6 +76,16 @@ function toResponse(driver: {
     is_active: driver.is_active,
     created_at: driver.created_at.toISOString(),
     updated_at: driver.updated_at.toISOString(),
+  };
+}
+
+function driverLicenseVerifyPayload(
+  mapped: Awaited<ReturnType<typeof gstLookupService.verifyDrivingLicense>>['mapped']
+) {
+  return {
+    ...mapped,
+    doe: mapped.date_of_expiry || null,
+    transport_doe: mapped.transport_date_of_expiry || null,
   };
 }
 
@@ -159,11 +181,59 @@ export class DriverController {
       return ResponseHandler.success(
         res,
         {
-          ...envelope.mapped,
+          ...driverLicenseVerifyPayload(envelope.mapped),
           surepass_response: envelope.raw,
           driver,
         },
         driver ? 'Driver verified and updated successfully' : 'Driving licence verified successfully'
+      );
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async ocrDriver(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const { front, back, usePdf } = parseLicenseOcrUpload(req);
+      const driverId = typeof req.body?.driver_id === 'string' ? req.body.driver_id.trim() : undefined;
+
+      const envelope = await gstLookupService.ocrDrivingLicense({ front, back, usePdf });
+
+      let driver: DriverResponse | null = null;
+      if (driverId) {
+        validate<string>(uuidSchema, driverId);
+        const existing = await driverDAO.findById(driverId);
+        if (!existing) {
+          throw new NotFoundError('Driver not found');
+        }
+
+        const taken = await driverDAO.licenseNumberExists(envelope.mapped.license_number, driverId);
+        if (taken) {
+          throw new ConflictError('Driving license number already exists');
+        }
+
+        const updated = await driverDAO.update(driverId, {
+          license_number: envelope.mapped.license_number,
+          name: envelope.mapped.full_name,
+          date_of_birth: envelope.mapped.date_of_birth || undefined,
+          address: envelope.mapped.address || undefined,
+          pincode: envelope.mapped.pincode || undefined,
+          state: envelope.mapped.state || undefined,
+          updated_by: req.user?.userId,
+        });
+        driver = updated ? toResponse(updated) : null;
+      }
+
+      return ResponseHandler.success(
+        res,
+        {
+          ...drivingLicenseOcrPayload(envelope.mapped),
+          surepass_response: envelope.raw,
+          driver,
+        },
+        driver
+          ? 'Driving licence scanned and driver updated successfully'
+          : 'Driving licence scanned successfully'
       );
     } catch (error) {
       next(error);
@@ -209,7 +279,7 @@ export class DriverController {
       return ResponseHandler.success(
         res,
         {
-          ...envelope.mapped,
+          ...driverLicenseVerifyPayload(envelope.mapped),
           surepass_response: envelope.raw,
           driver: toResponse(updated),
         },
@@ -233,8 +303,29 @@ export class DriverController {
         body.created_by = req.user.userId;
       }
 
+      const transportDoe = resolveTransportDoeForCreate(body);
+      let createExtras: { verification_error?: string; transport_doe_not_found?: boolean } | undefined;
+
+      if (!transportDoe) {
+        createExtras = {
+          verification_error: 'Transport DOE not found',
+          transport_doe_not_found: true,
+        };
+      } else if (!transportDoe.parsed) {
+        throw new ValidationError(
+          `transport_doe "${transportDoe.raw}" is not a valid date format (expected YYYY-MM-DD).`
+        );
+      } else {
+        body.transport_license_expires_at = transportDoe.parsed;
+      }
+
       const created = await driverDAO.create(body);
-      return ResponseHandler.created(res, toResponse(created), 'Driver created successfully');
+      return ResponseHandler.created(
+        res,
+        toResponse(created),
+        'Driver created successfully',
+        createExtras
+      );
     } catch (error) {
       next(error);
     }

@@ -9,6 +9,7 @@ import {
   normalizeDrivingLicenseForStorage,
   normalizeDriverDobForSurepass,
   parseDrivingLicenseExpiryDate,
+  parseTransportLicenseExpiryDate,
 } from '../utils/driver-license';
 
 /**
@@ -425,6 +426,173 @@ export interface SurepassDLVerificationResponse {
   };
 }
 
+export interface SurepassLicenseOcrResponse {
+  success: boolean;
+  status_code: number;
+  message: string | null;
+  message_code?: string;
+  data?: {
+    client_id?: string;
+    license_number?: string;
+    dob?: string;
+    address?: string;
+    name?: string;
+    [key: string]: unknown;
+  };
+}
+
+/** Normalized OCR output from Surepass licence-v2 (image/PDF scan). */
+export interface DrivingLicenseOcrResult {
+  client_id?: string;
+  license_number: string;
+  full_name: string;
+  date_of_birth: string;
+  address: string;
+  pincode: string | null;
+  state: string | null;
+}
+
+export interface SurepassOcrConfidenceValue {
+  value: string | null;
+  confidence?: number | null;
+  is_masked?: boolean;
+}
+
+export interface SurepassGstOcrResponse {
+  success: boolean;
+  status_code: number;
+  message: string | null;
+  message_code?: string;
+  data?: {
+    client_id?: string;
+    ocr_fields?: Array<{
+      document_type?: string;
+      gstin?: SurepassOcrConfidenceValue;
+      standard_document?: boolean;
+      [key: string]: unknown;
+    }>;
+    [key: string]: unknown;
+  };
+}
+
+export interface GstOcrResult {
+  client_id?: string;
+  gstin: string;
+  confidence: number | null;
+  document_type: string | null;
+  standard_document: boolean | null;
+}
+
+export interface SurepassPanOcrResponse {
+  success: boolean;
+  status_code: number;
+  message: string | null;
+  message_code?: string;
+  data?: {
+    client_id?: string;
+    ocr_fields?: Array<{
+      document_type?: string;
+      pan_number?: SurepassOcrConfidenceValue;
+      full_name?: SurepassOcrConfidenceValue;
+      father_name?: SurepassOcrConfidenceValue;
+      dob?: SurepassOcrConfidenceValue;
+      [key: string]: unknown;
+    }>;
+    [key: string]: unknown;
+  };
+}
+
+export interface PanOcrResult {
+  client_id?: string;
+  pan_number: string;
+  full_name: string;
+  father_name: string | null;
+  date_of_birth: string | null;
+  confidences?: {
+    pan_number?: number | null;
+    full_name?: number | null;
+    father_name?: number | null;
+    dob?: number | null;
+  };
+}
+
+export interface SurepassAadhaarOcrResponse {
+  success: boolean;
+  status_code: number;
+  message: string | null;
+  message_code?: string;
+  data?: {
+    client_id?: string;
+    ocr_fields?: Array<{
+      document_type?: string;
+      full_name?: SurepassOcrConfidenceValue;
+      gender?: SurepassOcrConfidenceValue;
+      mother_name?: SurepassOcrConfidenceValue;
+      dob?: SurepassOcrConfidenceValue;
+      aadhaar_number?: SurepassOcrConfidenceValue;
+      [key: string]: unknown;
+    }>;
+    [key: string]: unknown;
+  };
+}
+
+export interface AadhaarOcrResult {
+  client_id?: string;
+  aadhaar_number: string;
+  full_name: string;
+  gender: string | null;
+  mother_name: string | null;
+  date_of_birth: string | null;
+  is_masked: boolean;
+  document_type: string | null;
+  confidences?: {
+    aadhaar_number?: number | null;
+    full_name?: number | null;
+    gender?: number | null;
+    mother_name?: number | null;
+    dob?: number | null;
+  };
+}
+
+export interface SurepassVehicleRcOcrResponse {
+  success: boolean;
+  status_code: number;
+  message: string | null;
+  message_code?: string;
+  data?: {
+    client_id?: string;
+    registration_number?: string;
+    chassis_number?: string | null;
+    engine_number?: string | null;
+    owner_name?: string | null;
+    relative?: string | null;
+    address?: string | null;
+    fuel_used?: string | null;
+    date_of_registration?: string | null;
+    registration_validity?: string | null;
+    owner_sr_no?: string | null;
+    state?: string | null;
+    vehicle_weight?: string | null;
+    [key: string]: unknown;
+  };
+}
+
+export interface VehicleRcOcrResult {
+  client_id?: string;
+  registration_number: string;
+  chassis_number: string | null;
+  engine_number: string | null;
+  owner_name: string | null;
+  relative: string | null;
+  address: string | null;
+  fuel_used: string | null;
+  date_of_registration: string | null;
+  registration_validity: string | null;
+  owner_sr_no: string | null;
+  state: string | null;
+  vehicle_weight: string | null;
+}
+
 /**
  * MastersIndia Auth Token Response Interface
  */
@@ -552,6 +720,79 @@ export class GSTLookupService {
 
     return apiResponse;
   }
+
+  private static async callSurepassMultipart<TData>(
+    url: string,
+    formData: FormData,
+    logLabel: string
+  ): Promise<SurepassApiResponse<TData>> {
+    const token = this.getSurepassToken();
+    logger.debug(`Calling Surepass ${logLabel}`, { url });
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      body: formData,
+    });
+
+    const responseText = await response.text();
+    let apiResponse: SurepassApiResponse<TData> | null = null;
+
+    if (responseText) {
+      try {
+        apiResponse = JSON.parse(responseText) as SurepassApiResponse<TData>;
+      } catch {
+        logger.error(`Surepass ${logLabel} non-JSON response`, {
+          status: response.status,
+          statusText: response.statusText,
+          error: responseText,
+        });
+        throw new BadRequestError(`${logLabel} failed: ${response.statusText}`);
+      }
+    }
+
+    if (!response.ok || !apiResponse || apiResponse.status_code !== 200 || apiResponse.success !== true) {
+      logger.warn(`Surepass ${logLabel} returned error`, {
+        httpStatus: response.status,
+        status_code: apiResponse?.status_code,
+        message: apiResponse?.message,
+        success: apiResponse?.success,
+      });
+      throw new BadRequestError(apiResponse?.message || `${logLabel} failed: ${response.statusText}`);
+    }
+
+    return apiResponse;
+  }
+
+  private static buildSurepassDocumentOcrFormData(
+    file: Express.Multer.File,
+    options?: { usePdf?: boolean }
+  ): FormData {
+    if (!file.buffer?.length) {
+      throw new ValidationError('file is required');
+    }
+
+    const formData = new FormData();
+    formData.append(
+      'file',
+      new Blob([file.buffer], { type: file.mimetype }),
+      file.originalname || 'document.jpg'
+    );
+
+    if (options?.usePdf !== undefined) {
+      formData.append('use_pdf', options.usePdf ? 'true' : '');
+    }
+
+    return formData;
+  }
+
+  private static ocrFieldText(field: SurepassOcrConfidenceValue | undefined): string | null {
+    const value = field?.value?.trim();
+    return value ? value : null;
+  }
+
   /**
    * Validate GST Number Format
    * Format: 15 characters - 2 digits (state code) + 10 chars (PAN) + 1 char (entity number) + 1 char (Z) + 1 char (checksum)
@@ -1544,6 +1785,368 @@ export class GSTLookupService {
   }
 
   /**
+   * Extract driving licence fields from front/back images via Surepass OCR (license-v2).
+   */
+  static async ocrDrivingLicense(input: {
+    front: Express.Multer.File;
+    back?: Express.Multer.File;
+    usePdf?: boolean;
+  }): Promise<SurepassApiEnvelope<DrivingLicenseOcrResult>> {
+    if (!input.front?.buffer?.length) {
+      throw new ValidationError('front image is required');
+    }
+
+    const formData = new FormData();
+    formData.append(
+      'front',
+      new Blob([input.front.buffer], { type: input.front.mimetype }),
+      input.front.originalname || 'front.jpg'
+    );
+
+    if (input.back?.buffer?.length) {
+      formData.append(
+        'back',
+        new Blob([input.back.buffer], { type: input.back.mimetype }),
+        input.back.originalname || 'back.jpg'
+      );
+    }
+
+    formData.append('use_pdf', input.usePdf ? 'true' : '');
+
+    logger.info('Scanning driving licence via Surepass OCR');
+
+    try {
+      const config = appConfig.apis.surepass;
+      const raw = await this.callSurepassMultipart<NonNullable<SurepassLicenseOcrResponse['data']>>(
+        config.licenseOcrUrl,
+        formData,
+        'Driving License OCR'
+      );
+
+      if (!raw.data) {
+        throw new BadRequestError('No driving licence data returned from OCR');
+      }
+
+      const mapped = GSTLookupService.mapSurepassLicenseOcrData(raw.data);
+
+      if (!mapped.license_number?.trim()) {
+        throw new BadRequestError('Licence number not found in OCR response');
+      }
+      if (!mapped.full_name?.trim()) {
+        throw new BadRequestError('Holder name not found in OCR response');
+      }
+
+      logger.info('Driving licence OCR completed', {
+        licenseNumber: mapped.license_number,
+        fullName: mapped.full_name,
+      });
+
+      return { mapped, raw };
+    } catch (error) {
+      if (error instanceof ValidationError || error instanceof BadRequestError) {
+        throw error;
+      }
+      logger.error('Error during driving licence OCR', { error });
+      throw new InternalServerError('Failed to scan driving licence');
+    }
+  }
+
+  private static mapSurepassLicenseOcrData(
+    data: NonNullable<SurepassLicenseOcrResponse['data']>
+  ): DrivingLicenseOcrResult {
+    const licenseRaw = (data.license_number as string | undefined) || '';
+    const license_number = normalizeDrivingLicenseForStorage(licenseRaw);
+    const full_name = ((data.name as string | undefined) || '').trim().toUpperCase();
+    const date_of_birth = normalizeDriverDobForSurepass(data.dob as string | undefined) || '';
+    const address = ((data.address as string | undefined) || '').trim();
+
+    const pincodeMatch = address.match(/\b(\d{6})\b/);
+    const pincode = pincodeMatch ? pincodeMatch[1] : null;
+    const stateMatch = address.match(/\b([A-Z]{2})\s+\d{6}\b/);
+    const state = stateMatch ? stateMatch[1] : null;
+
+    return {
+      client_id: data.client_id as string | undefined,
+      license_number,
+      full_name,
+      date_of_birth,
+      address,
+      pincode,
+      state,
+    };
+  }
+
+  /**
+   * Extract GSTIN from a GST certificate/image via Surepass OCR.
+   */
+  static async ocrGst(input: {
+    file: Express.Multer.File;
+  }): Promise<SurepassApiEnvelope<GstOcrResult>> {
+    const formData = this.buildSurepassDocumentOcrFormData(input.file);
+    logger.info('Scanning GST document via Surepass OCR');
+
+    try {
+      const config = appConfig.apis.surepass;
+      const raw = await this.callSurepassMultipart<NonNullable<SurepassGstOcrResponse['data']>>(
+        config.gstOcrUrl,
+        formData,
+        'GST OCR'
+      );
+
+      if (!raw.data) {
+        throw new BadRequestError('No GST data returned from OCR');
+      }
+
+      const mapped = GSTLookupService.mapSurepassGstOcrData(raw.data);
+      if (!mapped.gstin) {
+        throw new BadRequestError('GSTIN not found in OCR response');
+      }
+
+      logger.info('GST OCR completed', { gstin: mapped.gstin });
+      return { mapped, raw };
+    } catch (error) {
+      if (error instanceof ValidationError || error instanceof BadRequestError) {
+        throw error;
+      }
+      logger.error('Error during GST OCR', { error });
+      throw new InternalServerError('Failed to scan GST document');
+    }
+  }
+
+  /**
+   * Extract PAN fields from a PAN card image/PDF via Surepass OCR.
+   */
+  static async ocrPan(input: {
+    file: Express.Multer.File;
+    usePdf?: boolean;
+  }): Promise<SurepassApiEnvelope<PanOcrResult>> {
+    const formData = this.buildSurepassDocumentOcrFormData(input.file, { usePdf: input.usePdf });
+    logger.info('Scanning PAN document via Surepass OCR');
+
+    try {
+      const config = appConfig.apis.surepass;
+      const raw = await this.callSurepassMultipart<NonNullable<SurepassPanOcrResponse['data']>>(
+        config.panOcrUrl,
+        formData,
+        'PAN OCR'
+      );
+
+      if (!raw.data) {
+        throw new BadRequestError('No PAN data returned from OCR');
+      }
+
+      const mapped = GSTLookupService.mapSurepassPanOcrData(raw.data);
+      if (!mapped.pan_number) {
+        throw new BadRequestError('PAN number not found in OCR response');
+      }
+      if (!mapped.full_name) {
+        throw new BadRequestError('Holder name not found in OCR response');
+      }
+
+      logger.info('PAN OCR completed', { panNumber: mapped.pan_number, fullName: mapped.full_name });
+      return { mapped, raw };
+    } catch (error) {
+      if (error instanceof ValidationError || error instanceof BadRequestError) {
+        throw error;
+      }
+      logger.error('Error during PAN OCR', { error });
+      throw new InternalServerError('Failed to scan PAN document');
+    }
+  }
+
+  /**
+   * Extract Aadhaar fields from an Aadhaar card image via Surepass OCR.
+   */
+  static async ocrAadhaar(input: {
+    file: Express.Multer.File;
+  }): Promise<SurepassApiEnvelope<AadhaarOcrResult>> {
+    const formData = this.buildSurepassDocumentOcrFormData(input.file);
+    logger.info('Scanning Aadhaar document via Surepass OCR');
+
+    try {
+      const config = appConfig.apis.surepass;
+      const raw = await this.callSurepassMultipart<NonNullable<SurepassAadhaarOcrResponse['data']>>(
+        config.aadhaarOcrUrl,
+        formData,
+        'Aadhaar OCR'
+      );
+
+      if (!raw.data) {
+        throw new BadRequestError('No Aadhaar data returned from OCR');
+      }
+
+      const mapped = GSTLookupService.mapSurepassAadhaarOcrData(raw.data);
+      if (!mapped.aadhaar_number) {
+        throw new BadRequestError('Aadhaar number not found in OCR response');
+      }
+      if (!mapped.full_name) {
+        throw new BadRequestError('Holder name not found in OCR response');
+      }
+
+      logger.info('Aadhaar OCR completed', {
+        aadhaarNumber: mapped.aadhaar_number.substring(0, 4) + '********',
+        fullName: mapped.full_name,
+      });
+      return { mapped, raw };
+    } catch (error) {
+      if (error instanceof ValidationError || error instanceof BadRequestError) {
+        throw error;
+      }
+      logger.error('Error during Aadhaar OCR', { error });
+      throw new InternalServerError('Failed to scan Aadhaar document');
+    }
+  }
+
+  /**
+   * Extract vehicle RC fields from an RC image via Surepass OCR.
+   */
+  static async ocrVehicleRc(input: {
+    file: Express.Multer.File;
+  }): Promise<SurepassApiEnvelope<VehicleRcOcrResult>> {
+    const formData = this.buildSurepassDocumentOcrFormData(input.file);
+    logger.info('Scanning vehicle RC via Surepass OCR');
+
+    try {
+      const config = appConfig.apis.surepass;
+      const raw = await this.callSurepassMultipart<NonNullable<SurepassVehicleRcOcrResponse['data']>>(
+        config.vehicleRcOcrUrl,
+        formData,
+        'Vehicle RC OCR'
+      );
+
+      if (!raw.data) {
+        throw new BadRequestError('No vehicle RC data returned from OCR');
+      }
+
+      const mapped = GSTLookupService.mapSurepassVehicleRcOcrData(raw.data);
+      if (!mapped.registration_number) {
+        throw new BadRequestError('Registration number not found in OCR response');
+      }
+
+      logger.info('Vehicle RC OCR completed', {
+        registrationNumber: mapped.registration_number,
+        ownerName: mapped.owner_name,
+      });
+      return { mapped, raw };
+    } catch (error) {
+      if (error instanceof ValidationError || error instanceof BadRequestError) {
+        throw error;
+      }
+      logger.error('Error during vehicle RC OCR', { error });
+      throw new InternalServerError('Failed to scan vehicle RC');
+    }
+  }
+
+  private static mapSurepassGstOcrData(
+    data: NonNullable<SurepassGstOcrResponse['data']>
+  ): GstOcrResult {
+    const field =
+      data.ocr_fields?.find((item) => this.ocrFieldText(item.gstin)) ??
+      data.ocr_fields?.[0];
+
+    const gstinRaw = this.ocrFieldText(field?.gstin) || '';
+    const gstin = gstinRaw.trim().toUpperCase();
+
+    return {
+      client_id: data.client_id as string | undefined,
+      gstin,
+      confidence: field?.gstin?.confidence ?? null,
+      document_type: (field?.document_type as string | undefined)?.trim() || null,
+      standard_document:
+        typeof field?.standard_document === 'boolean' ? field.standard_document : null,
+    };
+  }
+
+  private static mapSurepassPanOcrData(
+    data: NonNullable<SurepassPanOcrResponse['data']>
+  ): PanOcrResult {
+    const field =
+      data.ocr_fields?.find((item) => this.ocrFieldText(item.pan_number)) ??
+      data.ocr_fields?.[0];
+
+    const pan_number = (this.ocrFieldText(field?.pan_number) || '').trim().toUpperCase();
+    const full_name = (this.ocrFieldText(field?.full_name) || '').trim().toUpperCase();
+    const father_name = this.ocrFieldText(field?.father_name);
+    const date_of_birth = normalizeDriverDobForSurepass(this.ocrFieldText(field?.dob) || undefined);
+
+    return {
+      client_id: data.client_id as string | undefined,
+      pan_number,
+      full_name,
+      father_name,
+      date_of_birth,
+      confidences: {
+        pan_number: field?.pan_number?.confidence ?? null,
+        full_name: field?.full_name?.confidence ?? null,
+        father_name: field?.father_name?.confidence ?? null,
+        dob: field?.dob?.confidence ?? null,
+      },
+    };
+  }
+
+  private static mapSurepassAadhaarOcrData(
+    data: NonNullable<SurepassAadhaarOcrResponse['data']>
+  ): AadhaarOcrResult {
+    const field =
+      data.ocr_fields?.find((item) => this.ocrFieldText(item.aadhaar_number)) ??
+      data.ocr_fields?.[0];
+
+    const aadhaarRaw = (this.ocrFieldText(field?.aadhaar_number) || '').replace(/\s/g, '');
+    const full_name = (this.ocrFieldText(field?.full_name) || '').trim().toUpperCase();
+    const gender = this.ocrFieldText(field?.gender);
+    const mother_name = this.ocrFieldText(field?.mother_name);
+    const date_of_birth = normalizeDriverDobForSurepass(this.ocrFieldText(field?.dob) || undefined);
+
+    return {
+      client_id: data.client_id as string | undefined,
+      aadhaar_number: aadhaarRaw,
+      full_name,
+      gender,
+      mother_name,
+      date_of_birth,
+      is_masked: field?.aadhaar_number?.is_masked === true,
+      document_type: (field?.document_type as string | undefined)?.trim() || null,
+      confidences: {
+        aadhaar_number: field?.aadhaar_number?.confidence ?? null,
+        full_name: field?.full_name?.confidence ?? null,
+        gender: field?.gender?.confidence ?? null,
+        mother_name: field?.mother_name?.confidence ?? null,
+        dob: field?.dob?.confidence ?? null,
+      },
+    };
+  }
+
+  private static mapSurepassVehicleRcOcrData(
+    data: NonNullable<SurepassVehicleRcOcrResponse['data']>
+  ): VehicleRcOcrResult {
+    const registrationRaw = (data.registration_number as string | undefined) || '';
+    const registration_number = registrationRaw.trim()
+      ? normalizeVehicleNumber(registrationRaw)
+      : '';
+
+    return {
+      client_id: data.client_id as string | undefined,
+      registration_number,
+      chassis_number: ((data.chassis_number as string | undefined) || '').trim() || null,
+      engine_number: ((data.engine_number as string | undefined) || '').trim() || null,
+      owner_name: ((data.owner_name as string | undefined) || '').trim().toUpperCase() || null,
+      relative: ((data.relative as string | undefined) || '').trim() || null,
+      address: ((data.address as string | undefined) || '').trim() || null,
+      fuel_used: ((data.fuel_used as string | undefined) || '').trim().toUpperCase() || null,
+      date_of_registration:
+        ((data.date_of_registration as string | undefined) || '').trim() || null,
+      registration_validity:
+        ((data.registration_validity as string | undefined) || '').trim() || null,
+      owner_sr_no: ((data.owner_sr_no as string | undefined) || '').trim() || null,
+      state: ((data.state as string | undefined) || '').trim() || null,
+      vehicle_weight:
+        data.vehicle_weight === null || data.vehicle_weight === undefined
+          ? null
+          : String(data.vehicle_weight).trim() || null,
+    };
+  }
+
+  /**
    * Verify Indian driving licence via Surepass API (does not persist a driver record).
    */
   static async verifyDrivingLicense(
@@ -1693,12 +2296,18 @@ export class GSTLookupService {
       address,
       pincode,
       state: (data.state as string | undefined)?.trim() || null,
+      city_name:
+        (data.city_name as string | undefined)?.trim() ||
+        (data.ola_name as string | undefined)?.trim() ||
+        null,
       gender: (data.gender as string | undefined)?.trim() || null,
       blood_group: (data.blood_group as string | undefined)?.trim() || null,
       vehicle_classes: vehicleClasses,
       father_or_husband_name: (data.father_or_husband_name as string | undefined)?.trim() || null,
       date_of_issue: (data.doi as string | undefined)?.trim() || null,
-      transport_date_of_expiry: parseDrivingLicenseExpiryDate(data.transport_doe as string | undefined),
+      transport_date_of_expiry: parseTransportLicenseExpiryDate(
+        data.transport_doe as string | undefined
+      ),
       profile_image: (data.profile_image as string | undefined) || null,
       has_image: data.has_image === true,
       ola_name: (data.ola_name as string | undefined)?.trim() || null,

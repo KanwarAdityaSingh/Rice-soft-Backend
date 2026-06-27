@@ -857,6 +857,7 @@ async function run() {
         gst_number: uniqueSalesGst,
         pan_number: uniqueSalesPan,
       },
+      registration_type: 'registered',
     },
     201
   );

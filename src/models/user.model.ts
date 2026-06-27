@@ -21,6 +21,10 @@ export interface User {
   updated_by: string | null;
   custom_permissions?: CustomPermissions | null;
   active_session_id?: string | null;
+  refresh_token_hash?: string | null;
+  refresh_token_expires_at?: Date | null;
+  previous_refresh_token_hash?: string | null;
+  previous_refresh_token_valid_until?: Date | null;
 }
 
 export interface CreateUserDTO {
@@ -67,7 +71,14 @@ export interface LoginResponse {
   user: UserResponse;
   token: string;
   expires_in: string;
+  refresh_expires_in: string;
   permissions: CustomPermissions | null;
+}
+
+export interface RefreshTokenResponse {
+  token: string;
+  expires_in: string;
+  refresh_expires_in: string;
 }
 
 export interface UserWithEntityResponse {

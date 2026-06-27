@@ -37,25 +37,21 @@ export const authenticate = async (
 
     req.user = payload;
 
-    // Validate session - check if session ID in token matches active session in DB
     const tokenSessionId = payload.sessionId;
-    
     if (!tokenSessionId) {
-      // Old token without session ID - mark as invalid
-      req.isSessionValid = false;
-      logger.warn('Token missing session ID', { userId: payload.userId });
-    } else if (user.active_session_id !== tokenSessionId) {
-      // Session ID mismatch - user logged in from another device
-      req.isSessionValid = false;
-      logger.info('Session invalidated - user logged in from another device', {
+      throw new UnauthorizedError('Session expired. Please log in again.');
+    }
+
+    if (user.active_session_id !== tokenSessionId) {
+      logger.info('Session invalidated — user logged in elsewhere or session revoked', {
         userId: payload.userId,
         tokenSessionId,
         activeSessionId: user.active_session_id,
       });
-    } else {
-      // Session is valid
-      req.isSessionValid = true;
+      throw new UnauthorizedError('Session expired. Please log in again.');
     }
+
+    req.isSessionValid = true;
 
     next();
   } catch (error) {

@@ -7,11 +7,12 @@ import {
   DriverVerificationSnapshot,
 } from '../models/driver.model';
 import { logger } from '../utils/logger';
-import { normalizeDrivingLicenseForStorage, driverProfileFromMapped } from '../utils/driver-license';
+import { normalizeDrivingLicenseForStorage, driverProfileFromMapped, parseTransportLicenseExpiryDate } from '../utils/driver-license';
 
 const SELECT_COLUMNS = `
-  id, license_number, phone, name, date_of_birth, license_expires_at, address,
-  pincode, gender, profile_image, vehicle_classes,
+  id, license_number, phone, name, date_of_birth, license_expires_at,
+  transport_license_expires_at, father_or_husband_name, state, city_name,
+  address, pincode, gender, profile_image, vehicle_classes,
   is_verified, verified_at, verification_details,
   is_active, created_at, updated_at, created_by, updated_by
 `;
@@ -48,6 +49,15 @@ function resolveLicenseExpiry(data: {
   doe?: string | null;
 }): string | null {
   return toPgDate(data.license_expires_at ?? data.doe ?? null);
+}
+
+function resolveTransportLicenseExpiry(data: {
+  transport_license_expires_at?: string | null;
+  transport_doe?: string | null;
+}): string | null {
+  return parseTransportLicenseExpiryDate(
+    data.transport_license_expires_at ?? data.transport_doe ?? null
+  );
 }
 
 function profileFromVerificationDetails(
@@ -113,7 +123,7 @@ export class DriverDAO {
 
   async licenseNumberExists(licenseNumber: string, excludeId?: string): Promise<boolean> {
     const normalized = normalizeDrivingLicenseForStorage(licenseNumber);
-    let query = `SELECT EXISTS(SELECT 1 FROM drivers WHERE license_number = $1`;
+    let query = `SELECT EXISTS(SELECT 1 FROM drivers WHERE license_number = $1 AND is_active = true`;
     const params: unknown[] = [normalized];
     if (excludeId) {
       query += ` AND id != $2`;
@@ -130,22 +140,25 @@ export class DriverDAO {
 
     const query = `
       INSERT INTO drivers (
-        license_number, phone, name, date_of_birth, license_expires_at, address,
-        pincode, gender, profile_image, vehicle_classes,
+        license_number, phone, name, date_of_birth, license_expires_at,
+        transport_license_expires_at, father_or_husband_name, state, city_name,
+        address, pincode, gender, profile_image, vehicle_classes,
         is_verified, verified_at, verification_details,
         is_active, created_by
       )
       VALUES (
         $1, $2, $3,
-        $4::date, $5::date, $6,
-        $7, $8, $9, $10,
-        $11, $12, $13::jsonb,
-        $14, $15
+        $4::date, $5::date, $6::date, $7, $8, $9,
+        $10, $11, $12, $13, $14,
+        $15, $16, $17::jsonb,
+        $18, $19
       )
       RETURNING ${SELECT_COLUMNS}
     `;
     const dob = toPgDate(data.date_of_birth ?? fromMapped.date_of_birth);
     const exp = resolveLicenseExpiry(data) ?? fromMapped.license_expires_at;
+    const transportExp =
+      resolveTransportLicenseExpiry(data) ?? fromMapped.transport_license_expires_at;
     const isVerified =
       data.is_verified !== undefined
         ? data.is_verified
@@ -157,6 +170,10 @@ export class DriverDAO {
       data.name?.trim() || fromMapped.name,
       dob,
       exp,
+      transportExp,
+      data.father_or_husband_name?.trim() || fromMapped.father_or_husband_name,
+      data.state?.trim() || fromMapped.state,
+      data.city_name?.trim() || fromMapped.city_name,
       data.address?.trim() || fromMapped.address,
       data.pincode?.trim() || fromMapped.pincode,
       data.gender?.trim() || fromMapped.gender,
@@ -206,6 +223,22 @@ export class DriverDAO {
       fields.push(`license_expires_at = $${paramCount++}::date`);
       values.push(resolveLicenseExpiry(data));
     }
+    if (data.transport_license_expires_at !== undefined || data.transport_doe !== undefined) {
+      fields.push(`transport_license_expires_at = $${paramCount++}::date`);
+      values.push(resolveTransportLicenseExpiry(data));
+    }
+    if (data.father_or_husband_name !== undefined) {
+      fields.push(`father_or_husband_name = $${paramCount++}`);
+      values.push(data.father_or_husband_name?.trim() || null);
+    }
+    if (data.state !== undefined) {
+      fields.push(`state = $${paramCount++}`);
+      values.push(data.state?.trim() || null);
+    }
+    if (data.city_name !== undefined) {
+      fields.push(`city_name = $${paramCount++}`);
+      values.push(data.city_name?.trim() || null);
+    }
     if (data.address !== undefined) {
       fields.push(`address = $${paramCount++}`);
       values.push(data.address?.trim() || null);
@@ -254,6 +287,11 @@ export class DriverDAO {
         data.date_of_birth === undefined ||
         data.license_expires_at === undefined ||
         data.doe === undefined ||
+        data.transport_license_expires_at === undefined ||
+        data.transport_doe === undefined ||
+        data.father_or_husband_name === undefined ||
+        data.state === undefined ||
+        data.city_name === undefined ||
         data.address === undefined ||
         data.pincode === undefined ||
         data.gender === undefined ||
@@ -276,6 +314,26 @@ export class DriverDAO {
         ) {
           fields.push(`license_expires_at = $${paramCount++}::date`);
           values.push(fromMapped.license_expires_at);
+        }
+        if (
+          data.transport_license_expires_at === undefined &&
+          data.transport_doe === undefined &&
+          fromMapped.transport_license_expires_at
+        ) {
+          fields.push(`transport_license_expires_at = $${paramCount++}::date`);
+          values.push(fromMapped.transport_license_expires_at);
+        }
+        if (data.father_or_husband_name === undefined && fromMapped.father_or_husband_name) {
+          fields.push(`father_or_husband_name = $${paramCount++}`);
+          values.push(fromMapped.father_or_husband_name);
+        }
+        if (data.state === undefined && fromMapped.state) {
+          fields.push(`state = $${paramCount++}`);
+          values.push(fromMapped.state);
+        }
+        if (data.city_name === undefined && fromMapped.city_name) {
+          fields.push(`city_name = $${paramCount++}`);
+          values.push(fromMapped.city_name);
         }
         if (data.address === undefined && fromMapped.address) {
           fields.push(`address = $${paramCount++}`);

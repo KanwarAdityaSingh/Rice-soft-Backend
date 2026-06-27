@@ -1,0 +1,412 @@
+===================================================================================
+KAANTA AI SLIP EXTRACTION — FRONTEND INTEGRATION GUIDE
+===================================================================================
+
+This guide covers uploading a combined kaanta parchi photo, AI extraction of
+weights (Gross / Tare / Net), optional ticket number storage, vehicle mismatch
+flagging against the Inward Slip Pass (ISP), and persisting the slip image.
+
+All new slip-metadata fields are OPTIONAL. Vehicle mismatch is informational
+only — it never blocks kaanta creation.
+
+Run backend migration before testing:
+  npm run migrate
+
+===================================================================================
+OVERVIEW
+===================================================================================
+
+Two kaanta parchi patterns are supported:
+
+1. COMBINED SLIP (new)
+   One photo with Gross, Tare, and Net on a single weighbridge receipt.
+   Use the AI extract flow + combined parchi upload.
+
+2. SEPARATE SLIPS (existing)
+   Empty-truck (khaali) and loaded-truck (bhara) photos uploaded after create.
+   Existing endpoints unchanged:
+   - POST /api/v1/kaantas/:id/upload-khaali-kaanta-parchi
+   - POST /api/v1/kaantas/:id/upload-bhara-kaanta-parchi
+
+===================================================================================
+NEW KAANTA FIELDS (in GET / POST / PUT responses)
+===================================================================================
+
+combined_kaanta_parchi_url   string | null   S3 URL of single combined slip photo
+ticket_number                string | null   Weighbridge ticket no. from slip (optional)
+parchi_vehicle_number        string | null   Vehicle no. read from slip (optional)
+vehicle_number_mismatch      boolean         true when parchi vehicle ≠ ISP vehicle
+
+Slip field mapping (Indian weighbridge receipts):
+  Gross Wt / Bhara  →  full_truck_weight
+  Tare Wt / Khaali  →  empty_truck_weight
+  Net Wt            →  kaanta_weight (also auto-calculated by backend on save)
+
+===================================================================================
+RECOMMENDED CREATE FLOW (combined slip + AI)
+===================================================================================
+
+Step 1 — User opens Create Kaanta form
+  - ISP and sauda are already selected (inward_slip_pass_id known).
+
+Step 2 — User uploads combined kaanta slip photo
+  - Keep the File object in frontend state for Step 5.
+
+Step 3 — Call extract-weights (before save)
+  POST /api/v1/kaantas/extract-weights
+  Content-Type: multipart/form-data
+  Auth: Bearer token required
+
+  Form fields:
+    file                  (required)  Image file
+    inward_slip_pass_id   (optional)  UUID — send when ISP is known so backend
+                                      can compare vehicle numbers
+
+  Accepted image types: JPEG, PNG, GIF
+  Max file size: 5 MB
+
+Step 4 — Autofill form from response; show warnings (do not block submit)
+  - Prefill full_truck_weight, empty_truck_weight
+  - Show kaanta_weight as read-only (full − empty) for user preview;
+    backend recalculates on create
+  - If ticket_number / vehicle_number present, keep for Step 5 body
+  - If needs_review === true → highlight weight fields for manual check
+  - If vehicle_check.mismatch_flagged === true → show warning banner only
+
+Step 5 — User completes bags fields and submits create
+  POST /api/v1/kaantas
+
+Step 6 — Upload same image to persist combined parchi
+  POST /api/v1/kaantas/:id/upload-combined-parchi
+  Use the kaanta id returned from Step 5.
+
+===================================================================================
+API REFERENCE
+===================================================================================
+
+--------------------------------------------------------------------------------
+1. EXTRACT WEIGHTS FROM SLIP IMAGE (AI — no DB write)
+--------------------------------------------------------------------------------
+
+POST /api/v1/kaantas/extract-weights
+
+Request (multipart/form-data):
+  file                  File     required
+  inward_slip_pass_id   string   optional UUID
+
+Success response (200):
+{
+  "success": true,
+  "message": "Kaanta slip weights extracted successfully",
+  "data": {
+    "full_truck_weight": 42780,
+    "empty_truck_weight": 12770,
+    "kaanta_weight": 30010,
+    "vehicle_number": "RJ52GA6436",
+    "ticket_number": "17931",
+    "needs_review": false,
+    "validation": {
+      "weights_extracted": true,
+      "net_matches_gross_minus_tare": true
+    },
+    "vehicle_check": {
+      "checked": true,
+      "isp_vehicle_number": "RJ52GA6436",
+      "parchi_vehicle_number": "RJ52GA6436",
+      "matches": true,
+      "mismatch_flagged": false
+    }
+  }
+}
+
+Vehicle mismatch example (still HTTP 200 — not an error):
+{
+  "data": {
+    "full_truck_weight": 42780,
+    "empty_truck_weight": 12770,
+    "kaanta_weight": 30010,
+    "vehicle_number": "HR55AZ6789",
+    "ticket_number": "17931",
+    "needs_review": true,
+    "validation": {
+      "weights_extracted": true,
+      "net_matches_gross_minus_tare": true
+    },
+    "vehicle_check": {
+      "checked": true,
+      "isp_vehicle_number": "RJ52GA6436",
+      "parchi_vehicle_number": "HR55AZ6789",
+      "matches": false,
+      "mismatch_flagged": true
+    }
+  }
+}
+
+When inward_slip_pass_id is omitted:
+  vehicle_check.checked === false
+  vehicle_check.mismatch_flagged === false
+
+Field notes:
+  needs_review          true if weights incomplete, net ≠ gross−tare (±10 kg),
+                        gross ≤ tare, OR vehicle mismatch flagged
+  validation.weights_extracted
+                        true when both full and empty truck weights were read
+  vehicle_check         Informational only; never reject the request
+
+Errors:
+  400  Missing file or invalid file type/size
+  404  inward_slip_pass_id provided but ISP not found
+  500  AI extraction failed or not configured
+
+--------------------------------------------------------------------------------
+2. CREATE KAANTA (updated — optional slip metadata)
+--------------------------------------------------------------------------------
+
+POST /api/v1/kaantas
+
+Body (JSON):
+{
+  "sauda_id": "uuid",
+  "inward_slip_pass_id": "uuid",
+  "full_truck_weight": 42780,
+  "empty_truck_weight": 12770,
+  "bag_weight": 50,
+  "no_of_bags": 600,
+  "bag_type": "jute",
+  "said_sent_weight": 30000,          // optional, existing field
+  "ticket_number": "17931",           // optional — from extract response
+  "parchi_vehicle_number": "RJ52GA6436"  // optional — from extract response
+}
+
+Do NOT send vehicle_number_mismatch from frontend.
+Backend recomputes it from parchi_vehicle_number vs ISP vehicle.
+
+Create succeeds even when vehicle_number_mismatch will be true.
+
+Success response includes new fields:
+{
+  "data": {
+    "id": "uuid",
+    "kaanta_id": "KAANTA-...",
+    "full_truck_weight": 42780,
+    "empty_truck_weight": 12770,
+    "kaanta_weight": 30010,
+    "ticket_number": "17931",
+    "parchi_vehicle_number": "RJ52GA6436",
+    "vehicle_number_mismatch": false,
+    "combined_kaanta_parchi_url": null,
+    "khaali_kaanta_parchi_url": null,
+    "bhara_kaanta_parchi_url": null,
+    ...
+  }
+}
+
+--------------------------------------------------------------------------------
+3. UPLOAD COMBINED PARCHI (after create)
+--------------------------------------------------------------------------------
+
+POST /api/v1/kaantas/:id/upload-combined-parchi
+
+Request (multipart/form-data):
+  file   File   required (same image used in extract step)
+
+Success response (200):
+{
+  "success": true,
+  "message": "Combined kaanta parchi uploaded successfully",
+  "data": {
+    "url": "https://..."
+  }
+}
+
+Updates combined_kaanta_parchi_url on the kaanta record.
+
+--------------------------------------------------------------------------------
+4. GET KAANTA / LIST KAANTAS (updated response shape)
+--------------------------------------------------------------------------------
+
+GET /api/v1/kaantas
+GET /api/v1/kaantas/:id
+
+Each kaanta object now includes:
+  combined_kaanta_parchi_url
+  ticket_number
+  parchi_vehicle_number
+  vehicle_number_mismatch
+
+--------------------------------------------------------------------------------
+5. UPDATE KAANTA (optional metadata edit)
+--------------------------------------------------------------------------------
+
+PUT /api/v1/kaantas/:id
+
+Optional body fields:
+  ticket_number
+  parchi_vehicle_number   (backend re-checks vehicle_number_mismatch if sent)
+
+===================================================================================
+FRONTEND UX RECOMMENDATIONS
+===================================================================================
+
+Upload zone (Create Kaanta form):
+  Label: "Upload kaanta slip (combined)"
+  Subtext: "AI will read Gross, Tare, and Net weights"
+
+After extract:
+  - Highlight AI-filled weight fields (e.g. amber border + "AI" badge)
+  - Show net weight as calculated preview: full − empty
+  - Warning banner when vehicle_check.mismatch_flagged:
+      "Slip vehicle {parchi} does not match ISP vehicle {isp}. Please verify."
+  - Warning when needs_review && !mismatch:
+      "Could not fully verify weights from slip. Please confirm before saving."
+
+On kaanta detail / list:
+  - Show combined_kaanta_parchi_url as image thumbnail when set
+  - Else show khaali + bhara URLs if those exist (legacy flow)
+  - Display ticket_number when present
+  - Badge/chip when vehicle_number_mismatch === true (e.g. "Vehicle mismatch")
+
+Loading states:
+  - Show spinner on extract-weights (AI can take 2–5 seconds)
+  - Disable submit until extract completes OR user skips upload and enters manually
+
+Manual entry fallback:
+  - User can skip photo upload and type weights manually
+  - ticket_number and parchi_vehicle_number remain optional
+
+===================================================================================
+EXAMPLE: FULL CREATE SEQUENCE (JavaScript / fetch)
+===================================================================================
+
+const token = '...';
+const inwardSlipPassId = 'isp-uuid';
+const saudaId = 'sauda-uuid';
+let slipFile; // from <input type="file">
+
+// --- Step A: Extract ---
+const extractForm = new FormData();
+extractForm.append('file', slipFile);
+extractForm.append('inward_slip_pass_id', inwardSlipPassId);
+
+const extractRes = await fetch('/api/v1/kaantas/extract-weights', {
+  method: 'POST',
+  headers: { Authorization: `Bearer ${token}` },
+  body: extractForm,
+});
+const { data: extracted } = await extractRes.json();
+
+// Autofill UI from extracted.full_truck_weight, etc.
+if (extracted.vehicle_check?.mismatch_flagged) {
+  showWarning(
+    `Slip vehicle ${extracted.vehicle_check.parchi_vehicle_number} ` +
+    `does not match ISP vehicle ${extracted.vehicle_check.isp_vehicle_number}`
+  );
+}
+
+// --- Step B: Create kaanta ---
+const createRes = await fetch('/api/v1/kaantas', {
+  method: 'POST',
+  headers: {
+    Authorization: `Bearer ${token}`,
+    'Content-Type': 'application/json',
+  },
+  body: JSON.stringify({
+    sauda_id: saudaId,
+    inward_slip_pass_id: inwardSlipPassId,
+    full_truck_weight: extracted.full_truck_weight,
+    empty_truck_weight: extracted.empty_truck_weight,
+    bag_weight: 50,
+    no_of_bags: 600,
+    bag_type: 'jute',
+    ticket_number: extracted.ticket_number ?? undefined,
+    parchi_vehicle_number: extracted.vehicle_number ?? undefined,
+  }),
+});
+const { data: kaanta } = await createRes.json();
+
+// --- Step C: Upload combined parchi ---
+const uploadForm = new FormData();
+uploadForm.append('file', slipFile);
+
+await fetch(`/api/v1/kaantas/${kaanta.id}/upload-combined-parchi`, {
+  method: 'POST',
+  headers: { Authorization: `Bearer ${token}` },
+  body: uploadForm,
+});
+
+===================================================================================
+TYPEScript INTERFACES (suggested)
+===================================================================================
+
+interface KaantaVehicleCheck {
+  checked: boolean;
+  isp_vehicle_number: string | null;
+  parchi_vehicle_number: string | null;
+  matches: boolean | null;
+  mismatch_flagged: boolean;
+}
+
+interface KaantaWeightExtraction {
+  full_truck_weight: number | null;
+  empty_truck_weight: number | null;
+  kaanta_weight: number | null;
+  vehicle_number: string | null;
+  ticket_number: string | null;
+  needs_review: boolean;
+  validation: {
+    weights_extracted: boolean;
+    net_matches_gross_minus_tare: boolean | null;
+  };
+  vehicle_check: KaantaVehicleCheck;
+}
+
+interface Kaanta {
+  id: string;
+  kaanta_id: string;
+  godown_id: string;
+  sauda_id: string;
+  inward_slip_pass_id: string;
+  full_truck_weight: number;
+  empty_truck_weight: number;
+  kaanta_weight: number | null;
+  said_sent_weight: number | null;
+  bag_weight: number;
+  no_of_bags: number;
+  bag_type: 'jute' | 'pp' | string;
+  khaali_kaanta_parchi_url: string | null;
+  bhara_kaanta_parchi_url: string | null;
+  combined_kaanta_parchi_url: string | null;
+  ticket_number: string | null;
+  parchi_vehicle_number: string | null;
+  vehicle_number_mismatch: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+===================================================================================
+BACKEND CONFIG (ops reference)
+===================================================================================
+
+Uses existing OpenAI key and gpt-4o-mini by default.
+
+.env:
+  OPENAI_API_KEY=...
+  OPENAI_MODEL=gpt-4o-mini
+  OPENAI_KAANTA_EXTRACTION_ENABLED=true   # set false to disable extract endpoint
+
+When extraction is disabled, POST /extract-weights returns an error.
+
+===================================================================================
+CHECKLIST FOR FRONTEND
+===================================================================================
+
+[ ] Add combined slip upload on Create Kaanta form
+[ ] Call POST /kaantas/extract-weights with file + inward_slip_pass_id
+[ ] Autofill weights; show needs_review / vehicle mismatch warnings
+[ ] Pass optional ticket_number, parchi_vehicle_number on POST /kaantas
+[ ] After create, POST /kaantas/:id/upload-combined-parchi with same file
+[ ] Show combined_kaanta_parchi_url, ticket_number, mismatch badge on detail
+[ ] Keep existing khaali/bhara upload UI for separate-slip weighbridges
+[ ] Run npm run migrate on backend before QA
+
+===================================================================================

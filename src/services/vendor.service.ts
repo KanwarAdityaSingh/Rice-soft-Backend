@@ -1,5 +1,6 @@
 import { vendorDAO } from '../dao/vendor.dao';
 import { NotFoundError, ConflictError, ValidationError } from '../utils/errors';
+import { assertModuleEmailAvailable } from '../utils/entity-email-conflict';
 import { CreateVendorDTO, UpdateVendorDTO, Vendor, VendorType } from '../models/vendor.model';
 import { VendorListFilters } from '../dao/vendor.dao';
 import { gstLookupService } from './gst-lookup.service';
@@ -21,12 +22,9 @@ export class VendorService {
   async createVendor(vendorData: CreateVendorDTO): Promise<Vendor> {
     // Check if email already exists (only if email is provided)
     const primaryEmail = vendorData.contact_persons?.[0]?.emails?.[0];
-    if (primaryEmail) {
-      const emailExists = await vendorDAO.emailExists(primaryEmail);
-        if (emailExists) {
-          throw new ConflictError('Email already exists');
-      }
-    }
+    await assertModuleEmailAvailable(primaryEmail, 'vendor', (email) =>
+      vendorDAO.findByEmail(email)
+    );
 
     // Check if GST already exists (if provided)
     if (vendorData.business_details?.gst_number) {
@@ -72,10 +70,8 @@ export class VendorService {
     const newEmail = vendorData.contact_persons?.[0]?.emails?.[0];
     const existingEmail = existingVendor.contact_persons?.[0]?.emails?.[0];
     if (newEmail && newEmail !== existingEmail) {
-      const emailExists = await vendorDAO.emailExists(newEmail, id);
-      if (emailExists) {
-        throw new ConflictError('Email already exists');
-      }
+      await assertModuleEmailAvailable(newEmail, 'vendor', (email) =>
+        vendorDAO.findByEmail(email), id);
     }
 
     // Check if GST already exists (if being updated)
@@ -156,12 +152,9 @@ export class VendorService {
 
     // Check if primary email already exists
     const primaryEmail = contactPersons[0]?.emails?.[0];
-    if (primaryEmail) {
-      const emailExists = await vendorDAO.emailExists(primaryEmail);
-      if (emailExists) {
-        throw new ConflictError('Email already exists');
-      }
-    }
+    await assertModuleEmailAvailable(primaryEmail, 'vendor', (email) =>
+      vendorDAO.findByEmail(email)
+    );
 
     // Fetch GST details
     const gstData = await gstLookupService.lookupGST(gstNumber);
@@ -208,12 +201,9 @@ export class VendorService {
 
     // Check if primary email already exists
     const primaryEmail = contactPersons[0]?.emails?.[0];
-    if (primaryEmail) {
-      const emailExists = await vendorDAO.emailExists(primaryEmail);
-      if (emailExists) {
-        throw new ConflictError('Email already exists');
-      }
-    }
+    await assertModuleEmailAvailable(primaryEmail, 'vendor', (email) =>
+      vendorDAO.findByEmail(email)
+    );
 
     // Fetch PAN details
     const panData = await gstLookupService.lookupPAN(panNumber);

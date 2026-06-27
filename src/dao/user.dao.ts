@@ -239,11 +239,73 @@ export class UserDAO {
     logger.info('Password updated', { userId: id });
   }
 
+  async findByActiveSessionId(sessionId: string): Promise<User | null> {
+    const query = `
+      SELECT id, username, email, password_hash, full_name, phone, user_type,
+             is_active, last_login, created_at, updated_at, created_by, updated_by,
+             custom_permissions, active_session_id, refresh_token_hash, refresh_token_expires_at,
+             previous_refresh_token_hash, previous_refresh_token_valid_until
+      FROM users
+      WHERE active_session_id = $1
+    `;
+    const result = await db.query<User>(query, [sessionId]);
+    return result.rows[0] || null;
+  }
+
+  async updateSession(
+    userId: string,
+    session: {
+      activeSessionId: string | null;
+      refreshTokenHash: string | null;
+      refreshTokenExpiresAt: Date | null;
+      previousRefreshTokenHash?: string | null;
+      previousRefreshTokenValidUntil?: Date | null;
+    }
+  ): Promise<void> {
+    const query = `
+      UPDATE users
+      SET active_session_id = $1,
+          refresh_token_hash = $2,
+          refresh_token_expires_at = $3,
+          previous_refresh_token_hash = $5,
+          previous_refresh_token_valid_until = $6,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = $4
+    `;
+    await db.query(query, [
+      session.activeSessionId,
+      session.refreshTokenHash,
+      session.refreshTokenExpiresAt,
+      userId,
+      session.previousRefreshTokenHash ?? null,
+      session.previousRefreshTokenValidUntil ?? null,
+    ]);
+    logger.info('User session updated', {
+      userId,
+      sessionSet: session.activeSessionId ? 'active' : 'cleared',
+    });
+  }
+
+  async clearSession(userId: string): Promise<void> {
+    await this.updateSession(userId, {
+      activeSessionId: null,
+      refreshTokenHash: null,
+      refreshTokenExpiresAt: null,
+      previousRefreshTokenHash: null,
+      previousRefreshTokenValidUntil: null,
+    });
+  }
+
+  /** @deprecated Prefer updateSession / clearSession for auth flows */
   async updateActiveSession(userId: string, sessionId: string | null): Promise<void> {
-    const query = 'UPDATE users SET active_session_id = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2';
+    if (sessionId === null) {
+      await this.clearSession(userId);
+      return;
+    }
+    const query =
+      'UPDATE users SET active_session_id = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2';
     await db.query(query, [sessionId, userId]);
-    
-    logger.info('Active session updated', { userId, sessionId: sessionId ? 'set' : 'cleared' });
+    logger.info('Active session updated', { userId, sessionId: 'set' });
   }
 
   async updateCustomPermissions(id: string, permissions: any, updatedBy?: string): Promise<void> {

@@ -11,6 +11,7 @@ import type { DriverLicenseVerificationResult } from '../models/driver.model';
 import { surepassDriverVerificationDetails } from '../models/driver.model';
 import {
   buildSurepassSnapshot,
+  isSalesPartyKycVerified,
   isTransporterKycVerified,
   isVendorKycVerified,
   mergeEntityKycSnapshot,
@@ -20,12 +21,14 @@ import {
 } from '../utils/kyc-verification';
 import type { TransportType } from '../models/transporter.model';
 import type { VendorRegistrationType } from '../models/vendor.model';
+import type { SalesPartyRegistrationType } from '../models/sales-party.model';
 import { driverProfileFromMapped } from '../utils/driver-license';
 
-const ENTITY_KYC_TABLES: Record<'vendor' | 'broker' | 'transporter', string> = {
+const ENTITY_KYC_TABLES: Record<'vendor' | 'broker' | 'transporter' | 'sales_party', string> = {
   vendor: 'vendors',
   broker: 'brokers',
   transporter: 'transporters',
+  sales_party: 'sales_parties',
 };
 
 function entityKycKeyForVerification(
@@ -74,7 +77,7 @@ function vehicleKeyForVerification(
 
 export class KycPersistenceService {
   static async saveEntityVerification<TMapped>(
-    entityType: 'vendor' | 'broker' | 'transporter',
+    entityType: 'vendor' | 'broker' | 'transporter' | 'sales_party',
     entityId: string,
     verificationKey: KycVerificationKey,
     envelope: SurepassApiEnvelope<TMapped>,
@@ -113,6 +116,9 @@ export class KycPersistenceService {
     if (entityType === 'vendor') {
       await this.syncVendorVerificationStatus(entityId);
     }
+    if (entityType === 'sales_party') {
+      await this.syncSalesPartyVerificationStatus(entityId);
+    }
 
     logger.info('Surepass verification snapshot saved', {
       entityType,
@@ -138,12 +144,16 @@ export class KycPersistenceService {
            name = COALESCE($3, name),
            date_of_birth = COALESCE($4::date, date_of_birth),
            license_expires_at = COALESCE($5::date, license_expires_at),
-           address = COALESCE($6, address),
-           pincode = COALESCE($7, pincode),
-           gender = COALESCE($8, gender),
-           profile_image = COALESCE($9, profile_image),
+           transport_license_expires_at = COALESCE($6::date, transport_license_expires_at),
+           father_or_husband_name = COALESCE($7, father_or_husband_name),
+           state = COALESCE($8, state),
+           city_name = COALESCE($9, city_name),
+           address = COALESCE($10, address),
+           pincode = COALESCE($11, pincode),
+           gender = COALESCE($12, gender),
+           profile_image = COALESCE($13, profile_image),
            vehicle_classes = CASE
-             WHEN $10::text[] IS NOT NULL AND cardinality($10::text[]) > 0 THEN $10::text[]
+             WHEN $14::text[] IS NOT NULL AND cardinality($14::text[]) > 0 THEN $14::text[]
              ELSE vehicle_classes
            END,
            is_verified = true,
@@ -156,6 +166,10 @@ export class KycPersistenceService {
         profile.name,
         profile.date_of_birth,
         profile.license_expires_at,
+        profile.transport_license_expires_at,
+        profile.father_or_husband_name,
+        profile.state,
+        profile.city_name,
         profile.address,
         profile.pincode,
         profile.gender,
@@ -241,6 +255,7 @@ export class KycPersistenceService {
       `UPDATE transporters
        SET is_verified = $2,
            verified_at = CASE WHEN $2 THEN CURRENT_TIMESTAMP ELSE NULL END,
+           is_active = $2,
            updated_at = CURRENT_TIMESTAMP
        WHERE id = $1`,
       [entityId, verified]
@@ -267,6 +282,34 @@ export class KycPersistenceService {
       `UPDATE vendors
        SET is_verified = $2,
            verified_at = CASE WHEN $2 THEN CURRENT_TIMESTAMP ELSE NULL END,
+           is_active = $2,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1`,
+      [entityId, verified]
+    );
+  }
+
+  static async syncSalesPartyVerificationStatus(entityId: string): Promise<void> {
+    const existingResult = await db.query<{
+      registration_type: SalesPartyRegistrationType;
+      kyc_verification_details: unknown;
+    }>(
+      `SELECT registration_type, kyc_verification_details FROM sales_parties WHERE id = $1`,
+      [entityId]
+    );
+    if (existingResult.rows.length === 0) {
+      return;
+    }
+
+    const row = existingResult.rows[0];
+    const kyc = parseEntityKycDetails(row.kyc_verification_details);
+    const verified = isSalesPartyKycVerified(row.registration_type, kyc);
+
+    await db.query(
+      `UPDATE sales_parties
+       SET is_verified = $2,
+           verified_at = CASE WHEN $2 THEN CURRENT_TIMESTAMP ELSE NULL END,
+           is_active = $2,
            updated_at = CURRENT_TIMESTAMP
        WHERE id = $1`,
       [entityId, verified]

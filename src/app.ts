@@ -1,6 +1,7 @@
 import express, { Application } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import cookieParser from 'cookie-parser';
 import { appConfig } from './config/app.config';
 import { errorHandler, notFoundHandler } from './middleware/error.middleware';
 import routes from './routes';
@@ -11,6 +12,8 @@ export function createApp(): Application {
 
   // Security middleware
   app.use(helmet());
+  app.set('trust proxy', 1);
+  app.use(cookieParser());
   app.use(
     cors({
       origin: appConfig.cors.origin,

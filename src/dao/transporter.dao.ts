@@ -1,7 +1,7 @@
 import { db } from '../database/connection';
 import { Transporter, CreateTransporterDTO, UpdateTransporterDTO } from '../models/transporter.model';
 import { logger } from '../utils/logger';
-import { mergeEntityKycDetailsPatch, parseEntityKycDetails, isTransporterKycVerified } from '../utils/kyc-verification';
+import { mergeEntityKycDetailsPatch, parseEntityKycDetails, isTransporterKycVerified, resolveEntityIsActiveFromKyc } from '../utils/kyc-verification';
 import type { TransportType } from '../models/transporter.model';
 
 const TRANSPORTER_SELECT_COLUMNS = `
@@ -95,6 +95,7 @@ export class TransporterDAO {
       transporterData.is_verified !== undefined
         ? transporterData.is_verified
         : isTransporterKycVerified(transporterData.transport_type, kycDetails);
+    const isActive = resolveEntityIsActiveFromKyc(isVerified, transporterData.is_active);
 
     const query = `
       INSERT INTO transporters (business_name, contact_persons, contact_person, phone, email, address, gst_number,
@@ -118,7 +119,7 @@ export class TransporterDAO {
       JSON.stringify(transporterData.vehicle_numbers || []),
       transporterData.vehicle_ids || [],
       JSON.stringify(transporterData.bank_details || {}),
-      transporterData.is_active !== undefined ? transporterData.is_active : true,
+      isActive,
       isVerified,
       isVerified ? transporterData.verified_at || new Date() : null,
       transporterData.created_by || null,
@@ -139,6 +140,8 @@ export class TransporterDAO {
     const fields: string[] = [];
     const values: any[] = [];
     let paramCount = 1;
+    let verifiedForActiveSync: boolean | undefined;
+    const explicitIsActive = transporterData.is_active;
 
     if (transporterData.business_name !== undefined) {
       fields.push(`business_name = $${paramCount++}`);
@@ -195,11 +198,8 @@ export class TransporterDAO {
       fields.push(`bank_details_verified_by = NULL`);
       fields.push(`bank_verification_error = NULL`);
     }
-    if (transporterData.is_active !== undefined) {
-      fields.push(`is_active = $${paramCount++}`);
-      values.push(transporterData.is_active);
-    }
     if (transporterData.is_verified !== undefined) {
+      verifiedForActiveSync = transporterData.is_verified;
       fields.push(`is_verified = $${paramCount++}`);
       values.push(transporterData.is_verified);
       fields.push(`verified_at = $${paramCount++}`);
@@ -232,11 +232,11 @@ export class TransporterDAO {
       if (transporterData.is_verified === undefined) {
         const transportType =
           transporterData.transport_type ?? existingRow.rows[0]?.transport_type ?? 'registered';
-        const verified = isTransporterKycVerified(transportType, merged);
+        verifiedForActiveSync = isTransporterKycVerified(transportType, merged);
         fields.push(`is_verified = $${paramCount++}`);
-        values.push(verified);
+        values.push(verifiedForActiveSync);
         fields.push(`verified_at = $${paramCount++}`);
-        values.push(verified ? new Date() : null);
+        values.push(verifiedForActiveSync ? new Date() : null);
       }
     } else if (
       transporterData.transport_type !== undefined &&
@@ -249,11 +249,24 @@ export class TransporterDAO {
         [id]
       );
       const kyc = parseEntityKycDetails(existingRow.rows[0]?.kyc_verification_details);
-      const verified = isTransporterKycVerified(transporterData.transport_type, kyc);
+      verifiedForActiveSync = isTransporterKycVerified(transporterData.transport_type, kyc);
       fields.push(`is_verified = $${paramCount++}`);
-      values.push(verified);
+      values.push(verifiedForActiveSync);
       fields.push(`verified_at = $${paramCount++}`);
-      values.push(verified ? new Date() : null);
+      values.push(verifiedForActiveSync ? new Date() : null);
+    }
+
+    if (verifiedForActiveSync !== undefined) {
+      fields.push(`is_active = $${paramCount++}`);
+      values.push(resolveEntityIsActiveFromKyc(verifiedForActiveSync, explicitIsActive));
+    } else if (explicitIsActive !== undefined) {
+      const existingRow = await db.query<{ is_verified: boolean }>(
+        `SELECT is_verified FROM transporters WHERE id = $1`,
+        [id]
+      );
+      const currentVerified = existingRow.rows[0]?.is_verified ?? false;
+      fields.push(`is_active = $${paramCount++}`);
+      values.push(resolveEntityIsActiveFromKyc(currentVerified, explicitIsActive));
     }
 
     if (fields.length === 0) {

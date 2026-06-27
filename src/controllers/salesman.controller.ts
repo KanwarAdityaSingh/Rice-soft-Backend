@@ -14,6 +14,7 @@ import {
 } from '../utils/errors';
 import { CreateSalesmanDTO, UpdateSalesmanDTO, SalesmanResponse } from '../models/salesman.model';
 import { AuthRequest } from '../middleware/auth.middleware';
+import { resolveOrCreateEntityUser, allocateUsername } from '../utils/resolve-entity-user';
 
 export class SalesmanController {
   async getAll(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
@@ -66,52 +67,42 @@ export class SalesmanController {
     try {
       const salesmanData = validate<CreateSalesmanDTO>(createSalesmanSchema, req.body);
 
-      // Generate username from name (first part before space, lowercase, remove special chars)
-      let baseUsername = salesmanData.name
-        .toLowerCase()
-        .split(' ')[0]
-        .replace(/[^a-z0-9]/g, '');
-      
-      // Check if username already exists and append number if needed
-      let username = baseUsername;
-      let counter = 1;
-      while (await userDAO.usernameExists(username)) {
-        username = `${baseUsername}${counter}`;
-        counter++;
-      }
-
       // Check if email already exists in salesmen (only if email is provided)
       if (salesmanData.email) {
         const emailExists = await salesmanDAO.emailExists(salesmanData.email);
         if (emailExists) {
           throw new ConflictError('Email already exists');
         }
-
-        // Check if email already exists in users
-        const userEmailExists = await userDAO.emailExists(salesmanData.email);
-        if (userEmailExists) {
-          throw new ConflictError('Email already exists in users');
-        }
       }
 
-      // Create user first (always create user, using name for username)
-      const userData = {
-        username: username,
-        email: salesmanData.email,
-        password: 'defaultPassword123', // Default password, should be changed on first login
-        full_name: salesmanData.name,
-        phone: salesmanData.phone,
-        user_type: 'salesman' as const,
-        is_active: salesmanData.is_active !== undefined ? salesmanData.is_active : true,
-        created_by: req.user?.userId,
-      };
-
+      // Create or reuse login user
       let user;
-      try {
-        user = await userDAO.create(userData);
-      } catch (userError) {
-        console.error('User creation failed:', userError);
-        throw new ConflictError('Failed to create user account for salesman');
+      if (salesmanData.email) {
+        user = await resolveOrCreateEntityUser({
+          email: salesmanData.email,
+          fullName: salesmanData.name,
+          phone: salesmanData.phone,
+          userType: 'salesman',
+          isActive: salesmanData.is_active !== undefined ? salesmanData.is_active : true,
+          createdBy: req.user?.userId,
+          entityLabel: 'salesman',
+        });
+      } else {
+        const username = await allocateUsername(salesmanData.name);
+        try {
+          user = await userDAO.create({
+            username,
+            password: 'defaultPassword123',
+            full_name: salesmanData.name,
+            phone: salesmanData.phone,
+            user_type: 'salesman',
+            is_active: salesmanData.is_active !== undefined ? salesmanData.is_active : true,
+            created_by: req.user?.userId,
+          });
+        } catch (userError) {
+          console.error('User creation failed:', userError);
+          throw new ConflictError('Failed to create user account for salesman');
+        }
       }
 
       // Create salesman with user_id

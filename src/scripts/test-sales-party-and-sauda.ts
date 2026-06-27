@@ -86,6 +86,7 @@ async function main() {
       gst_number: '07AABCF1234E1Z5',
       business_type: 'company',
     },
+    registration_type: 'registered',
     is_active: true,
   };
   const createPartyRes = await request('POST', '/sales-parties', token, createPartyBody);

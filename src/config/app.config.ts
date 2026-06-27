@@ -10,8 +10,22 @@ export const appConfig = {
   
   jwt: {
     secret: process.env.JWT_SECRET || 'your_super_secret_jwt_key_change_this_in_production',
-    expiresIn: process.env.JWT_EXPIRES_IN || '24h',
-    refreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d',
+    /** Short-lived access token; use POST /auth/refreshToken to renew via httpOnly cookie. */
+    expiresIn: process.env.JWT_EXPIRES_IN || '30m',
+    refreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '1d',
+  },
+
+  auth: {
+    refreshCookieName: process.env.REFRESH_COOKIE_NAME || 'refreshToken',
+    refreshCookiePath: process.env.REFRESH_COOKIE_PATH || '/',
+    refreshCookieSameSite: (process.env.REFRESH_COOKIE_SAME_SITE || 'lax') as
+      | 'strict'
+      | 'lax'
+      | 'none',
+    /** When true, refresh cookie is session-only (cleared when browser closes). */
+    refreshCookieSession: process.env.REFRESH_COOKIE_SESSION !== 'false',
+    /** Accept prior refresh hash briefly to tolerate concurrent refresh calls. */
+    refreshGracePeriodSec: parseInt(process.env.REFRESH_GRACE_PERIOD_SEC || '30', 10),
   },
   
   security: {
@@ -65,6 +79,21 @@ export const appConfig = {
       dlVerificationUrl:
         process.env.SUREPASS_DL_API_URL ||
         'https://kyc-api.surepass.app/api/v1/driving-license/driving-license',
+      licenseOcrUrl:
+        process.env.SUREPASS_LICENSE_OCR_API_URL ||
+        'https://kyc-api.surepass.app/api/v1/ocr/license-v2',
+      gstOcrUrl:
+        process.env.SUREPASS_GST_OCR_API_URL ||
+        'https://kyc-api.surepass.app/api/v1/ocr/gst',
+      panOcrUrl:
+        process.env.SUREPASS_PAN_OCR_API_URL ||
+        'https://kyc-api.surepass.app/api/v1/ocr/pan',
+      aadhaarOcrUrl:
+        process.env.SUREPASS_AADHAAR_OCR_API_URL ||
+        'https://kyc-api.surepass.app/api/v1/ocr/aadhaar',
+      vehicleRcOcrUrl:
+        process.env.SUREPASS_VEHICLE_RC_OCR_API_URL ||
+        'https://kyc-api.surepass.app/api/v1/ocr/vehicle-rc',
       token: process.env.SUREPASS_API_TOKEN || '',
     },
     mastersIndia: {
@@ -76,7 +105,6 @@ export const appConfig = {
       clientSecret: process.env.MASTERS_INDIA_CLIENT_SECRET || '',
     },
     kaleyra: {
-      // SMS Configuration
       url: process.env.KALEYRA_BASE_URL || 'https://api.kaleyra.io/v1/HXAP1679900797IN/messages',
       apiKey: process.env.KALEYRA_API_KEY || 'A7817538772624b312d23974ca14997bb',
       senderId: process.env.KALEYRA_SENDER_ID || 'SNTKRI',
@@ -87,7 +115,24 @@ export const appConfig = {
       whatsappTemplateName: process.env.KALEYRA_WHATSAPP_TEMPLATE_NAME || 'sauda_notification',
     },
   },
-  
+
+  openai: {
+    apiKey: process.env.OPENAI_API_KEY || '',
+    /** gpt-4o-mini: cheap, no reasoning-token overhead; best for 0–100 name scoring. */
+    model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+    /** Only used for GPT-5 family if OPENAI_MODEL is overridden to gpt-5*. */
+    maxCompletionTokens: parseInt(process.env.OPENAI_MAX_COMPLETION_TOKENS || '512', 10),
+    reasoningEffort: process.env.OPENAI_REASONING_EFFORT || 'minimal',
+    /** Minimum similarity score (0–100) to accept bank holder name via LLM fallback. */
+    bankNameSimilarityThreshold: parseInt(
+      process.env.BANK_NAME_SIMILARITY_THRESHOLD || '90',
+      10
+    ),
+    enabled: process.env.OPENAI_NAME_SIMILARITY_ENABLED !== 'false',
+    /** Vision extraction of kaanta slip weights (Gross/Tare/Net, ticket, vehicle). */
+    kaantaExtractionEnabled: process.env.OPENAI_KAANTA_EXTRACTION_ENABLED !== 'false',
+  },
+
   otp: {
     ttlMinutes: parseInt(process.env.OTP_TTL_MINUTES || '30', 10),
     length: parseInt(process.env.OTP_LENGTH || '6', 10),

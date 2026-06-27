@@ -10,6 +10,7 @@ import {
   mergeEntityKycDetailsPatch,
   parseEntityKycDetails,
   isVendorKycVerified,
+  resolveEntityIsActiveFromKyc,
 } from '../utils/kyc-verification';
 import { logger } from '../utils/logger';
 
@@ -131,6 +132,7 @@ export class VendorDAO {
       vendorData.is_verified !== undefined
         ? vendorData.is_verified
         : isVendorKycVerified(vendorData.registration_type, kycDetails);
+    const isActive = resolveEntityIsActiveFromKyc(isVerified, vendorData.is_active);
 
     const query = `
       INSERT INTO vendors (business_name, contact_persons, contact_person, email, phone, address, business_details,
@@ -153,7 +155,7 @@ export class VendorDAO {
       vendorData.registration_type,
       vendorData.bank_details ? JSON.stringify(vendorData.bank_details) : null,
       vendorData.type,
-      vendorData.is_active !== undefined ? vendorData.is_active : true,
+      isActive,
       isVerified,
       isVerified ? vendorData.verified_at || new Date() : null,
       vendorData.created_by || null,
@@ -181,6 +183,8 @@ export class VendorDAO {
     const updateFields: string[] = [];
     const values: unknown[] = [];
     let paramCount = 1;
+    let verifiedForActiveSync: boolean | undefined;
+    const explicitIsActive = vendorData.is_active;
 
     if (vendorData.business_name !== undefined) {
       updateFields.push(`business_name = $${paramCount++}`);
@@ -235,12 +239,8 @@ export class VendorDAO {
       values.push(vendorData.type);
     }
 
-    if (vendorData.is_active !== undefined) {
-      updateFields.push(`is_active = $${paramCount++}`);
-      values.push(vendorData.is_active);
-    }
-
     if (vendorData.is_verified !== undefined) {
+      verifiedForActiveSync = vendorData.is_verified;
       updateFields.push(`is_verified = $${paramCount++}`);
       values.push(vendorData.is_verified);
       updateFields.push(`verified_at = $${paramCount++}`);
@@ -289,11 +289,11 @@ export class VendorDAO {
           vendorData.registration_type ??
           existingRow.rows[0]?.registration_type ??
           'registered';
-        const verified = isVendorKycVerified(registrationType, merged);
+        verifiedForActiveSync = isVendorKycVerified(registrationType, merged);
         updateFields.push(`is_verified = $${paramCount++}`);
-        values.push(verified);
+        values.push(verifiedForActiveSync);
         updateFields.push(`verified_at = $${paramCount++}`);
-        values.push(verified ? new Date() : null);
+        values.push(verifiedForActiveSync ? new Date() : null);
       }
     } else if (
       vendorData.registration_type !== undefined &&
@@ -304,11 +304,24 @@ export class VendorDAO {
         [id]
       );
       const kyc = parseEntityKycDetails(existingRow.rows[0]?.kyc_verification_details);
-      const verified = isVendorKycVerified(vendorData.registration_type, kyc);
+      verifiedForActiveSync = isVendorKycVerified(vendorData.registration_type, kyc);
       updateFields.push(`is_verified = $${paramCount++}`);
-      values.push(verified);
+      values.push(verifiedForActiveSync);
       updateFields.push(`verified_at = $${paramCount++}`);
-      values.push(verified ? new Date() : null);
+      values.push(verifiedForActiveSync ? new Date() : null);
+    }
+
+    if (verifiedForActiveSync !== undefined) {
+      updateFields.push(`is_active = $${paramCount++}`);
+      values.push(resolveEntityIsActiveFromKyc(verifiedForActiveSync, explicitIsActive));
+    } else if (explicitIsActive !== undefined) {
+      const existingRow = await db.query<{ is_verified: boolean }>(
+        `SELECT is_verified FROM vendors WHERE id = $1`,
+        [id]
+      );
+      const currentVerified = existingRow.rows[0]?.is_verified ?? false;
+      updateFields.push(`is_active = $${paramCount++}`);
+      values.push(resolveEntityIsActiveFromKyc(currentVerified, explicitIsActive));
     }
 
     if (updateFields.length === 0) {
@@ -345,7 +358,6 @@ export class VendorDAO {
       SET bank_details_verified_at = CURRENT_TIMESTAMP,
           bank_details_verified_by = $2,
           bank_verification_error = NULL,
-          is_active = true,
           updated_at = CURRENT_TIMESTAMP
       WHERE id = $1
       RETURNING ${VENDOR_SELECT_COLUMNS}

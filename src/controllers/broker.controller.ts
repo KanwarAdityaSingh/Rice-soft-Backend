@@ -1,7 +1,6 @@
 import { Response, NextFunction } from 'express';
 import { brokerDAO } from '../dao/broker.dao';
 import { purchaseSummaryDAO } from '../dao/purchase-summary.dao';
-import { userDAO } from '../dao/user.dao';
 import { ResponseHandler } from '../utils/response';
 import {
   validate,
@@ -30,6 +29,11 @@ import { gstLookupService } from '../services/gst-lookup.service';
 import { kycPersistenceService } from '../services/kyc-persistence.service';
 import { parseEntityKycDetails } from '../utils/kyc-verification';
 import { applyBankVerificationFromSnapshot } from '../utils/apply-bank-verification-from-snapshot';
+import { resolveOrCreateEntityUser } from '../utils/resolve-entity-user';
+import {
+  bankVerificationSuccessExtras,
+  isBankVerificationSuccess,
+} from '../utils/bank-verification-response';
 import { logger } from '../utils/logger';
 import { bankDetailsForVerifySchema } from '../utils/validators';
 import Joi from 'joi';
@@ -39,8 +43,6 @@ const LENIENT_BANK_VERIFY_FAIL_MESSAGE =
 
 const LENIENT_BANK_VERIFY_FAIL_MESSAGE_UPDATE =
   'Broker updated but bank account holder name does not match the verification snapshot.';
-
-const BANK_VERIFY_SUCCESS_MESSAGE = 'Bank details verified successfully.';
 
 async function tryVerifyBankAfterSave(
   brokerId: string,
@@ -188,12 +190,6 @@ export class BrokerController {
         if (emailExists) {
           throw new ConflictError('Email already exists');
         }
-
-        // Check if email already exists in users
-        const userEmailExists = await userDAO.emailExists(primaryEmail);
-        if (userEmailExists) {
-          throw new ConflictError('Email already exists in users');
-        }
       }
 
       // Check if PAN already exists (if provided)
@@ -220,43 +216,18 @@ export class BrokerController {
         }
       }
 
-      // Generate username from first contact person name (first part before space, lowercase, remove special chars)
-      let baseUsername = firstContactPerson.name
-        .toLowerCase()
-        .split(' ')[0]
-        .replace(/[^a-z0-9]/g, '');
-      
-      // Check if username already exists and append number if needed
-      let username = baseUsername;
-      let counter = 1;
-      while (await userDAO.usernameExists(username)) {
-        username = `${baseUsername}${counter}`;
-        counter++;
-      }
-
-      // Create user first (only if email is provided)
+      // Create or reuse login user when email is provided
       let user = null;
       if (primaryEmail) {
-        const userData = {
-          username: username,
+        user = await resolveOrCreateEntityUser({
           email: primaryEmail,
-          password: 'defaultPassword123', // Default password, should be changed on first login
-          full_name: firstContactPerson.name,
+          fullName: firstContactPerson.name,
           phone: primaryPhone,
-          user_type: 'broker' as const,
-          is_active: brokerPayload.is_active !== undefined ? brokerPayload.is_active : true,
-          created_by: req.user?.userId,
-        };
-
-        try {
-          user = await userDAO.create(userData);
-        } catch (userError: any) {
-          // Check if it's a duplicate email/username error
-          if (userError?.code === '23505' || userError?.message?.includes('already exists')) {
-            throw new ConflictError('Email or username already exists. Please use a different email.');
-          }
-          throw new InternalServerError('Failed to create user account for broker. Please try again.');
-        }
+          userType: 'broker',
+          isActive: brokerPayload.is_active !== undefined ? brokerPayload.is_active : true,
+          createdBy: req.user?.userId,
+          entityLabel: 'broker',
+        });
       }
 
       // Create broker with user_id (or undefined if no email)
@@ -292,12 +263,12 @@ export class BrokerController {
           req.user?.userId
         );
         const refreshed = await brokerDAO.findById(broker.id);
-        if (verifyResult.status === 'verified') {
+        if (isBankVerificationSuccess(verifyResult)) {
           return ResponseHandler.created(
             res,
             toBrokerResponse(refreshed ?? broker),
             'Broker created successfully',
-            { verification_message: BANK_VERIFY_SUCCESS_MESSAGE }
+            bankVerificationSuccessExtras(verifyResult)
           );
         }
         logger.warn('Bank name mismatch after broker create', {
@@ -410,13 +381,13 @@ export class BrokerController {
           req.user?.userId
         );
         const refreshed = await brokerDAO.findById(broker.id);
-        if (verifyResult.status === 'verified') {
+        if (isBankVerificationSuccess(verifyResult)) {
           return ResponseHandler.success(
             res,
             toBrokerResponse(refreshed ?? broker),
             'Broker updated successfully',
             200,
-            { verification_message: BANK_VERIFY_SUCCESS_MESSAGE }
+            bankVerificationSuccessExtras(verifyResult)
           );
         }
         logger.warn('Bank name mismatch after broker update', {
@@ -767,12 +738,12 @@ export class BrokerController {
           req.user?.userId
         );
         const refreshed = await brokerDAO.findById(broker.id);
-        if (verifyResult.status === 'verified') {
+        if (isBankVerificationSuccess(verifyResult)) {
           return ResponseHandler.created(
             res,
             toBrokerResponse(refreshed ?? broker),
             'Broker created from PAN successfully',
-            { verification_message: BANK_VERIFY_SUCCESS_MESSAGE }
+            bankVerificationSuccessExtras(verifyResult)
           );
         }
         logger.warn('Bank name mismatch after PAN broker create', {
@@ -962,12 +933,12 @@ export class BrokerController {
           req.user?.userId
         );
         const refreshed = await brokerDAO.findById(broker.id);
-        if (verifyResult.status === 'verified') {
+        if (isBankVerificationSuccess(verifyResult)) {
           return ResponseHandler.created(
             res,
             toBrokerResponse(refreshed ?? broker),
             'Broker created from GST successfully',
-            { verification_message: BANK_VERIFY_SUCCESS_MESSAGE }
+            bankVerificationSuccessExtras(verifyResult)
           );
         }
         logger.warn('Bank name mismatch after GST broker create', {
@@ -1027,7 +998,7 @@ export class BrokerController {
         throw new NotFoundError('Broker not found');
       }
 
-      if (verifyResult.status !== 'verified') {
+      if (!isBankVerificationSuccess(verifyResult)) {
         return ResponseHandler.success(
           res,
           toBrokerResponse(updated),
@@ -1037,7 +1008,13 @@ export class BrokerController {
         );
       }
 
-      return ResponseHandler.success(res, toBrokerResponse(updated), 'Bank details verified and saved');
+      return ResponseHandler.success(
+        res,
+        toBrokerResponse(updated),
+        'Bank details verified and saved',
+        200,
+        bankVerificationSuccessExtras(verifyResult)
+      );
     } catch (error) {
       next(error);
     }

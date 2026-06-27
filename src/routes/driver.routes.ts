@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { driverController } from '../controllers/driver.controller';
 import { authenticate } from '../middleware/auth.middleware';
 import { auditLog } from '../middleware/audit.middleware';
+import { licenseOcrUpload } from '../middleware/upload.middleware';
 
 const router = Router();
 
@@ -31,6 +32,19 @@ router.get(
  * @body    license_number or id_number, dob (optional), driver_id (optional)
  */
 router.post('/verify', authenticate, driverController.verifyDriver.bind(driverController));
+
+/**
+ * @route   POST /api/v1/drivers/ocr
+ * @desc    OCR driving licence images via Surepass; optionally prefill driver when driver_id is sent
+ * @access  Private
+ * @form    front: file (required), back: file (optional), use_pdf: boolean (optional), driver_id: string (optional)
+ */
+router.post(
+  '/ocr',
+  authenticate,
+  licenseOcrUpload,
+  driverController.ocrDriver.bind(driverController)
+);
 
 /**
  * @route   POST /api/v1/drivers/:id/verify

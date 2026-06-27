@@ -6,6 +6,14 @@ import { gstLookupService } from '../services/gst-lookup.service';
 import { validate, verifyDriverSchema, rcChallanDetailsSchema, rcFullSchema } from '../utils/validators';
 import type { RcChallanDetailsRequest } from '../services/gst-lookup.service';
 import { parsePersistKycRequest, saveKycSnapshotForEntity } from '../utils/kyc-persist-request';
+import { parseLicenseOcrUpload, drivingLicenseOcrPayload } from '../utils/license-ocr-request';
+import {
+  parseDocumentOcrUpload,
+  gstOcrPayload,
+  panOcrPayload,
+  aadhaarOcrPayload,
+  vehicleRcOcrPayload,
+} from '../utils/document-ocr-request';
 
 export class KycController {
   async validateAadhaar(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
@@ -282,6 +290,96 @@ export class KycController {
         result.rcChallan
           ? 'RC full and challan details fetched successfully'
           : 'RC full details fetched successfully'
+      );
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async ocrDrivingLicense(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const { front, back, usePdf } = parseLicenseOcrUpload(req);
+      const envelope = await gstLookupService.ocrDrivingLicense({ front, back, usePdf });
+
+      return ResponseHandler.success(
+        res,
+        {
+          ...drivingLicenseOcrPayload(envelope.mapped),
+          surepass_response: envelope.raw,
+        },
+        'Driving licence scanned successfully'
+      );
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async ocrGst(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const { file } = parseDocumentOcrUpload(req);
+      const envelope = await gstLookupService.ocrGst({ file });
+
+      return ResponseHandler.success(
+        res,
+        {
+          ...gstOcrPayload(envelope.mapped),
+          surepass_response: envelope.raw,
+        },
+        'GST document scanned successfully'
+      );
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async ocrPan(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const { file, usePdf } = parseDocumentOcrUpload(req);
+      const envelope = await gstLookupService.ocrPan({ file, usePdf });
+
+      return ResponseHandler.success(
+        res,
+        {
+          ...panOcrPayload(envelope.mapped),
+          surepass_response: envelope.raw,
+        },
+        'PAN card scanned successfully'
+      );
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async ocrAadhaar(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const { file } = parseDocumentOcrUpload(req);
+      const envelope = await gstLookupService.ocrAadhaar({ file });
+
+      return ResponseHandler.success(
+        res,
+        {
+          ...aadhaarOcrPayload(envelope.mapped),
+          surepass_response: envelope.raw,
+        },
+        'Aadhaar card scanned successfully'
+      );
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async ocrVehicleRc(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const { file } = parseDocumentOcrUpload(req);
+      const envelope = await gstLookupService.ocrVehicleRc({ file });
+
+      return ResponseHandler.success(
+        res,
+        {
+          ...vehicleRcOcrPayload(envelope.mapped),
+          surepass_response: envelope.raw,
+        },
+        'Vehicle RC scanned successfully'
       );
     } catch (error) {
       next(error);

@@ -288,6 +288,34 @@ export const updateVendorSchema = Joi.object({
 })
   .min(1);
 
+function validateSalesPartyRegistrationFields(
+  value: {
+    registration_type?: string;
+    business_details?: { pan_number?: string; gst_number?: string };
+    aadhar_number?: string;
+  },
+  helpers: Joi.CustomHelpers
+) {
+  const registrationType = value.registration_type;
+  if (!registrationType) {
+    return value;
+  }
+
+  const hasPan = Boolean(value.business_details?.pan_number?.trim());
+  const hasGst = Boolean(value.business_details?.gst_number?.trim());
+  const hasAadhar = Boolean(value.aadhar_number?.trim());
+
+  if (registrationType === 'registered' && !hasPan && !hasGst) {
+    return helpers.error('custom.salesPartyGstOrPanRequired');
+  }
+
+  if (registrationType === 'unregistered' && !hasAadhar) {
+    return helpers.error('custom.salesPartyAadharRequired');
+  }
+
+  return value;
+}
+
 // Sales Party validation schemas (no type — sales parties are always buyers)
 export const createSalesPartySchema = Joi.object({
   business_name: Joi.string().required().min(2).max(255),
@@ -300,10 +328,21 @@ export const createSalesPartySchema = Joi.object({
   ).required().min(1),
   address: addressSchema.required(),
   business_details: businessDetailsSchema.required(),
+  aadhar_number: vendorAadharSchema,
+  registration_type: Joi.string().required().valid('registered', 'unregistered'),
   bank_details: bankDetailsSchema.optional(),
   is_active: Joi.boolean().optional(),
+  is_verified: Joi.boolean().optional(),
+  verified_at: Joi.string().optional().allow(null, ''),
   google_location_link: Joi.string().optional().allow(null, '').max(500),
-});
+  kyc_verification_details: kycVerificationDetailsSchema,
+})
+  .custom(validateSalesPartyRegistrationFields)
+  .messages({
+    'custom.salesPartyGstOrPanRequired':
+      'Registered sales parties require GST or PAN in business_details',
+    'custom.salesPartyAadharRequired': 'Unregistered sales parties require aadhar_number',
+  });
 
 export const updateSalesPartySchema = Joi.object({
   business_name: Joi.string().optional().min(2).max(255),
@@ -316,10 +355,22 @@ export const updateSalesPartySchema = Joi.object({
   ).optional().min(1),
   address: addressSchema.optional(),
   business_details: businessDetailsSchema.optional(),
+  aadhar_number: vendorAadharSchema,
+  registration_type: Joi.string().optional().valid('registered', 'unregistered'),
   bank_details: bankDetailsSchema.optional(),
   is_active: Joi.boolean().optional(),
+  is_verified: Joi.boolean().optional(),
+  verified_at: Joi.string().optional().allow(null, ''),
   google_location_link: Joi.string().optional().allow(null, '').max(500),
-}).min(1);
+  kyc_verification_details: kycVerificationDetailsSchema,
+})
+  .custom(validateSalesPartyRegistrationFields)
+  .messages({
+    'custom.salesPartyGstOrPanRequired':
+      'Registered sales parties require GST or PAN in business_details',
+    'custom.salesPartyAadharRequired': 'Unregistered sales parties require aadhar_number',
+  })
+  .min(1);
 
 // Broker details validation schema
 const brokerDetailsSchema = Joi.object({
@@ -735,6 +786,8 @@ export const createKaantaSchema = Joi.object({
   bag_weight: Joi.number().required().min(0).precision(2),
   no_of_bags: Joi.number().required().integer().min(1),
   bag_type: Joi.string().required().valid(...BAG_TYPE_VALUES),
+  ticket_number: Joi.string().optional().allow(null, '').trim().max(50),
+  parchi_vehicle_number: Joi.string().optional().allow(null, '').trim().max(50),
   created_by: Joi.string().optional().uuid(),
 });
 
@@ -745,8 +798,14 @@ export const updateKaantaSchema = Joi.object({
   bag_weight: Joi.number().optional().min(0).precision(2),
   no_of_bags: Joi.number().optional().integer().min(1),
   bag_type: Joi.string().optional().valid(...BAG_TYPE_VALUES),
+  ticket_number: Joi.string().optional().allow(null, '').trim().max(50),
+  parchi_vehicle_number: Joi.string().optional().allow(null, '').trim().max(50),
   updated_by: Joi.string().optional().uuid(),
 }).min(1);
+
+export const extractKaantaWeightsSchema = Joi.object({
+  inward_slip_pass_id: Joi.string().optional().uuid(),
+});
 
 // Vehicle validation schemas
 export const createVehicleSchema = Joi.object({
@@ -1419,6 +1478,11 @@ export const createDriverSchema = Joi.object({
   date_of_birth: driverOptionalDateSchema,
   license_expires_at: driverOptionalDateSchema,
   doe: driverOptionalDateSchema,
+  transport_license_expires_at: Joi.string().optional().allow(null, ''),
+  transport_doe: Joi.string().optional().allow(null, ''),
+  father_or_husband_name: Joi.string().optional().allow(null, '').max(255),
+  state: Joi.string().optional().allow(null, '').max(100),
+  city_name: Joi.string().optional().allow(null, '').max(255),
   address: Joi.string().optional().allow(null, '').max(2000),
   pincode: Joi.string().optional().allow(null, '').max(10),
   gender: Joi.string().optional().allow(null, '').max(10),
@@ -1437,6 +1501,11 @@ export const updateDriverSchema = Joi.object({
   date_of_birth: driverOptionalDateSchema,
   license_expires_at: driverOptionalDateSchema,
   doe: driverOptionalDateSchema,
+  transport_license_expires_at: Joi.string().optional().allow(null, ''),
+  transport_doe: Joi.string().optional().allow(null, ''),
+  father_or_husband_name: Joi.string().optional().allow(null, '').max(255),
+  state: Joi.string().optional().allow(null, '').max(100),
+  city_name: Joi.string().optional().allow(null, '').max(255),
   address: Joi.string().optional().allow(null, '').max(2000),
   pincode: Joi.string().optional().allow(null, '').max(10),
   gender: Joi.string().optional().allow(null, '').max(10),

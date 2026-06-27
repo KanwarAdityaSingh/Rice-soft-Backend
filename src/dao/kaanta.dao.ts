@@ -230,7 +230,8 @@ export class KaantaDAO {
     let query = `
       SELECT id, kaanta_id, godown_id, sauda_id, inward_slip_pass_id, full_truck_weight, 
              empty_truck_weight, kaanta_weight, said_sent_weight, bag_weight, no_of_bags, bag_type,
-             khaali_kaanta_parchi_url, bhara_kaanta_parchi_url,
+             khaali_kaanta_parchi_url, bhara_kaanta_parchi_url, combined_kaanta_parchi_url,
+             ticket_number, parchi_vehicle_number, vehicle_number_mismatch,
              created_at, updated_at, created_by, updated_by
       FROM kaantas
       WHERE 1=1
@@ -263,7 +264,8 @@ export class KaantaDAO {
     const query = `
       SELECT id, kaanta_id, godown_id, sauda_id, inward_slip_pass_id, full_truck_weight, 
              empty_truck_weight, kaanta_weight, said_sent_weight, bag_weight, no_of_bags, bag_type,
-             khaali_kaanta_parchi_url, bhara_kaanta_parchi_url,
+             khaali_kaanta_parchi_url, bhara_kaanta_parchi_url, combined_kaanta_parchi_url,
+             ticket_number, parchi_vehicle_number, vehicle_number_mismatch,
              created_at, updated_at, created_by, updated_by
       FROM kaantas
       WHERE id = $1
@@ -297,11 +299,13 @@ export class KaantaDAO {
       // Insert kaanta (triggers will calculate kaanta_weight and generate kaanta_id)
       const kaantaQuery = `
         INSERT INTO kaantas (godown_id, sauda_id, inward_slip_pass_id, full_truck_weight, 
-                            empty_truck_weight, said_sent_weight, bag_weight, no_of_bags, bag_type, created_by)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                            empty_truck_weight, said_sent_weight, bag_weight, no_of_bags, bag_type,
+                            ticket_number, parchi_vehicle_number, vehicle_number_mismatch, created_by)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
         RETURNING id, kaanta_id, godown_id, sauda_id, inward_slip_pass_id, full_truck_weight, 
                   empty_truck_weight, kaanta_weight, said_sent_weight, bag_weight, no_of_bags, bag_type,
-                  khaali_kaanta_parchi_url, bhara_kaanta_parchi_url,
+                  khaali_kaanta_parchi_url, bhara_kaanta_parchi_url, combined_kaanta_parchi_url,
+                  ticket_number, parchi_vehicle_number, vehicle_number_mismatch,
                   created_at, updated_at, created_by, updated_by
       `;
       
@@ -315,6 +319,9 @@ export class KaantaDAO {
         kaantaData.bag_weight,
         kaantaData.no_of_bags,
         kaantaData.bag_type,
+        kaantaData.ticket_number?.trim() || null,
+        kaantaData.parchi_vehicle_number?.trim() || null,
+        kaantaData.vehicle_number_mismatch ?? false,
         kaantaData.created_by || null,
       ];
 
@@ -432,6 +439,22 @@ export class KaantaDAO {
       fields.push(`bhara_kaanta_parchi_url = $${paramCount++}`);
       values.push(kaantaData.bhara_kaanta_parchi_url);
     }
+    if (kaantaData.combined_kaanta_parchi_url !== undefined) {
+      fields.push(`combined_kaanta_parchi_url = $${paramCount++}`);
+      values.push(kaantaData.combined_kaanta_parchi_url);
+    }
+    if (kaantaData.ticket_number !== undefined) {
+      fields.push(`ticket_number = $${paramCount++}`);
+      values.push(kaantaData.ticket_number?.trim() || null);
+    }
+    if (kaantaData.parchi_vehicle_number !== undefined) {
+      fields.push(`parchi_vehicle_number = $${paramCount++}`);
+      values.push(kaantaData.parchi_vehicle_number?.trim() || null);
+    }
+    if (kaantaData.vehicle_number_mismatch !== undefined) {
+      fields.push(`vehicle_number_mismatch = $${paramCount++}`);
+      values.push(kaantaData.vehicle_number_mismatch);
+    }
     if (kaantaData.updated_by !== undefined) {
       fields.push(`updated_by = $${paramCount++}`);
       values.push(kaantaData.updated_by);
@@ -450,7 +473,8 @@ export class KaantaDAO {
       WHERE id = $${paramCount}
       RETURNING id, kaanta_id, godown_id, sauda_id, inward_slip_pass_id, full_truck_weight, 
                 empty_truck_weight, kaanta_weight, said_sent_weight, bag_weight, no_of_bags, bag_type,
-                khaali_kaanta_parchi_url, bhara_kaanta_parchi_url,
+                khaali_kaanta_parchi_url, bhara_kaanta_parchi_url, combined_kaanta_parchi_url,
+             ticket_number, parchi_vehicle_number, vehicle_number_mismatch,
                 created_at, updated_at, created_by, updated_by
     `;
 
@@ -461,7 +485,8 @@ export class KaantaDAO {
       const prevRes = await client.query<Kaanta>(
         `SELECT id, kaanta_id, godown_id, sauda_id, inward_slip_pass_id, full_truck_weight,
                 empty_truck_weight, kaanta_weight, said_sent_weight, bag_weight, no_of_bags, bag_type,
-                khaali_kaanta_parchi_url, bhara_kaanta_parchi_url,
+                khaali_kaanta_parchi_url, bhara_kaanta_parchi_url, combined_kaanta_parchi_url,
+             ticket_number, parchi_vehicle_number, vehicle_number_mismatch,
                 created_at, updated_at, created_by, updated_by
          FROM kaantas WHERE id = $1 FOR UPDATE`,
         [id]

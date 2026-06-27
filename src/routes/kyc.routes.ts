@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { kycController } from '../controllers/kyc.controller';
 import { authenticate } from '../middleware/auth.middleware';
+import { licenseOcrUpload, documentOcrUpload } from '../middleware/upload.middleware';
 
 const router = Router();
 
@@ -17,6 +18,19 @@ router.get(
 );
 
 /**
+ * @route   POST /api/v1/kyc/aadhaar/ocr
+ * @desc    OCR Aadhaar card via Surepass
+ * @access  Private
+ * @form    file: file (required)
+ */
+router.post(
+  '/aadhaar/ocr',
+  authenticate,
+  documentOcrUpload,
+  kycController.ocrAadhaar.bind(kycController)
+);
+
+/**
  * @route   GET /api/v1/kyc/bank/verify
  * @desc    Verify bank account via Surepass
  * @access  Private
@@ -26,6 +40,19 @@ router.get(
   '/bank/verify',
   authenticate,
   kycController.verifyBankAccount.bind(kycController)
+);
+
+/**
+ * @route   POST /api/v1/kyc/driving-license/ocr
+ * @desc    OCR driving licence front/back via Surepass license-v2
+ * @access  Private
+ * @form    front: file (required), back: file (optional), use_pdf: boolean (optional)
+ */
+router.post(
+  '/driving-license/ocr',
+  authenticate,
+  licenseOcrUpload,
+  kycController.ocrDrivingLicense.bind(kycController)
 );
 
 /**
@@ -65,6 +92,19 @@ router.get(
 );
 
 /**
+ * @route   POST /api/v1/kyc/gstin/ocr
+ * @desc    OCR GST certificate via Surepass
+ * @access  Private
+ * @form    file: file (required)
+ */
+router.post(
+  '/gstin/ocr',
+  authenticate,
+  documentOcrUpload,
+  kycController.ocrGst.bind(kycController)
+);
+
+/**
  * @route   GET /api/v1/kyc/pan/comprehensive
  * @desc    Lookup PAN via Surepass Comprehensive API
  * @access  Private
@@ -74,6 +114,19 @@ router.get(
   '/pan/comprehensive',
   authenticate,
   kycController.lookupPANComprehensive.bind(kycController)
+);
+
+/**
+ * @route   POST /api/v1/kyc/pan/ocr
+ * @desc    OCR PAN card via Surepass
+ * @access  Private
+ * @form    file: file (required), use_pdf: boolean (optional)
+ */
+router.post(
+  '/pan/ocr',
+  authenticate,
+  documentOcrUpload,
+  kycController.ocrPan.bind(kycController)
 );
 
 /**
@@ -122,6 +175,19 @@ router.post(
   '/rc/full',
   authenticate,
   kycController.lookupRcFull.bind(kycController)
+);
+
+/**
+ * @route   POST /api/v1/kyc/rc/ocr
+ * @desc    OCR vehicle RC via Surepass
+ * @access  Private
+ * @form    file: file (required)
+ */
+router.post(
+  '/rc/ocr',
+  authenticate,
+  documentOcrUpload,
+  kycController.ocrVehicleRc.bind(kycController)
 );
 
 export default router;

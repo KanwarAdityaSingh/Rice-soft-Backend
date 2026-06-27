@@ -42,6 +42,53 @@ export function parseDrivingLicenseExpiryDate(doe: string | undefined | null): s
   return trimmed;
 }
 
+/** Parse transport DOE; accepts YYYY-MM-DD and DD-MM-YYYY / DD/MM/YYYY. */
+export function parseTransportLicenseExpiryDate(value: string | undefined | null): string | null {
+  const iso = parseDrivingLicenseExpiryDate(value);
+  if (iso) {
+    return iso;
+  }
+  const normalized = normalizeDriverDobForSurepass(value);
+  if (!normalized) {
+    return null;
+  }
+  return parseDrivingLicenseExpiryDate(normalized);
+}
+
+export interface TransportDoeResolution {
+  raw: string;
+  parsed: string;
+}
+
+/** Resolve transport DOE from create payload (body fields or verification snapshot). */
+export function resolveTransportDoeForCreate(data: {
+  transport_license_expires_at?: string | null;
+  transport_doe?: string | null;
+  verification_details?: unknown;
+}): TransportDoeResolution | null {
+  let fromSnapshot: string | null = null;
+  if (
+    data.verification_details &&
+    typeof data.verification_details === 'object' &&
+    !Array.isArray(data.verification_details)
+  ) {
+    const mapped = (data.verification_details as { mapped?: DriverLicenseVerificationResult }).mapped;
+    fromSnapshot = mapped?.transport_date_of_expiry?.trim() || null;
+  }
+
+  const raw = (data.transport_license_expires_at ?? data.transport_doe ?? fromSnapshot)?.trim();
+  if (!raw) {
+    return null;
+  }
+
+  const parsed = parseTransportLicenseExpiryDate(raw);
+  if (!parsed) {
+    return { raw, parsed: '' };
+  }
+
+  return { raw, parsed };
+}
+
 /**
  * Normalize DOB for Surepass DL verify.
  * Accepts YYYY-MM-DD, ISO datetime, DD-MM-YYYY, DD/MM/YYYY.
@@ -80,6 +127,10 @@ export interface DriverProfileFromMapped {
   name: string | null;
   date_of_birth: string | null;
   license_expires_at: string | null;
+  transport_license_expires_at: string | null;
+  father_or_husband_name: string | null;
+  state: string | null;
+  city_name: string | null;
   address: string | null;
   pincode: string | null;
   gender: string | null;
@@ -96,6 +147,10 @@ export function driverProfileFromMapped(
       name: null,
       date_of_birth: null,
       license_expires_at: null,
+      transport_license_expires_at: null,
+      father_or_husband_name: null,
+      state: null,
+      city_name: null,
       address: null,
       pincode: null,
       gender: null,
@@ -108,6 +163,10 @@ export function driverProfileFromMapped(
     name: mapped.full_name?.trim() || null,
     date_of_birth: mapped.date_of_birth?.trim() || null,
     license_expires_at: parseDrivingLicenseExpiryDate(mapped.date_of_expiry),
+    transport_license_expires_at: parseTransportLicenseExpiryDate(mapped.transport_date_of_expiry),
+    father_or_husband_name: mapped.father_or_husband_name?.trim() || null,
+    state: mapped.state?.trim() || null,
+    city_name: mapped.city_name?.trim() || mapped.ola_name?.trim() || null,
     address: mapped.address?.trim() || null,
     pincode: mapped.pincode?.trim() || null,
     gender: mapped.gender?.trim() || null,

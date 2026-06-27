@@ -11,13 +11,24 @@ export interface ApiResponse<T = any> {
   verification_message?: string;
   /** True when bank account holder name does not match the KYC verification snapshot */
   bank_verification_flagged?: boolean;
+  /** OpenAI similarity score when bank verified via llm_similarity */
+  bank_name_similarity_score?: number;
+  /** exact | llm_similarity */
+  bank_verification_method?: 'exact' | 'llm_similarity';
+  /** True when driver was created without a transport DOE from DL verification */
+  transport_doe_not_found?: boolean;
   timestamp: string;
   isSessionValid?: boolean;
 }
 
 export type SuccessResponseExtras = Pick<
   ApiResponse,
-  'verification_error' | 'verification_message' | 'bank_verification_flagged'
+  | 'verification_error'
+  | 'verification_message'
+  | 'bank_verification_flagged'
+  | 'bank_name_similarity_score'
+  | 'bank_verification_method'
+  | 'transport_doe_not_found'
 >;
 
 export class ResponseHandler {

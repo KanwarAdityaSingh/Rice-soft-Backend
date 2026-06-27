@@ -26,13 +26,17 @@ import { gstLookupService } from '../services/gst-lookup.service';
 import { kycPersistenceService } from '../services/kyc-persistence.service';
 import { parseEntityKycDetails } from '../utils/kyc-verification';
 import { applyBankVerificationFromSnapshot } from '../utils/apply-bank-verification-from-snapshot';
+import { assertModuleEmailAvailable } from '../utils/entity-email-conflict';
+import {
+  bankVerificationSuccessExtras,
+  isBankVerificationSuccess,
+} from '../utils/bank-verification-response';
 import { logger } from '../utils/logger';
 
 const LENIENT_BANK_VERIFY_FAIL_MESSAGE_CREATE =
   'Transporter created but bank account holder name does not match the verification snapshot.';
 const LENIENT_BANK_VERIFY_FAIL_MESSAGE_UPDATE =
   'Transporter updated but bank account holder name does not match the verification snapshot.';
-const BANK_VERIFY_SUCCESS_MESSAGE = 'Bank details verified successfully.';
 
 async function tryVerifyBankAfterSave(
   transporterId: string,
@@ -143,11 +147,10 @@ export class TransporterController {
         if (contactPerson.emails) {
           for (const email of contactPerson.emails) {
             if (email && email.trim() !== '') {
-            const emailExists = await transporterDAO.emailExists(email);
-        if (emailExists) {
-              throw new ConflictError(`Email already exists: ${email}`);
+              await assertModuleEmailAvailable(email, 'transporter', (value) =>
+                transporterDAO.findByEmail(value)
+              );
             }
-          }
           }
         }
       }
@@ -191,12 +194,12 @@ export class TransporterController {
           req.user?.userId
         );
         const refreshed = await transporterDAO.findById(transporter.id);
-        if (verifyResult.status === 'verified') {
+        if (isBankVerificationSuccess(verifyResult)) {
           return ResponseHandler.created(
             res,
             toTransporterResponse(refreshed ?? transporter),
             'Transporter created successfully',
-            { verification_message: BANK_VERIFY_SUCCESS_MESSAGE }
+            bankVerificationSuccessExtras(verifyResult)
           );
         }
         logger.warn('Bank name mismatch after transporter create', {
@@ -237,10 +240,9 @@ export class TransporterController {
               if (email && email.trim() !== '') {
               // Only check if email is different from existing transporter's email
               if (email !== existingTransporter.email) {
-                const emailExists = await transporterDAO.emailExists(email, id);
-        if (emailExists) {
-                  throw new ConflictError(`Email already exists: ${email}`);
-                }
+                await assertModuleEmailAvailable(email, 'transporter', (value) =>
+                  transporterDAO.findByEmail(value), id
+                );
               }
             }
           }
@@ -310,13 +312,13 @@ export class TransporterController {
           req.user?.userId
         );
         const refreshed = await transporterDAO.findById(transporter.id);
-        if (verifyResult.status === 'verified') {
+        if (isBankVerificationSuccess(verifyResult)) {
           return ResponseHandler.success(
             res,
             toTransporterResponse(refreshed ?? transporter),
             'Transporter updated successfully',
             200,
-            { verification_message: BANK_VERIFY_SUCCESS_MESSAGE }
+            bankVerificationSuccessExtras(verifyResult)
           );
         }
         logger.warn('Bank name mismatch after transporter update', {
@@ -392,7 +394,7 @@ export class TransporterController {
         throw new NotFoundError('Transporter not found');
       }
 
-      if (verifyResult.status !== 'verified') {
+      if (!isBankVerificationSuccess(verifyResult)) {
         return ResponseHandler.success(
           res,
           toTransporterResponse(updated),
@@ -402,7 +404,13 @@ export class TransporterController {
         );
       }
 
-      return ResponseHandler.success(res, toTransporterResponse(updated), 'Bank details verified and saved');
+      return ResponseHandler.success(
+        res,
+        toTransporterResponse(updated),
+        'Bank details verified and saved',
+        200,
+        bankVerificationSuccessExtras(verifyResult)
+      );
     } catch (error) {
       next(error);
     }

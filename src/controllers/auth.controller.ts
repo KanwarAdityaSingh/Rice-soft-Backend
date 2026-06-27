@@ -1,19 +1,67 @@
 import { Request, Response, NextFunction } from 'express';
 import { userDAO } from '../dao/user.dao';
 import { LoginHistoryDAO } from '../dao/login-history.dao';
-import { JWTService } from '../utils/jwt';
 import * as UAParser from 'ua-parser-js';
 import { ResponseHandler } from '../utils/response';
 import { validate, loginSchema, changePasswordSchema, requestOtpSchema, verifyOtpSchema } from '../utils/validators';
-import { UnauthorizedError, NotFoundError, BadRequestError } from '../utils/errors';
-import { LoginDTO, LoginResponse, UserResponse } from '../models/user.model';
+import { UnauthorizedError, NotFoundError, BadRequestError, RefreshAuthError } from '../utils/errors';
+import { LoginDTO, LoginResponse, RefreshTokenResponse, UserResponse } from '../models/user.model';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { logger } from '../utils/logger';
 import { otpService } from '../services/otp.service';
-import { randomUUID } from 'crypto';
+import { authSessionService } from '../services/auth-session.service';
+import { appConfig } from '../config/app.config';
+import { setRefreshTokenCookie, clearRefreshTokenCookie } from '../utils/auth-cookies';
 
 export class AuthController {
   private loginHistoryDAO = new LoginHistoryDAO();
+
+  private toUserResponse(user: {
+    id: string;
+    username: string;
+    email: string | null;
+    full_name: string;
+    phone: string | null;
+    user_type: UserResponse['user_type'];
+    is_active: boolean;
+    last_login: Date | null;
+    created_at: Date;
+    updated_at: Date;
+  }): UserResponse {
+    return {
+      id: user.id,
+      username: user.username,
+      email: user.email,
+      full_name: user.full_name,
+      phone: user.phone,
+      user_type: user.user_type,
+      is_active: user.is_active,
+      last_login: user.last_login?.toISOString() || null,
+      created_at: user.created_at.toISOString(),
+      updated_at: user.updated_at.toISOString(),
+    };
+  }
+
+  private async completeLogin(
+    res: Response,
+    userInfo: NonNullable<Awaited<ReturnType<typeof userDAO.findById>>>
+  ): Promise<Response> {
+    const session = await authSessionService.createSession(userInfo.id, userInfo.username);
+    setRefreshTokenCookie(res, session.refreshToken);
+
+    const permissions = (userInfo as { custom_permissions?: LoginResponse['permissions'] })
+      .custom_permissions || null;
+
+    const response: LoginResponse = {
+      user: this.toUserResponse(userInfo),
+      token: session.accessToken,
+      expires_in: session.accessExpiresIn,
+      refresh_expires_in: session.refreshExpiresIn,
+      permissions,
+    };
+
+    return ResponseHandler.success(res, response, 'Login successful');
+  }
 
   async login(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
     try {
@@ -83,12 +131,6 @@ export class AuthController {
         login_status: 'success',
       });
 
-      // Generate unique session ID
-      const sessionId = randomUUID();
-
-      // Update active session - invalidates all previous sessions
-      await userDAO.updateActiveSession(user.id, sessionId);
-
       // Update last login
       await userDAO.updateLastLogin(user.id);
 
@@ -98,51 +140,47 @@ export class AuthController {
         throw new UnauthorizedError('User not found');
       }
 
-      // Generate JWT token with session ID
-      const token = JWTService.generateToken({
-        userId: userInfo.id,
-        username: userInfo.username,
-        sessionId,
-      });
-
-      const userResponse: UserResponse = {
-        id: userInfo.id,
-        username: userInfo.username,
-        email: userInfo.email,
-        full_name: userInfo.full_name,
-        phone: userInfo.phone,
-        user_type: userInfo.user_type,
-        is_active: userInfo.is_active,
-        last_login: userInfo.last_login?.toISOString() || null,
-        created_at: userInfo.created_at.toISOString(),
-        updated_at: userInfo.updated_at.toISOString(),
-      };
-
-      const permissions = (userInfo as any).custom_permissions || null;
-
-      const response: LoginResponse = {
-        user: userResponse,
-        token,
-        expires_in: '24h',
-        permissions,
-      };
-
       logger.info('User logged in', { userId: user.id, username: user.username });
 
-      return ResponseHandler.success(res, response, 'Login successful');
+      return this.completeLogin(res, userInfo);
     } catch (error) {
+      next(error);
+    }
+  }
+
+  async refreshToken(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const refreshToken = req.cookies?.[appConfig.auth.refreshCookieName];
+      if (!refreshToken || typeof refreshToken !== 'string') {
+        throw new UnauthorizedError('Refresh token required');
+      }
+
+      const session = await authSessionService.rotateRefreshToken(refreshToken);
+      setRefreshTokenCookie(res, session.refreshToken);
+
+      const response: RefreshTokenResponse = {
+        token: session.accessToken,
+        expires_in: session.accessExpiresIn,
+        refresh_expires_in: session.refreshExpiresIn,
+      };
+
+      return ResponseHandler.success(res, response, 'Token refreshed');
+    } catch (error) {
+      if (error instanceof RefreshAuthError && error.sessionCleared) {
+        clearRefreshTokenCookie(res);
+      }
       next(error);
     }
   }
 
   async logout(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      // Clear active session from database
       if (req.user) {
-        await userDAO.updateActiveSession(req.user.userId, null);
+        await authSessionService.revokeSession(req.user.userId);
         logger.info('User logged out', { userId: req.user.userId });
       }
 
+      clearRefreshTokenCookie(res);
       return ResponseHandler.success(res, null, 'Logout successful');
     } catch (error) {
       next(error);
@@ -160,18 +198,7 @@ export class AuthController {
         throw new UnauthorizedError('User not found');
       }
 
-      const userResponse: UserResponse = {
-        id: user.id,
-        username: user.username,
-        email: user.email,
-        full_name: user.full_name,
-        phone: user.phone,
-        user_type: user.user_type,
-        is_active: user.is_active,
-        last_login: user.last_login?.toISOString() || null,
-        created_at: user.created_at.toISOString(),
-        updated_at: user.updated_at.toISOString(),
-      };
+      const userResponse: UserResponse = this.toUserResponse(user);
 
       return ResponseHandler.success(res, userResponse);
     } catch (error) {
@@ -204,12 +231,18 @@ export class AuthController {
         throw new BadRequestError('New password must be different from current password');
       }
 
-      // Update password
+      // Update password and invalidate all sessions
       await userDAO.updatePassword(req.user.userId, new_password);
+      await authSessionService.revokeSession(req.user.userId);
+      clearRefreshTokenCookie(res);
 
       logger.info('Password changed', { userId: req.user.userId });
 
-      return ResponseHandler.success(res, null, 'Password changed successfully');
+      return ResponseHandler.success(
+        res,
+        null,
+        'Password changed successfully. Please log in again with your new password.'
+      );
     } catch (error) {
       next(error);
     }
@@ -277,13 +310,6 @@ export class AuthController {
         throw new UnauthorizedError('User not found');
       }
 
-      // Generate unique session ID
-      const sessionId = randomUUID();
-
-      // Update active session - invalidates all previous sessions
-      await userDAO.updateActiveSession(userInfo.id, sessionId);
-
-      // Log successful login
       await this.loginHistoryDAO.create({
         user_id: userInfo.id,
         ip_address: ipAddress,
@@ -297,38 +323,9 @@ export class AuthController {
       // Update last login
       await userDAO.updateLastLogin(userInfo.id);
 
-      // Generate JWT token with session ID
-      const token = JWTService.generateToken({
-        userId: userInfo.id,
-        username: userInfo.username,
-        sessionId,
-      });
-
-      const userResponse: UserResponse = {
-        id: userInfo.id,
-        username: userInfo.username,
-        email: userInfo.email,
-        full_name: userInfo.full_name,
-        phone: userInfo.phone,
-        user_type: userInfo.user_type,
-        is_active: userInfo.is_active,
-        last_login: userInfo.last_login?.toISOString() || null,
-        created_at: userInfo.created_at.toISOString(),
-        updated_at: userInfo.updated_at.toISOString(),
-      };
-
-      const permissions = (userInfo as any).custom_permissions || null;
-
-      const response: LoginResponse = {
-        user: userResponse,
-        token,
-        expires_in: '24h',
-        permissions,
-      };
-
       logger.info('User logged in via OTP', { userId: userInfo.id, username: userInfo.username });
 
-      return ResponseHandler.success(res, response, 'Login successful');
+      return this.completeLogin(res, userInfo);
     } catch (error: any) {
       try {
         // Attempt to log failed OTP verification if we can resolve a user by phone

@@ -91,6 +91,7 @@ async function main() {
       contact_persons: [{ name: 'Test Contact', phones: ['9876543210'], emails: ['test@example.com'] }],
       address: { street: '123 Test St', city: 'Mumbai', state: 'Maharashtra', pincode: '400001', country: 'India' },
       business_details: { pan_number: 'ABCDE1234F', gst_number: '27AABCU9603R1ZM', business_type: 'company' },
+      registration_type: 'registered',
       is_active: true,
     });
     if (createPartyRes.status !== 200 && createPartyRes.status !== 201) {

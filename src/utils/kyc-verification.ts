@@ -174,3 +174,24 @@ export function isVendorKycVerified(
 ): boolean {
   return isRegistrationKycVerified(registrationType, kyc);
 }
+
+export function isSalesPartyKycVerified(
+  registrationType: RegistrationType,
+  kyc: EntityKycVerificationDetails
+): boolean {
+  return isRegistrationKycVerified(registrationType, kyc);
+}
+
+/** Entities stay inactive until primary KYC is verified. */
+export function resolveEntityIsActiveFromKyc(
+  isVerified: boolean,
+  explicitIsActive?: boolean
+): boolean {
+  if (!isVerified) {
+    return false;
+  }
+  return explicitIsActive !== undefined ? explicitIsActive : true;
+}
+
+/** @deprecated Use resolveEntityIsActiveFromKyc */
+export const resolveSalesPartyIsActive = resolveEntityIsActiveFromKyc;

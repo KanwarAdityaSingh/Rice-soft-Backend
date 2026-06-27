@@ -17,6 +17,10 @@ export interface Kaanta {
   bag_type: BagType;
   khaali_kaanta_parchi_url: string | null;
   bhara_kaanta_parchi_url: string | null;
+  combined_kaanta_parchi_url: string | null;
+  ticket_number: string | null;
+  parchi_vehicle_number: string | null;
+  vehicle_number_mismatch: boolean;
   created_at: Date;
   updated_at: Date;
   created_by: string | null;
@@ -33,6 +37,9 @@ export interface CreateKaantaDTO {
   bag_weight: number;
   no_of_bags: number;
   bag_type: BagType;
+  ticket_number?: string | null;
+  parchi_vehicle_number?: string | null;
+  vehicle_number_mismatch?: boolean;
   created_by?: string;
 }
 
@@ -45,6 +52,10 @@ export interface UpdateKaantaDTO {
   bag_type?: BagType;
   khaali_kaanta_parchi_url?: string;
   bhara_kaanta_parchi_url?: string;
+  combined_kaanta_parchi_url?: string;
+  ticket_number?: string | null;
+  parchi_vehicle_number?: string | null;
+  vehicle_number_mismatch?: boolean;
   updated_by?: string;
 }
 
@@ -63,6 +74,10 @@ export interface KaantaResponse {
   bag_type: BagType;
   khaali_kaanta_parchi_url: string | null;
   bhara_kaanta_parchi_url: string | null;
+  combined_kaanta_parchi_url: string | null;
+  ticket_number: string | null;
+  parchi_vehicle_number: string | null;
+  vehicle_number_mismatch: boolean;
   created_at: string;
   updated_at: string;
 }

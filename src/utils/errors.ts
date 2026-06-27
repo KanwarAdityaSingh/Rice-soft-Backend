@@ -30,6 +30,16 @@ export class UnauthorizedError extends AppError {
   }
 }
 
+/** Thrown when refresh fails and the server session was cleared (cookie should be dropped). */
+export class RefreshAuthError extends UnauthorizedError {
+  constructor(
+    message: string,
+    public readonly sessionCleared: boolean
+  ) {
+    super(message);
+  }
+}
+
 export class ForbiddenError extends AppError {
   constructor(message = 'Forbidden') {
     super(message, 403);

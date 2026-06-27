@@ -14,6 +14,8 @@ export interface DriverLicenseVerificationResult {
   father_or_husband_name?: string | null;
   date_of_issue?: string | null;
   transport_date_of_expiry?: string | null;
+  /** City from Surepass; falls back to ola_name when city_name is absent. */
+  city_name?: string | null;
   profile_image?: string | null;
   has_image?: boolean;
   ola_name?: string | null;
@@ -39,6 +41,10 @@ export interface Driver {
   name: string | null;
   date_of_birth: Date | string | null;
   license_expires_at: Date | string | null;
+  transport_license_expires_at: Date | string | null;
+  father_or_husband_name: string | null;
+  state: string | null;
+  city_name: string | null;
   address: string | null;
   pincode: string | null;
   gender: string | null;
@@ -61,6 +67,11 @@ export interface CreateDriverDTO {
   date_of_birth?: string | null;
   license_expires_at?: string | null;
   doe?: string | null;
+  transport_license_expires_at?: string | null;
+  transport_doe?: string | null;
+  father_or_husband_name?: string | null;
+  state?: string | null;
+  city_name?: string | null;
   address?: string | null;
   pincode?: string | null;
   gender?: string | null;
@@ -80,6 +91,11 @@ export interface UpdateDriverDTO {
   date_of_birth?: string | null;
   license_expires_at?: string | null;
   doe?: string | null;
+  transport_license_expires_at?: string | null;
+  transport_doe?: string | null;
+  father_or_husband_name?: string | null;
+  state?: string | null;
+  city_name?: string | null;
   address?: string | null;
   pincode?: string | null;
   gender?: string | null;
@@ -101,6 +117,12 @@ export interface DriverResponse {
   license_expires_at: string | null;
   /** Alias for license_expires_at (DL valid until). */
   doe: string | null;
+  transport_license_expires_at: string | null;
+  /** Alias for transport_license_expires_at (transport DOE). */
+  transport_doe: string | null;
+  father_or_husband_name: string | null;
+  state: string | null;
+  city_name: string | null;
   address: string | null;
   pincode: string | null;
   gender: string | null;

@@ -7,6 +7,19 @@ import { documentUpload } from '../middleware/upload.middleware';
 const router = Router();
 
 /**
+ * @route   POST /api/v1/kaantas/extract-weights
+ * @desc    Extract kaanta slip weights (and optional vehicle/ticket) from uploaded image via AI
+ * @access  Private
+ * @body    file: image (required), inward_slip_pass_id: UUID (optional, for vehicle mismatch check)
+ */
+router.post(
+  '/extract-weights',
+  authenticate,
+  documentUpload.single('file'),
+  kaantaController.extractWeights.bind(kaantaController)
+);
+
+/**
  * @route   GET /api/v1/kaantas
  * @desc    Get all kaantas
  * @access  Private
@@ -82,6 +95,19 @@ router.post(
   documentUpload.single('file'),
   auditLog('UPDATE', 'kaantas'),
   kaantaController.uploadBharaKaantaParchi.bind(kaantaController)
+);
+
+/**
+ * @route   POST /api/v1/kaantas/:id/upload-combined-parchi
+ * @desc    Upload combined kaanta parchi (single slip with gross, tare, net)
+ * @access  Private
+ */
+router.post(
+  '/:id/upload-combined-parchi',
+  authenticate,
+  documentUpload.single('file'),
+  auditLog('UPDATE', 'kaantas'),
+  kaantaController.uploadCombinedKaantaParchi.bind(kaantaController)
 );
 
 export default router;

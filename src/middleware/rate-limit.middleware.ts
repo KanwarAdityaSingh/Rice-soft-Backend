@@ -30,6 +30,14 @@ export const requestOtpLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+export const refreshTokenLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  message: 'Too many refresh attempts, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 export const verifyOtpLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 10, // per IP+phone
