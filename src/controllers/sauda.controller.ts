@@ -2,7 +2,10 @@ import { Response, NextFunction } from 'express';
 import { saudaDAO } from '../dao/sauda.dao';
 import { vendorDAO } from '../dao/vendor.dao';
 import { brokerDAO } from '../dao/broker.dao';
-import { riceCodeDAO } from '../dao/rice-code.dao';
+import { riceCodeService } from '../services/rice-code.service';
+import { riceLengthDAO } from '../dao/rice-length.dao';
+import { inwardSlipLotDAO } from '../dao/inward-slip-lot.dao';
+import { saudaRiceFieldsAreChanging } from '../utils/lot-rice-from-sauda';
 import { ResponseHandler } from '../utils/response';
 import {
   validate,
@@ -18,6 +21,11 @@ import {
 } from '../utils/errors';
 import { CreateSaudaDTO, UpdateSaudaDTO, Sauda, SaudaResponse, SaudaStatus, SaudaType } from '../models/sauda.model';
 import { formatSaudaDisplayId } from '../utils/sauda-display';
+import { SAUDA_AUTO_COMPLETE_COMPLETION_PERCENT } from '../constants/sauda-completion';
+import type { SaudaParametersSnapshot } from '../constants/sauda-parameters';
+import { parameterService } from '../services/parameter.service';
+import { saudaService } from '../services/sauda.service';
+import { saudaParametersSnapshotFromRow } from '../utils/sauda-parameters';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { uploadToS3, validateFileSize, validateFileType, normalizeMimeType } from '../utils/s3-upload';
 import { appConfig } from '../config/app.config';
@@ -42,7 +50,7 @@ function formatDateToLocalString(date: Date | string | null | undefined): string
 }
 
 /** Matches DB trigger: ROUND((received_until_now / quantity) * 100, 2); NULL if quantity missing or zero */
-const MIN_COMPLETION_PERCENT_FOR_COMPLETED_STATUS = 95;
+const MIN_COMPLETION_PERCENT_FOR_COMPLETED_STATUS = SAUDA_AUTO_COMPLETE_COMPLETION_PERCENT;
 
 function computeSaudaCompletionPercentage(
   receivedUntilNow: number,
@@ -76,19 +84,26 @@ function assertCanSetSaudaStatusCompleted(existing: Sauda, quantityAfterUpdate?:
   }
 }
 
-function toSaudaResponse(sauda: Sauda): SaudaResponse {
+function toSaudaResponse(
+  sauda: Sauda,
+  parameters: SaudaParametersSnapshot | null = null
+): SaudaResponse {
   return {
     id: sauda.id,
     display_id: formatSaudaDisplayId(sauda.id),
     sauda_type: sauda.sauda_type,
+    rice_category: sauda.rice_category,
     rice_type: sauda.rice_type,
-    rice_length: sauda.rice_length,
+    rice_length_id: sauda.rice_length_id,
+    rice_length_name: sauda.rice_length_name ?? null,
     rice_code_id: sauda.rice_code_id,
     rate: parseFloat(sauda.rate.toString()),
     broker_id: sauda.broker_id,
     broker_commission: sauda.broker_commission ? parseFloat(sauda.broker_commission.toString()) : null,
     broker_commission_type: sauda.broker_commission_type,
     quantity: sauda.quantity ? parseFloat(sauda.quantity.toString()) : null,
+    no_of_bags: sauda.no_of_bags != null ? parseInt(String(sauda.no_of_bags), 10) : null,
+    bag_weight: sauda.bag_weight != null ? parseFloat(sauda.bag_weight.toString()) : null,
     received_until_now: parseFloat(sauda.received_until_now.toString()),
     completion_percentage: sauda.completion_percentage ? parseFloat(sauda.completion_percentage.toString()) : null,
     cash_discount: sauda.cash_discount ? parseFloat(sauda.cash_discount.toString()) : null,
@@ -101,9 +116,23 @@ function toSaudaResponse(sauda: Sauda): SaudaResponse {
     notes: sauda.notes,
     is_dana_required: sauda.is_dana_required,
     sauda_date: formatDateToLocalString(sauda.sauda_date),
+    parameters,
     created_at: sauda.created_at.toISOString(),
     updated_at: sauda.updated_at.toISOString(),
   };
+}
+
+async function buildSaudaResponses(saudas: Sauda[]): Promise<SaudaResponse[]> {
+  if (saudas.length === 0) {
+    return [];
+  }
+  const parameterRows = await parameterService.getBySaudaIds(saudas.map((s) => s.id));
+  const parametersBySaudaId = new Map(
+    parameterRows.map((row) => [row.sauda_id as string, saudaParametersSnapshotFromRow(row)])
+  );
+  return saudas.map((sauda) =>
+    toSaudaResponse(sauda, parametersBySaudaId.get(sauda.id) ?? null)
+  );
 }
 
 export class SaudaController {
@@ -115,8 +144,7 @@ export class SaudaController {
       const purchaserId = req.query.purchaser_id as string | undefined;
       
       const saudas = await saudaDAO.findAll(includeInactive, status, saudaType, purchaserId);
-
-      const saudaResponses: SaudaResponse[] = saudas.map(toSaudaResponse);
+      const saudaResponses = await buildSaudaResponses(saudas);
 
       return ResponseHandler.success(res, saudaResponses);
     } catch (error) {
@@ -133,7 +161,11 @@ export class SaudaController {
         throw new NotFoundError('Sauda not found');
       }
 
-      return ResponseHandler.success(res, toSaudaResponse(sauda));
+      const parameterRow = await parameterService.getBySaudaId(id);
+      return ResponseHandler.success(
+        res,
+        toSaudaResponse(sauda, parameterRow ? saudaParametersSnapshotFromRow(parameterRow) : null)
+      );
     } catch (error) {
       next(error);
     }
@@ -142,38 +174,54 @@ export class SaudaController {
   async create(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const saudaData = validate<CreateSaudaDTO>(createSaudaSchema, req.body);
+      const { parameters, ...saudaFields } = saudaData;
 
       // Validate purchaser exists
-      const purchaser = await vendorDAO.findById(saudaData.purchaser_id);
+      const purchaser = await vendorDAO.findById(saudaFields.purchaser_id);
 
       if (!purchaser) {
         throw new NotFoundError('Purchaser (vendor) not found');
       }
 
       // Validate broker if provided
-      if (saudaData.broker_id) {
-        const broker = await brokerDAO.findById(saudaData.broker_id);
+      if (saudaFields.broker_id) {
+        const broker = await brokerDAO.findById(saudaFields.broker_id);
         if (!broker) {
           throw new NotFoundError('Broker not found');
         }
       }
 
-      // Validate rice_code if provided
-      if (saudaData.rice_code_id) {
-        const riceCode = await riceCodeDAO.findById(saudaData.rice_code_id);
-        if (!riceCode) {
-          throw new NotFoundError('Rice code not found');
+      // Validate rice selection hierarchy
+      await riceCodeService.assertSaudaRiceSelection({
+        rice_category: saudaFields.rice_category,
+        rice_code_id: saudaFields.rice_code_id,
+        rice_type: saudaFields.rice_type,
+      });
+
+      if (saudaFields.rice_length_id) {
+        const riceLength = await riceLengthDAO.findById(saudaFields.rice_length_id);
+        if (!riceLength) {
+          throw new NotFoundError('Rice length not found');
         }
       }
 
       // Set created_by from authenticated user
       if (req.user) {
-        saudaData.created_by = req.user.userId;
+        saudaFields.created_by = req.user.userId;
       }
 
       let sauda;
+      let parameterSnapshot: SaudaParametersSnapshot | null = null;
       try {
-        sauda = await saudaDAO.create(saudaData);
+        const result = await saudaService.createWithParameters(
+          saudaFields,
+          parameters,
+          req.user?.userId
+        );
+        sauda = result.sauda;
+        parameterSnapshot = result.parameterRow
+          ? saudaParametersSnapshotFromRow(result.parameterRow)
+          : null;
       } catch (dbError: any) {
         // Check for database constraint violations
         if (dbError?.code === '23505') {
@@ -182,12 +230,18 @@ export class SaudaController {
         if (dbError?.code === '23503') {
           throw new ValidationError('Invalid reference: purchaser, broker, or rice code does not exist');
         }
-        throw new InternalServerError('Failed to create sauda. Please try again.');
+        throw dbError instanceof NotFoundError || dbError instanceof ValidationError
+          ? dbError
+          : new InternalServerError('Failed to create sauda. Please try again.');
       }
 
-      await vendorDAO.deactivatePurchaserVendorIfBankUnverified(saudaData.purchaser_id);
+      await vendorDAO.deactivatePurchaserVendorIfBankUnverified(saudaFields.purchaser_id);
 
-      return ResponseHandler.created(res, toSaudaResponse(sauda), 'Sauda created successfully');
+      return ResponseHandler.created(
+        res,
+        toSaudaResponse(sauda, parameterSnapshot),
+        'Sauda created successfully'
+      );
     } catch (error) {
       next(error);
     }
@@ -197,6 +251,7 @@ export class SaudaController {
     try {
       const id = validate<string>(uuidSchema, req.params.id);
       const saudaData = validate<UpdateSaudaDTO>(updateSaudaSchema, req.body);
+      const { parameters, ...saudaFields } = saudaData;
 
       // Check if sauda exists
       const existingSauda = await saudaDAO.findById(id);
@@ -205,46 +260,91 @@ export class SaudaController {
       }
 
       // Validate purchaser if being updated
-      if (saudaData.purchaser_id) {
-        const purchaser = await vendorDAO.findById(saudaData.purchaser_id);
+      if (saudaFields.purchaser_id) {
+        const purchaser = await vendorDAO.findById(saudaFields.purchaser_id);
         if (!purchaser) {
           throw new NotFoundError('Purchaser (vendor) not found');
         }
       }
 
       // Validate broker if being updated
-      if (saudaData.broker_id !== undefined && saudaData.broker_id !== null) {
-        const broker = await brokerDAO.findById(saudaData.broker_id);
+      if (saudaFields.broker_id !== undefined && saudaFields.broker_id !== null) {
+        const broker = await brokerDAO.findById(saudaFields.broker_id);
         if (!broker) {
           throw new NotFoundError('Broker not found');
         }
       }
 
-      // Validate rice_code if being updated
-      if (saudaData.rice_code_id !== undefined && saudaData.rice_code_id !== null) {
-        const riceCode = await riceCodeDAO.findById(saudaData.rice_code_id);
-        if (!riceCode) {
-          throw new NotFoundError('Rice code not found');
+      const effectiveCategory =
+        saudaFields.rice_category ?? existingSauda.rice_category;
+      const effectiveRiceType = saudaFields.rice_type ?? existingSauda.rice_type;
+      const effectiveRiceCodeId =
+        saudaFields.rice_code_id !== undefined
+          ? saudaFields.rice_code_id
+          : existingSauda.rice_code_id;
+
+      await riceCodeService.assertSaudaRiceSelection({
+        rice_category: effectiveCategory,
+        rice_code_id: effectiveRiceCodeId,
+        rice_type: effectiveRiceType,
+      });
+
+      if (saudaFields.rice_length_id !== undefined && saudaFields.rice_length_id !== null) {
+        const riceLength = await riceLengthDAO.findById(saudaFields.rice_length_id);
+        if (!riceLength) {
+          throw new NotFoundError('Rice length not found');
         }
+      }
+
+      const lotCount = await inwardSlipLotDAO.countBySaudaId(id);
+      if (
+        lotCount > 0 &&
+        saudaRiceFieldsAreChanging(
+          {
+            rice_category: saudaFields.rice_category,
+            rice_code_id: saudaFields.rice_code_id,
+            rice_type: saudaFields.rice_type,
+            rice_length_id: saudaFields.rice_length_id,
+          },
+          existingSauda
+        )
+      ) {
+        throw new ValidationError(
+          'Cannot change rice category, code, type, or length after lots have been created for this sauda'
+        );
       }
 
       // Set updated_by from authenticated user
       if (req.user) {
-        saudaData.updated_by = req.user.userId;
+        saudaFields.updated_by = req.user.userId;
       }
 
-      if (saudaData.status === 'completed') {
+      if (saudaFields.status === 'completed') {
         assertCanSetSaudaStatusCompleted(
           existingSauda,
-          saudaData.quantity !== undefined ? saudaData.quantity : undefined
+          saudaFields.quantity !== undefined ? saudaFields.quantity : undefined
         );
       }
 
       let sauda;
+      let parameterSnapshot: SaudaParametersSnapshot | null = null;
       try {
-        sauda = await saudaDAO.update(id, saudaData);
-        if (!sauda) {
-          throw new NotFoundError('Sauda not found after update');
+        const result = await saudaService.updateWithParameters(
+          id,
+          saudaFields,
+          parameters,
+          req.user?.userId
+        );
+        sauda = result.sauda;
+        if (result.parameterRow !== undefined) {
+          parameterSnapshot = result.parameterRow
+            ? saudaParametersSnapshotFromRow(result.parameterRow)
+            : null;
+        } else {
+          const existingParameter = await parameterService.getBySaudaId(sauda.id);
+          parameterSnapshot = existingParameter
+            ? saudaParametersSnapshotFromRow(existingParameter)
+            : null;
         }
       } catch (dbError: any) {
         if (dbError instanceof NotFoundError) {
@@ -262,7 +362,11 @@ export class SaudaController {
 
       await vendorDAO.deactivatePurchaserVendorIfBankUnverified(sauda.purchaser_id);
 
-      return ResponseHandler.success(res, toSaudaResponse(sauda), 'Sauda updated successfully');
+      return ResponseHandler.success(
+        res,
+        toSaudaResponse(sauda, parameterSnapshot),
+        'Sauda updated successfully'
+      );
     } catch (error) {
       next(error);
     }
@@ -295,7 +399,12 @@ export class SaudaController {
         throw new NotFoundError('Sauda not found');
       }
 
-      return ResponseHandler.success(res, toSaudaResponse(sauda), 'Sauda status updated successfully');
+      const parameterRow = await parameterService.getBySaudaId(sauda.id);
+      return ResponseHandler.success(
+        res,
+        toSaudaResponse(sauda, parameterRow ? saudaParametersSnapshotFromRow(parameterRow) : null),
+        'Sauda status updated successfully'
+      );
     } catch (error) {
       next(error);
     }
@@ -455,8 +564,9 @@ export class SaudaController {
       saudaDetails: {
         saudaId: formatSaudaDisplayId(sauda.id),
         saudaType: sauda.sauda_type,
+        riceCategory: sauda.rice_category,
         riceType: sauda.rice_type,
-        riceLength: sauda.rice_length ?? undefined,
+        riceLength: sauda.rice_length_name ?? undefined,
         rate: parseFloat(sauda.rate.toString()),
         quantity: sauda.quantity ? parseFloat(sauda.quantity.toString()) : undefined,
         cashDiscount: sauda.cash_discount ? parseFloat(sauda.cash_discount.toString()) : undefined,

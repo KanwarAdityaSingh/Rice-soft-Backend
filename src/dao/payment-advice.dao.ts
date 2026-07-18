@@ -2,14 +2,19 @@ import { db } from '../database/connection';
 import { PaymentAdvice, CreatePaymentAdviceDTO, UpdatePaymentAdviceDTO, PaymentAdviceStatus } from '../models/payment-advice.model';
 import { logger } from '../utils/logger';
 
+const PAYMENT_ADVICE_SELECT = `
+  id, sauda_id, inward_slip_pass_id, payer_id, recipient_id, sr_number, party_name, party_address,
+  broker_name, invoice_number, invoice_date, bill_number, truck_number, item, total_bags,
+  due_date, bill_weight, kanta_weight, dana_deduction, final_weight, rate, amount,
+  financial_year, calculation_policy_id,
+  transaction_id, date_of_payment, status, payment_slip_image_url, notes, created_at, updated_at,
+  created_by, updated_by
+`;
+
 export class PaymentAdviceDAO {
   async findAll(saudaId?: string, ispId?: string, status?: PaymentAdviceStatus): Promise<PaymentAdvice[]> {
     let query = `
-      SELECT id, sauda_id, inward_slip_pass_id, payer_id, recipient_id, sr_number, party_name, party_address,
-             broker_name, invoice_number, invoice_date, bill_number, truck_number, item, total_bags,
-             due_date, bill_weight, kanta_weight, dana_deduction, final_weight, rate, amount, transaction_id,
-             date_of_payment, status, payment_slip_image_url, notes, created_at, updated_at,
-             created_by, updated_by
+      SELECT ${PAYMENT_ADVICE_SELECT}
       FROM payment_advices
       WHERE 1=1
     `;
@@ -42,11 +47,7 @@ export class PaymentAdviceDAO {
   async findPendingLinked(saudaId: string, ispId?: string | null): Promise<PaymentAdvice[]> {
     const params: string[] = [saudaId];
     let query = `
-      SELECT id, sauda_id, inward_slip_pass_id, payer_id, recipient_id, sr_number, party_name, party_address,
-             broker_name, invoice_number, invoice_date, bill_number, truck_number, item, total_bags,
-             due_date, bill_weight, kanta_weight, dana_deduction, final_weight, rate, amount, transaction_id,
-             date_of_payment, status, payment_slip_image_url, notes, created_at, updated_at,
-             created_by, updated_by
+      SELECT ${PAYMENT_ADVICE_SELECT}
       FROM payment_advices
       WHERE status = 'pending'
         AND (sauda_id = $1
@@ -65,11 +66,7 @@ export class PaymentAdviceDAO {
 
   async findById(id: string): Promise<PaymentAdvice | null> {
     const query = `
-      SELECT id, sauda_id, inward_slip_pass_id, payer_id, recipient_id, sr_number, party_name, party_address,
-             broker_name, invoice_number, invoice_date, bill_number, truck_number, item, total_bags,
-             due_date, bill_weight, kanta_weight, dana_deduction, final_weight, rate, amount, transaction_id,
-             date_of_payment, status, payment_slip_image_url, notes, created_at, updated_at,
-             created_by, updated_by
+      SELECT ${PAYMENT_ADVICE_SELECT}
       FROM payment_advices
       WHERE id = $1
     `;
@@ -82,14 +79,11 @@ export class PaymentAdviceDAO {
       INSERT INTO payment_advices (sauda_id, inward_slip_pass_id, payer_id, recipient_id, sr_number, party_name,
                                   party_address, broker_name, invoice_number, invoice_date, bill_number,
                                   truck_number, item, total_bags, due_date, bill_weight,
-                                  kanta_weight, dana_deduction, final_weight, rate, amount, transaction_id,
-                                  date_of_payment, status, payment_slip_image_url, notes, created_by)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27)
-      RETURNING id, sauda_id, inward_slip_pass_id, payer_id, recipient_id, sr_number, party_name, party_address,
-                broker_name, invoice_number, invoice_date, bill_number, truck_number, item, total_bags,
-                due_date, bill_weight, kanta_weight, dana_deduction, final_weight, rate, amount, transaction_id,
-                date_of_payment, status, payment_slip_image_url, notes, created_at, updated_at,
-                created_by, updated_by
+                                  kanta_weight, dana_deduction, final_weight, rate, amount,
+                                  financial_year, calculation_policy_id,
+                                  transaction_id, date_of_payment, status, payment_slip_image_url, notes, created_by)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29)
+      RETURNING ${PAYMENT_ADVICE_SELECT}
     `;
     
     const values = [
@@ -114,6 +108,8 @@ export class PaymentAdviceDAO {
       paymentAdviceData.final_weight || null,
       paymentAdviceData.rate || null,
       paymentAdviceData.amount,
+      paymentAdviceData.financial_year || null,
+      paymentAdviceData.calculation_policy_id || null,
       paymentAdviceData.transaction_id || null,
       paymentAdviceData.date_of_payment,
       paymentAdviceData.status || 'pending',
@@ -221,6 +217,14 @@ export class PaymentAdviceDAO {
       fields.push(`amount = $${paramCount++}`);
       values.push(paymentAdviceData.amount);
     }
+    if (paymentAdviceData.financial_year !== undefined) {
+      fields.push(`financial_year = $${paramCount++}`);
+      values.push(paymentAdviceData.financial_year || null);
+    }
+    if (paymentAdviceData.calculation_policy_id !== undefined) {
+      fields.push(`calculation_policy_id = $${paramCount++}`);
+      values.push(paymentAdviceData.calculation_policy_id || null);
+    }
     if (paymentAdviceData.transaction_id !== undefined) {
       fields.push(`transaction_id = $${paramCount++}`);
       values.push(paymentAdviceData.transaction_id || null);
@@ -279,11 +283,7 @@ export class PaymentAdviceDAO {
       UPDATE payment_advices
       SET ${fields.join(', ')}
       WHERE id = $${paramCount}
-      RETURNING id, sauda_id, inward_slip_pass_id, payer_id, recipient_id, sr_number, party_name, party_address,
-                broker_name, invoice_number, invoice_date, truck_number, item, total_bags,
-                due_date, bill_weight, kanta_weight, dana_deduction, final_weight, rate, amount, transaction_id,
-                date_of_payment, status, payment_slip_image_url, notes, created_at, updated_at,
-                created_by, updated_by
+      RETURNING ${PAYMENT_ADVICE_SELECT}
     `;
 
     try {

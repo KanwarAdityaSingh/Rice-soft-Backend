@@ -1,0 +1,428 @@
+{
+  "info": {
+    "name": "Rice Soft — Coupon Module",
+    "description": "Coupon inventory, public redeem, rules, payouts, and analytics.\n\nSetup:\n1. Import this collection in Postman\n2. Run **Auth → Login Admin** first\n3. Token is saved to `{{authToken}}` automatically\n\nBase URL defaults to `http://localhost:3000/api/v1`",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3000/api/v1" },
+    { "key": "authToken", "value": "" },
+    { "key": "batchId", "value": "" },
+    { "key": "couponCode", "value": "AB12CD34" },
+    { "key": "redemptionId", "value": "" },
+    { "key": "idempotencyKey", "value": "550e8400-e29b-41d4-a716-446655440000" },
+    { "key": "ruleId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login Admin",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.data && json.data.token) {",
+                  "  pm.collectionVariables.set('authToken', json.data.token);",
+                  "  pm.test('Token saved', () => pm.expect(json.data.token).to.be.a('string'));",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"admin\",\n  \"password\": \"admin123\"\n}"
+            },
+            "url": "{{baseUrl}}/auth/loginUser"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Public",
+      "item": [
+        {
+          "name": "Verify Coupon",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"{{couponCode}}\"\n}"
+            },
+            "url": "{{baseUrl}}/coupons/public/verifyCoupon"
+          }
+        },
+        {
+          "name": "Redeem Coupon",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.data && json.data.redemptionId) {",
+                  "  pm.collectionVariables.set('redemptionId', json.data.redemptionId);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"{{couponCode}}\",\n  \"name\": \"Rajesh Kumar\",\n  \"phone\": \"9876543210\",\n  \"upi_vpa\": \"rajesh@paytm\",\n  \"idempotency_key\": \"{{idempotencyKey}}\"\n}"
+            },
+            "url": "{{baseUrl}}/coupons/public/redeemCoupon"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin — Batches",
+      "item": [
+        {
+          "name": "Create Coupon Batch",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.data && json.data.coupon_batch_id) {",
+                  "  pm.collectionVariables.set('batchId', json.data.coupon_batch_id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{authToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"March-2026-1509\",\n  \"face_value_paise\": 5000,\n  \"total_count\": 100,\n  \"expires_at\": \"2027-03-31T00:00:00.000Z\",\n  \"redeem_base_url\": \"https://redeem.yoursite.com\"\n}"
+            },
+            "url": "{{baseUrl}}/coupons/admin/createCouponBatch"
+          }
+        },
+        {
+          "name": "Generate Batch Codes",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": "{{baseUrl}}/coupons/admin/generateBatchCodes/{{batchId}}"
+          }
+        },
+        {
+          "name": "Export Batch CSV",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": "{{baseUrl}}/coupons/admin/exportBatchCodes/{{batchId}}"
+          }
+        },
+        {
+          "name": "Mark Batch Printed",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": "{{baseUrl}}/coupons/admin/markBatchPrinted/{{batchId}}"
+          }
+        },
+        {
+          "name": "Mark Batch Allotted",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": "{{baseUrl}}/coupons/admin/markBatchAllotted/{{batchId}}"
+          }
+        },
+        {
+          "name": "Get Batch By Id",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": "{{baseUrl}}/coupons/admin/getCouponBatchById/{{batchId}}"
+          }
+        },
+        {
+          "name": "Get All Batches",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": "{{baseUrl}}/coupons/admin/getAllCouponBatches?page=1&limit=20"
+          }
+        },
+        {
+          "name": "Void Coupon Batch",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": "{{baseUrl}}/coupons/admin/voidCouponBatch/{{batchId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin — Coupons",
+      "item": [
+        {
+          "name": "Get All Coupons",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/coupons/admin/getAllCoupons?batchId={{batchId}}&status=allotted&page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["coupons", "admin", "getAllCoupons"],
+              "query": [
+                { "key": "batchId", "value": "{{batchId}}" },
+                { "key": "status", "value": "allotted" },
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Coupon By Code",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": "{{baseUrl}}/coupons/admin/getCouponByCode/{{couponCode}}"
+          }
+        },
+        {
+          "name": "Void Coupon",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": "{{baseUrl}}/coupons/admin/voidCoupon/{{couponCode}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin — Redemptions & Payouts",
+      "item": [
+        {
+          "name": "Get Pending Payouts",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": "{{baseUrl}}/coupons/admin/getPendingPayouts?page=1&limit=50"
+          }
+        },
+        {
+          "name": "Get All Redemptions",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": "{{baseUrl}}/coupons/admin/getAllRedemptions?payoutStatus=pending&page=1&limit=50"
+          }
+        },
+        {
+          "name": "Get Redemption By Id",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": "{{baseUrl}}/coupons/admin/getRedemptionById/{{redemptionId}}"
+          }
+        },
+        {
+          "name": "Mark Redemption Paid",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{authToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"payment_reference\": \"UPI987654321\"\n}"
+            },
+            "url": "{{baseUrl}}/coupons/admin/markRedemptionPaid/{{redemptionId}}"
+          }
+        },
+        {
+          "name": "Retry Razorpay Payout",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": "{{baseUrl}}/coupons/admin/retryPayout/{{redemptionId}}"
+          }
+        },
+        {
+          "name": "Get Payout Attempts",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": "{{baseUrl}}/coupons/admin/getPayoutAttempts/{{redemptionId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin — Redeemers",
+      "item": [
+        {
+          "name": "Get Redeemer By Phone",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": "{{baseUrl}}/coupons/admin/getRedeemerByPhone/9876543210"
+          }
+        },
+        {
+          "name": "Get All Redeemers",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": "{{baseUrl}}/coupons/admin/getAllRedeemers?page=1&limit=20"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin — Promotion Rules",
+      "item": [
+        {
+          "name": "Create Promotion Rule (5th bonus)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.data && json.data.promotion_rule_id) {",
+                  "  pm.collectionVariables.set('ruleId', json.data.promotion_rule_id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{authToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"5th coupon bonus\",\n  \"rule_type\": \"REDEMPTION_COUNT\",\n  \"conditions\": {\n    \"minCount\": 5,\n    \"maxCount\": 5,\n    \"countIncludesCurrent\": true\n  },\n  \"reward\": { \"bonusPaise\": 1000 },\n  \"is_active\": true,\n  \"priority\": 10\n}"
+            },
+            "url": "{{baseUrl}}/coupons/admin/createPromotionRule"
+          }
+        },
+        {
+          "name": "Create Promotion Rule (FIRST_TIME)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{authToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Welcome bonus\",\n  \"rule_type\": \"FIRST_TIME\",\n  \"conditions\": {},\n  \"reward\": { \"bonusPaise\": 500 },\n  \"is_active\": true,\n  \"priority\": 1\n}"
+            },
+            "url": "{{baseUrl}}/coupons/admin/createPromotionRule"
+          }
+        },
+        {
+          "name": "Get All Promotion Rules",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": "{{baseUrl}}/coupons/admin/getAllPromotionRules"
+          }
+        },
+        {
+          "name": "Toggle Promotion Rule",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{authToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"is_active\": false\n}"
+            },
+            "url": "{{baseUrl}}/coupons/admin/togglePromotionRule/{{ruleId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Analytics",
+      "item": [
+        {
+          "name": "Get Overview",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": "{{baseUrl}}/coupons/analytics/getOverview"
+          }
+        },
+        {
+          "name": "Get Batch Performance",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": "{{baseUrl}}/coupons/analytics/getBatchPerformance"
+          }
+        },
+        {
+          "name": "Get Redemption Trends",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": "{{baseUrl}}/coupons/analytics/getRedemptionTrends?granularity=day"
+          }
+        },
+        {
+          "name": "Get Payout Summary",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": "{{baseUrl}}/coupons/analytics/getPayoutSummary"
+          }
+        },
+        {
+          "name": "Get Redeemer Leaderboard",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": "{{baseUrl}}/coupons/analytics/getRedeemerLeaderboard?limit=20&sortBy=count"
+          }
+        },
+        {
+          "name": "Get Fraud Signals",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": "{{baseUrl}}/coupons/analytics/getFraudSignals"
+          }
+        }
+      ]
+    }
+  ]
+}

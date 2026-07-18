@@ -5,6 +5,7 @@ import { auditLog } from '../middleware/audit.middleware';
 
 const router = Router();
 
+router.get('/types', authenticate, salesSaudaController.getTypes.bind(salesSaudaController));
 router.get('/', authenticate, salesSaudaController.getAll.bind(salesSaudaController));
 router.get('/:id', authenticate, salesSaudaController.getById.bind(salesSaudaController));
 router.post(

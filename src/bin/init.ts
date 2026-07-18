@@ -4,6 +4,8 @@ import { createApp } from '../app';
 import { appConfig } from '../config/app.config';
 import { db } from '../database/connection';
 import { logger } from '../utils/logger';
+import { couponExpiryService } from '../services/coupon-expiry.service';
+import { couponPayoutWorker } from '../workers/coupon-payout.worker';
 
 async function initializeServer() {
   try {
@@ -29,6 +31,20 @@ async function initializeServer() {
       logger.info(`Server running in ${appConfig.env} mode`);
       logger.info(`Server listening on ${appConfig.host}:${appConfig.port}`);
       logger.info(`API available at http://${appConfig.host}:${appConfig.port}${appConfig.apiPrefix}`);
+
+      if (appConfig.coupons.expiryCronEnabled) {
+        setInterval(() => {
+          couponExpiryService.expireEligibleCoupons().catch((error) => {
+            logger.error('Coupon expiry cron failed', error);
+          });
+        }, appConfig.coupons.expiryCronMs);
+        logger.info('Coupon expiry cron started');
+      }
+
+      if (appConfig.coupons.payoutEnabled) {
+        couponPayoutWorker.start();
+        logger.info('Coupon payout worker started');
+      }
     });
 
     // Graceful shutdown

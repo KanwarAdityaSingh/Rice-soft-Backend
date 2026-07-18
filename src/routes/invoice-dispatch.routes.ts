@@ -4,6 +4,7 @@ import { eInvoiceController } from '../controllers/e-invoice.controller';
 import { eWayBillController } from '../controllers/e-way-bill.controller';
 import { authenticate } from '../middleware/auth.middleware';
 import { auditLog } from '../middleware/audit.middleware';
+import { documentUpload } from '../middleware/upload.middleware';
 
 const router = Router();
 
@@ -22,6 +23,13 @@ router.post(
   authenticate,
   auditLog('UPDATE', 'invoice_dispatches'),
   invoiceDispatchController.confirm.bind(invoiceDispatchController)
+);
+router.post(
+  '/:id/upload-bilti',
+  authenticate,
+  documentUpload.single('file'),
+  auditLog('UPDATE', 'invoice_dispatches'),
+  invoiceDispatchController.uploadBilti.bind(invoiceDispatchController)
 );
 router.post(
   '/:id/e-invoice',

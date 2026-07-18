@@ -126,7 +126,7 @@ export class SalesPartySiteController {
         throw new NotFoundError('Site not found');
       }
 
-      await salesPartySiteDAO.softDelete(id);
+      await salesPartySiteDAO.delete(id);
       return ResponseHandler.success(res, { id }, 'Site deleted successfully');
     } catch (error) {
       next(error);

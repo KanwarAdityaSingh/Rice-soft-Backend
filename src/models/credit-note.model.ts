@@ -6,6 +6,8 @@ export interface CreditNote {
   sales_sauda_id: string;
   credit_note_number: string;
   credit_note_date: Date | string | null;
+  /** Indian FY label Apr–Mar, e.g. 2025-2026 */
+  financial_year: string;
   status: CreditNoteStatus;
   reason: string | null;
   created_at: Date;
@@ -19,6 +21,7 @@ export interface CreateCreditNoteDTO {
   sales_sauda_id: string;
   credit_note_number: string;
   credit_note_date?: string | Date;
+  financial_year?: string;
   reason?: string;
   lines: Array<{ invoice_dispatch_line_id: string; product_id: string; quantity_returned: number }>;
   created_by?: string;

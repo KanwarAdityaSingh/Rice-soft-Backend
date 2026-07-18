@@ -3,13 +3,22 @@ import { PoolClient } from 'pg';
 import { invoiceDispatchDAO } from '../dao/invoice-dispatch.dao';
 import { invoiceDispatchLineDAO } from '../dao/invoice-dispatch-line.dao';
 import { invoiceDispatchAllocationDAO } from '../dao/invoice-dispatch-allocation.dao';
+import { invoiceNumberSequenceDAO } from '../dao/invoice-number-sequence.dao';
 import { salesSaudaDAO } from '../dao/sales-sauda.dao';
 import { salesSaudaLineDAO } from '../dao/sales-sauda-line.dao';
 import { salesPartyDAO } from '../dao/sales-party.dao';
 import { packagingDAO } from '../dao/packaging.dao';
 import { inventoryLedgerDAO } from '../dao/inventory-ledger.dao';
+import { godownDAO } from '../dao/godown.dao';
 import { godownService } from './godown.service';
-import { NotFoundError, ValidationError, ConflictError } from '../utils/errors';
+import { financialYearFromDate } from '../constants/financial-year';
+import {
+  buildInvoiceSeriesKey,
+  formatInternalInvoiceNumber,
+  invoiceStateAlphaFromGstin,
+  INVOICE_DOCUMENT_TYPE_BOS,
+} from '../constants/invoice-number-series';
+import { BadRequestError, NotFoundError, ValidationError, ConflictError } from '../utils/errors';
 import type { Address } from '../models/vendor.model';
 
 function formatPartyAddress(addr: Address | undefined): string {
@@ -19,8 +28,59 @@ function formatPartyAddress(addr: Address | undefined): string {
 }
 
 export class InvoiceDispatchService {
-  async list(salesSaudaId?: string, status?: 'draft' | 'confirmed', godownId?: string) {
-    return invoiceDispatchDAO.findAll(salesSaudaId, status, godownId);
+  /**
+   * Next Bill of Supply internal invoice number for godown GST state + FY.
+   * See constants/invoice-number-series.ts for format rules.
+   */
+  private async allocateInternalInvoiceNumber(
+    godownId: string,
+    dispatchDate?: string | Date | null
+  ): Promise<{ internalInvoiceNumber: string; financialYear: string }> {
+    const godown = await godownDAO.findById(godownId);
+    if (!godown) throw new NotFoundError('Godown not found');
+    const gstin = (godown.gst_number || '').trim();
+    if (!gstin || gstin.length < 2) {
+      throw new BadRequestError(
+        'Godown GST number is required to generate internal invoice number'
+      );
+    }
+
+    let stateAlpha: string;
+    try {
+      stateAlpha = invoiceStateAlphaFromGstin(gstin);
+    } catch (err: any) {
+      throw new BadRequestError(err?.message || 'Unsupported godown GST state for invoice numbering');
+    }
+
+    const fy = financialYearFromDate(
+      dispatchDate != null && String(dispatchDate).trim() !== '' ? dispatchDate : new Date()
+    );
+    const seriesKey = buildInvoiceSeriesKey(stateAlpha, fy.label);
+    const sequence = await invoiceNumberSequenceDAO.allocateNext(
+      seriesKey,
+      fy.label,
+      stateAlpha,
+      INVOICE_DOCUMENT_TYPE_BOS
+    );
+
+    return {
+      internalInvoiceNumber: formatInternalInvoiceNumber({
+        stateAlpha,
+        financialYearLabel: fy.label,
+        fyStartYear: fy.startYear,
+        sequence,
+      }),
+      financialYear: fy.label,
+    };
+  }
+
+  async list(
+    salesSaudaId?: string,
+    status?: 'draft' | 'confirmed',
+    godownId?: string,
+    financialYear?: string
+  ) {
+    return invoiceDispatchDAO.findAll(salesSaudaId, status, godownId, financialYear);
   }
 
   async getById(id: string) {
@@ -34,12 +94,14 @@ export class InvoiceDispatchService {
     data: {
       sales_sauda_id: string;
       godown_id: string;
-      internal_invoice_number: string;
       dispatch_date?: string;
       transporter_id?: string;
       vehicle_id?: string;
+      lr_number?: string | null;
+      transportation_cost?: number | null;
       distance_km?: number;
       route_description?: string;
+      usp?: string | null;
     },
     userId?: string
   ) {
@@ -55,21 +117,40 @@ export class InvoiceDispatchService {
     const party_gst_number = salesParty.business_details?.gst_number ?? null;
     const party_pan_number = salesParty.business_details?.pan_number ?? null;
 
-    const dispatch = await invoiceDispatchDAO.create({
-      sales_sauda_id: data.sales_sauda_id,
-      godown_id: data.godown_id,
-      internal_invoice_number: data.internal_invoice_number,
-      dispatch_date: data.dispatch_date,
-      party_name,
-      party_address,
-      party_gst_number,
-      party_pan_number,
-      transporter_id: data.transporter_id,
-      vehicle_id: data.vehicle_id,
-      distance_km: data.distance_km,
-      route_description: data.route_description,
-      created_by: userId,
-    });
+    const { internalInvoiceNumber, financialYear } = await this.allocateInternalInvoiceNumber(
+      data.godown_id,
+      data.dispatch_date
+    );
+
+    let dispatch;
+    try {
+      dispatch = await invoiceDispatchDAO.create({
+        sales_sauda_id: data.sales_sauda_id,
+        godown_id: data.godown_id,
+        internal_invoice_number: internalInvoiceNumber,
+        dispatch_date: data.dispatch_date,
+        financial_year: financialYear,
+        party_name,
+        party_address,
+        party_gst_number,
+        party_pan_number,
+        transporter_id: data.transporter_id,
+        vehicle_id: data.vehicle_id,
+        lr_number: data.lr_number,
+        transportation_cost: data.transportation_cost,
+        distance_km: data.distance_km,
+        route_description: data.route_description,
+        usp: data.usp,
+        created_by: userId,
+      });
+    } catch (err: any) {
+      if (err?.code === '23505') {
+        throw new ConflictError(
+          'Invoice number already exists for this financial year'
+        );
+      }
+      throw err;
+    }
 
     const saudaLines = await salesSaudaLineDAO.findBySalesSaudaId(data.sales_sauda_id);
     for (const line of saudaLines) {

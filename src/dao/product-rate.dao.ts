@@ -10,8 +10,10 @@ function isPackagingWeight(n: number): n is PackagingWeight {
   return VALID_CAPACITIES.includes(n as PackagingWeight);
 }
 
-function ratesEqual(a: number, b: number): boolean {
-  return Math.round(a * 100) === Math.round(b * 100);
+function formatEffectiveDate(value: Date | string | null | undefined): string {
+  if (value == null) return '';
+  if (typeof value === 'string') return value.slice(0, 10);
+  return value.toISOString().slice(0, 10);
 }
 
 export class ProductRateDAO {
@@ -39,7 +41,9 @@ export class ProductRateDAO {
 
   async findByProductId(productId: string): Promise<ProductRate[]> {
     const query = `
-      SELECT id, product_id, holding_capacity, rate, created_at, updated_at
+      SELECT id, product_id, holding_capacity, rate,
+             to_char(effective_date, 'YYYY-MM-DD') AS effective_date,
+             created_at, updated_at
       FROM product_rates
       WHERE product_id = $1
       ORDER BY holding_capacity ASC
@@ -54,7 +58,9 @@ export class ProductRateDAO {
   async findByProductIds(productIds: string[]): Promise<ProductRate[]> {
     if (productIds.length === 0) return [];
     const query = `
-      SELECT id, product_id, holding_capacity, rate, created_at, updated_at
+      SELECT id, product_id, holding_capacity, rate,
+             to_char(effective_date, 'YYYY-MM-DD') AS effective_date,
+             created_at, updated_at
       FROM product_rates
       WHERE product_id = ANY($1::uuid[])
       ORDER BY product_id, holding_capacity ASC
@@ -64,13 +70,14 @@ export class ProductRateDAO {
   }
 
   /**
-   * Set all rates for a product. Replaces any existing rates for the given capacities.
-   * Each item in rates must have holding_capacity in (5, 10, 25, 26, 30, 50).
-   * Appends to product_rate_history when the rate value changes (or is set for the first time).
+   * Save rates for a product as of effective_date.
+   * - Upserts history for that business date (one row per capacity per day)
+   * - Updates current product_rates only when this date is >= the current effective_date
    */
   async upsertRates(
     productId: string,
     rates: Array<{ holding_capacity: number; rate: number }>,
+    effectiveDate: string,
     createdBy?: string | null
   ): Promise<ProductRate[]> {
     return db.transaction(async (client) => {
@@ -84,37 +91,62 @@ export class ProductRateDAO {
         const capacityInt = r.holding_capacity;
         const newRate = Number(r.rate);
 
-        const prevRes = await client.query<{ rate: string }>(
-          `SELECT rate FROM product_rates WHERE product_id = $1 AND holding_capacity = $2`,
+        await productRateHistoryDAO.upsert(client, {
+          product_id: productId,
+          holding_capacity: capacityInt,
+          rate: newRate,
+          effective_date: effectiveDate,
+          created_by: createdById,
+        });
+
+        const prevRes = await client.query<{ rate: string; effective_date: string }>(
+          `SELECT rate, to_char(effective_date, 'YYYY-MM-DD') AS effective_date
+           FROM product_rates WHERE product_id = $1 AND holding_capacity = $2`,
           [productId, capacityInt]
         );
-        const prevRow = prevRes.rows[0];
-        const prevRate = prevRow !== undefined ? Number(prevRow.rate) : null;
+        const prev = prevRes.rows[0];
+        const prevEffective = prev ? formatEffectiveDate(prev.effective_date) : null;
 
-        const upsertRes = await client.query<ProductRate>(
-          `
-          INSERT INTO product_rates (product_id, holding_capacity, rate)
-          VALUES ($1, $2, $3)
-          ON CONFLICT (product_id, holding_capacity) DO UPDATE SET rate = EXCLUDED.rate, updated_at = CURRENT_TIMESTAMP
-          RETURNING id, product_id, holding_capacity, rate, created_at, updated_at
-        `,
-          [productId, capacityInt, newRate]
-        );
-        const row = upsertRes.rows[0];
-        if (row) results.push(row);
-
-        const shouldLog = prevRate === null || !ratesEqual(prevRate, newRate);
-        if (shouldLog) {
-          await productRateHistoryDAO.insert(client, {
-            product_id: productId,
-            holding_capacity: capacityInt,
-            rate: newRate,
-            created_by: createdById,
-          });
+        // Current rate follows the latest business date
+        if (prevEffective === null || effectiveDate >= prevEffective) {
+          const upsertRes = await client.query<ProductRate>(
+            `
+            INSERT INTO product_rates (product_id, holding_capacity, rate, effective_date)
+            VALUES ($1, $2, $3, $4::date)
+            ON CONFLICT (product_id, holding_capacity) DO UPDATE SET
+              rate = EXCLUDED.rate,
+              effective_date = EXCLUDED.effective_date,
+              updated_at = CURRENT_TIMESTAMP
+            RETURNING id, product_id, holding_capacity, rate,
+                      to_char(effective_date, 'YYYY-MM-DD') AS effective_date,
+                      created_at, updated_at
+          `,
+            [productId, capacityInt, newRate, effectiveDate]
+          );
+          const row = upsertRes.rows[0];
+          if (row) results.push(row);
+        } else {
+          // Backdated history only — return current row unchanged
+          const currentRes = await client.query<ProductRate>(
+            `
+            SELECT id, product_id, holding_capacity, rate,
+                   to_char(effective_date, 'YYYY-MM-DD') AS effective_date,
+                   created_at, updated_at
+            FROM product_rates
+            WHERE product_id = $1 AND holding_capacity = $2
+          `,
+            [productId, capacityInt]
+          );
+          const row = currentRes.rows[0];
+          if (row) results.push(row);
         }
       }
 
-      logger.info('Product rates upserted', { product_id: productId, count: results.length });
+      logger.info('Product rates upserted', {
+        product_id: productId,
+        effective_date: effectiveDate,
+        count: results.length,
+      });
       return results;
     });
   }

@@ -21,7 +21,8 @@ export function parseDocumentOcrUpload(req: AuthRequest): {
     rawUsePdf === true ||
     rawUsePdf === 'true' ||
     rawUsePdf === '1' ||
-    rawUsePdf === 1;
+    rawUsePdf === 1 ||
+    file.mimetype === 'application/pdf';
 
   return { file, usePdf };
 }

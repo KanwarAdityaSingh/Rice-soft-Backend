@@ -316,8 +316,8 @@ export class KycController {
 
   async ocrGst(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const { file } = parseDocumentOcrUpload(req);
-      const envelope = await gstLookupService.ocrGst({ file });
+      const { file, usePdf } = parseDocumentOcrUpload(req);
+      const envelope = await gstLookupService.ocrGst({ file, usePdf });
 
       return ResponseHandler.success(
         res,
@@ -352,8 +352,8 @@ export class KycController {
 
   async ocrAadhaar(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const { file } = parseDocumentOcrUpload(req);
-      const envelope = await gstLookupService.ocrAadhaar({ file });
+      const { file, usePdf } = parseDocumentOcrUpload(req);
+      const envelope = await gstLookupService.ocrAadhaar({ file, usePdf });
 
       return ResponseHandler.success(
         res,
@@ -370,8 +370,8 @@ export class KycController {
 
   async ocrVehicleRc(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const { file } = parseDocumentOcrUpload(req);
-      const envelope = await gstLookupService.ocrVehicleRc({ file });
+      const { file, usePdf } = parseDocumentOcrUpload(req);
+      const envelope = await gstLookupService.ocrVehicleRc({ file, usePdf });
 
       return ResponseHandler.success(
         res,

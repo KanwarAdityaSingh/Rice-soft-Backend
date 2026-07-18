@@ -21,7 +21,7 @@ router.get(
  * @route   POST /api/v1/kyc/aadhaar/ocr
  * @desc    OCR Aadhaar card via Surepass
  * @access  Private
- * @form    file: file (required)
+ * @form    file: file (required), use_pdf: boolean (optional, set true for PDF uploads)
  */
 router.post(
   '/aadhaar/ocr',
@@ -46,7 +46,7 @@ router.get(
  * @route   POST /api/v1/kyc/driving-license/ocr
  * @desc    OCR driving licence front/back via Surepass license-v2
  * @access  Private
- * @form    front: file (required), back: file (optional), use_pdf: boolean (optional)
+ * @form    front: file (required), back: file (optional), use_pdf: boolean (optional, set true for PDF uploads)
  */
 router.post(
   '/driving-license/ocr',
@@ -95,7 +95,7 @@ router.get(
  * @route   POST /api/v1/kyc/gstin/ocr
  * @desc    OCR GST certificate via Surepass
  * @access  Private
- * @form    file: file (required)
+ * @form    file: file (required), use_pdf: boolean (optional, set true for PDF uploads)
  */
 router.post(
   '/gstin/ocr',
@@ -120,7 +120,7 @@ router.get(
  * @route   POST /api/v1/kyc/pan/ocr
  * @desc    OCR PAN card via Surepass
  * @access  Private
- * @form    file: file (required), use_pdf: boolean (optional)
+ * @form    file: file (required), use_pdf: boolean (optional, set true for PDF uploads)
  */
 router.post(
   '/pan/ocr',
@@ -181,7 +181,7 @@ router.post(
  * @route   POST /api/v1/kyc/rc/ocr
  * @desc    OCR vehicle RC via Surepass
  * @access  Private
- * @form    file: file (required)
+ * @form    file: file (required), use_pdf: boolean (optional, set true for PDF uploads)
  */
 router.post(
   '/rc/ocr',

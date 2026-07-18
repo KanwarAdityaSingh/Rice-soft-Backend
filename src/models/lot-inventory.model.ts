@@ -34,8 +34,10 @@ export interface LotInventoryWithDetailsResponse extends LotInventoryResponse {
   lot?: {
     id: string;
     lot_number: string;
+    rice_category: string;
     rice_code_id: string | null;
-    rice_type: string | null;
+    rice_type: string;
+    rice_length_id: string | null;
     received_weight: number;
   };
 }

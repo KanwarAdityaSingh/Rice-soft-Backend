@@ -1,9 +1,22 @@
 import { Response, NextFunction } from 'express';
 import { invoiceDispatchService } from '../services/invoice-dispatch.service';
+import { invoiceDispatchDAO } from '../dao/invoice-dispatch.dao';
 import { ResponseHandler } from '../utils/response';
 import { validate, createInvoiceDispatchSchema, uuidSchema } from '../utils/validators';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { InvoiceDispatchLine } from '../models/invoice-dispatch-line.model';
+import { UpdateInvoiceDispatchDTO } from '../models/invoice-dispatch.model';
+import {
+  uploadToS3,
+  validateFileSize,
+  validateFileType,
+} from '../utils/s3-upload';
+import { appConfig } from '../config/app.config';
+import {
+  InternalServerError,
+  NotFoundError,
+  ValidationError,
+} from '../utils/errors';
 
 function formatLine(line: InvoiceDispatchLine) {
   return {
@@ -28,14 +41,23 @@ function formatDispatch(dispatch: any) {
     godown_id: dispatch.godown_id,
     internal_invoice_number: dispatch.internal_invoice_number,
     dispatch_date: typeof dispatch.dispatch_date === 'string' ? dispatch.dispatch_date : dispatch.dispatch_date?.toISOString?.()?.split('T')[0] ?? null,
+    financial_year: dispatch.financial_year,
     party_name: dispatch.party_name,
     party_address: dispatch.party_address,
     party_gst_number: dispatch.party_gst_number,
     party_pan_number: dispatch.party_pan_number,
     transporter_id: dispatch.transporter_id,
     vehicle_id: dispatch.vehicle_id,
+    lr_number: dispatch.lr_number ?? null,
+    transportation_cost:
+      dispatch.transportation_cost != null
+        ? parseFloat(dispatch.transportation_cost.toString())
+        : null,
     distance_km: dispatch.distance_km != null ? parseFloat(dispatch.distance_km.toString()) : null,
     route_description: dispatch.route_description,
+    usp: dispatch.usp ?? null,
+    bilti_image_url: dispatch.bilti_image_url ?? null,
+    bilti_pdf_url: dispatch.bilti_pdf_url ?? null,
     status: dispatch.status,
     created_at: dispatch.created_at instanceof Date ? dispatch.created_at.toISOString() : dispatch.created_at,
     updated_at: dispatch.updated_at instanceof Date ? dispatch.updated_at.toISOString() : dispatch.updated_at,
@@ -49,7 +71,8 @@ export class InvoiceDispatchController {
       const salesSaudaId = req.query.sales_sauda_id as string | undefined;
       const godownId = req.query.godown_id as string | undefined;
       const status = req.query.status as 'draft' | 'confirmed' | undefined;
-      const list = await invoiceDispatchService.list(salesSaudaId, status, godownId);
+      const financialYear = req.query.financial_year as string | undefined;
+      const list = await invoiceDispatchService.list(salesSaudaId, status, godownId, financialYear);
       const data = list.map((d) => formatDispatch({ ...d, lines: [] }));
       return ResponseHandler.success(res, data);
     } catch (error) {
@@ -69,18 +92,31 @@ export class InvoiceDispatchController {
 
   async create(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const body = validate<{ sales_sauda_id: string; godown_id: string; internal_invoice_number: string; dispatch_date?: string; transporter_id?: string; vehicle_id?: string; distance_km?: number; route_description?: string }>(createInvoiceDispatchSchema, req.body);
+      const body = validate<{
+        sales_sauda_id: string;
+        godown_id: string;
+        dispatch_date?: string;
+        transporter_id?: string;
+        vehicle_id?: string;
+        lr_number?: string | null;
+        transportation_cost?: number | null;
+        distance_km?: number;
+        route_description?: string;
+        usp?: string | null;
+      }>(createInvoiceDispatchSchema, req.body);
       const userId = req.user?.userId;
       const dispatch = await invoiceDispatchService.create(
         {
           sales_sauda_id: body.sales_sauda_id,
           godown_id: body.godown_id,
-          internal_invoice_number: body.internal_invoice_number,
           dispatch_date: body.dispatch_date,
           transporter_id: body.transporter_id,
           vehicle_id: body.vehicle_id,
+          lr_number: body.lr_number,
+          transportation_cost: body.transportation_cost,
           distance_km: body.distance_km,
           route_description: body.route_description,
+          usp: body.usp,
         },
         userId
       );
@@ -96,6 +132,72 @@ export class InvoiceDispatchController {
       const userId = req.user?.userId;
       const dispatch = await invoiceDispatchService.confirm(id, userId);
       return ResponseHandler.success(res, formatDispatch(dispatch), 'Invoice dispatch confirmed successfully');
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /invoice-dispatches/:id/upload-bilti
+   * multipart field: file (image or PDF)
+   */
+  async uploadBilti(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const id = validate<string>(uuidSchema, req.params.id);
+
+      const existing = await invoiceDispatchDAO.findById(id);
+      if (!existing) {
+        throw new NotFoundError('Invoice dispatch not found');
+      }
+
+      if (!req.file) {
+        throw new ValidationError('File is required');
+      }
+
+      validateFileSize(req.file.size, 10);
+      validateFileType(req.file.mimetype, [
+        'image/jpeg',
+        'image/jpg',
+        'image/png',
+        'image/gif',
+        'application/pdf',
+      ]);
+
+      let uploadResult;
+      try {
+        uploadResult = await uploadToS3(
+          req.file.buffer,
+          req.file.originalname,
+          appConfig.aws.s3.biltiFolder
+        );
+      } catch {
+        throw new InternalServerError('Failed to upload bilti. Please try again.');
+      }
+
+      const isPdf = req.file.mimetype === 'application/pdf';
+      const updateData: UpdateInvoiceDispatchDTO = {
+        updated_by: req.user?.userId,
+      };
+      if (isPdf) {
+        updateData.bilti_pdf_url = uploadResult.url;
+      } else {
+        updateData.bilti_image_url = uploadResult.url;
+      }
+
+      const dispatch = await invoiceDispatchDAO.update(id, updateData);
+      if (!dispatch) {
+        throw new NotFoundError('Invoice dispatch not found');
+      }
+
+      return ResponseHandler.success(
+        res,
+        {
+          url: uploadResult.url,
+          bilti_image_url: dispatch.bilti_image_url,
+          bilti_pdf_url: dispatch.bilti_pdf_url,
+        },
+        'Bilti uploaded successfully'
+      );
     } catch (error) {
       next(error);
     }

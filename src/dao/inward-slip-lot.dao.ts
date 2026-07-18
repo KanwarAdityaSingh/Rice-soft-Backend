@@ -2,17 +2,29 @@ import { db } from '../database/connection';
 import { InwardSlipLot, CreateInwardSlipLotDTO, UpdateInwardSlipLotDTO } from '../models/inward-slip-lot.model';
 import { logger } from '../utils/logger';
 
+const LOT_COLUMNS = `
+  id, sauda_id, godown_id, lot_number, rice_category, rice_code_id, rice_type, rice_length_id,
+  no_of_bags, bag_weight, total_weight, bill_weight, received_weight, rate, amount,
+  inward_slip_pass_created_at, created_at, updated_at, created_by, updated_by
+`;
+
 export class InwardSlipLotDAO {
+  async countBySaudaId(saudaId: string): Promise<number> {
+    const result = await db.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM inward_slip_lots WHERE sauda_id = $1`,
+      [saudaId]
+    );
+    return parseInt(result.rows[0]?.count ?? '0', 10);
+  }
+
   async findAll(saudaId?: string, godownId?: string): Promise<InwardSlipLot[]> {
     let query = `
-      SELECT id, sauda_id, godown_id, lot_number, rice_code_id, rice_type, no_of_bags, bag_weight, total_weight,
-             bill_weight, received_weight, rate, amount, inward_slip_pass_created_at,
-             created_at, updated_at, created_by, updated_by
+      SELECT ${LOT_COLUMNS}
       FROM inward_slip_lots
       WHERE 1=1
     `;
-    
-    const params: any[] = [];
+
+    const params: unknown[] = [];
     let paramCount = 1;
 
     if (saudaId) {
@@ -36,9 +48,7 @@ export class InwardSlipLotDAO {
 
   async findById(id: string): Promise<InwardSlipLot | null> {
     const query = `
-      SELECT id, sauda_id, godown_id, lot_number, rice_code_id, rice_type, no_of_bags, bag_weight, total_weight,
-             bill_weight, received_weight, rate, amount, inward_slip_pass_created_at,
-             created_at, updated_at, created_by, updated_by
+      SELECT ${LOT_COLUMNS}
       FROM inward_slip_lots
       WHERE id = $1
     `;
@@ -51,9 +61,7 @@ export class InwardSlipLotDAO {
       return [];
     }
     const query = `
-      SELECT id, sauda_id, godown_id, lot_number, rice_code_id, rice_type, no_of_bags, bag_weight, total_weight,
-             bill_weight, received_weight, rate, amount, inward_slip_pass_created_at,
-             created_at, updated_at, created_by, updated_by
+      SELECT ${LOT_COLUMNS}
       FROM inward_slip_lots
       WHERE id = ANY($1::uuid[])
     `;
@@ -61,12 +69,9 @@ export class InwardSlipLotDAO {
     return result.rows;
   }
 
-  /** Kaanta-linked lots use `LOT-{kaanta_id}` (see {@link KaantaDAO.create}). */
   async findBySaudaIdAndLotNumber(saudaId: string, lotNumber: string): Promise<InwardSlipLot | null> {
     const query = `
-      SELECT id, sauda_id, godown_id, lot_number, rice_code_id, rice_type, no_of_bags, bag_weight, total_weight,
-             bill_weight, received_weight, rate, amount, inward_slip_pass_created_at,
-             created_at, updated_at, created_by, updated_by
+      SELECT ${LOT_COLUMNS}
       FROM inward_slip_lots
       WHERE sauda_id = $1 AND lot_number = $2
     `;
@@ -76,20 +81,22 @@ export class InwardSlipLotDAO {
 
   async create(inwardSlipLotData: CreateInwardSlipLotDTO): Promise<InwardSlipLot> {
     const query = `
-      INSERT INTO inward_slip_lots (sauda_id, godown_id, lot_number, rice_code_id, rice_type, no_of_bags, bag_weight,
-                                   bill_weight, received_weight, rate, inward_slip_pass_created_at, created_by)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-      RETURNING id, sauda_id, godown_id, lot_number, rice_code_id, rice_type, no_of_bags, bag_weight, total_weight,
-                bill_weight, received_weight, rate, amount, inward_slip_pass_created_at,
-                created_at, updated_at, created_by, updated_by
+      INSERT INTO inward_slip_lots (
+        sauda_id, godown_id, lot_number, rice_category, rice_code_id, rice_type, rice_length_id,
+        no_of_bags, bag_weight, bill_weight, received_weight, rate, inward_slip_pass_created_at, created_by
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+      RETURNING ${LOT_COLUMNS}
     `;
-    
+
     const values = [
       inwardSlipLotData.sauda_id,
       inwardSlipLotData.godown_id,
       inwardSlipLotData.lot_number,
-      inwardSlipLotData.rice_code_id || null,
-      inwardSlipLotData.rice_type || null,
+      inwardSlipLotData.rice_category,
+      inwardSlipLotData.rice_code_id,
+      inwardSlipLotData.rice_type,
+      inwardSlipLotData.rice_length_id,
       inwardSlipLotData.no_of_bags,
       inwardSlipLotData.bag_weight || null,
       inwardSlipLotData.bill_weight,
@@ -124,7 +131,7 @@ export class InwardSlipLotDAO {
 
   async update(id: string, inwardSlipLotData: UpdateInwardSlipLotDTO): Promise<InwardSlipLot | null> {
     const fields: string[] = [];
-    const values: any[] = [];
+    const values: unknown[] = [];
     let paramCount = 1;
 
     if (inwardSlipLotData.godown_id !== undefined) {
@@ -134,14 +141,6 @@ export class InwardSlipLotDAO {
     if (inwardSlipLotData.lot_number !== undefined) {
       fields.push(`lot_number = $${paramCount++}`);
       values.push(inwardSlipLotData.lot_number);
-    }
-    if (inwardSlipLotData.rice_code_id !== undefined) {
-      fields.push(`rice_code_id = $${paramCount++}`);
-      values.push(inwardSlipLotData.rice_code_id || null);
-    }
-    if (inwardSlipLotData.rice_type !== undefined) {
-      fields.push(`rice_type = $${paramCount++}`);
-      values.push(inwardSlipLotData.rice_type || null);
     }
     if (inwardSlipLotData.no_of_bags !== undefined) {
       fields.push(`no_of_bags = $${paramCount++}`);
@@ -179,9 +178,7 @@ export class InwardSlipLotDAO {
       UPDATE inward_slip_lots
       SET ${fields.join(', ')}
       WHERE id = $${paramCount}
-      RETURNING id, sauda_id, godown_id, lot_number, rice_code_id, rice_type, no_of_bags, bag_weight, total_weight,
-                bill_weight, received_weight, rate, amount, inward_slip_pass_created_at,
-                created_at, updated_at, created_by, updated_by
+      RETURNING ${LOT_COLUMNS}
     `;
 
     try {
@@ -207,7 +204,6 @@ export class InwardSlipLotDAO {
     return deleted;
   }
 
-  /** Sum of bill_weight for purchase-summary / kaanta pricing (optional godown scope). */
   async sumBillWeightForSauda(saudaId: string, godownId?: string): Promise<number> {
     let query = `
       SELECT COALESCE(SUM(bill_weight::numeric), 0)::text AS total

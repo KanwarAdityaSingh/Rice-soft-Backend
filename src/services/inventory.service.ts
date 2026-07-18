@@ -92,10 +92,12 @@ export class InventoryService {
         lot: lot ? {
           id: lot.id,
           lot_number: lot.lot_number,
+          rice_category: lot.rice_category,
           rice_code_id: lot.rice_code_id,
           rice_type: lot.rice_type,
-          received_weight: lot.received_weight
-        } : undefined
+          rice_length_id: lot.rice_length_id,
+          received_weight: lot.received_weight,
+        } : undefined,
       });
     }
 

@@ -61,7 +61,7 @@ router.put(
 
 /**
  * @route   DELETE /api/v1/vehicles/:id
- * @desc    Delete vehicle (soft delete)
+ * @desc    Delete vehicle
  * @access  Private
  */
 router.delete(

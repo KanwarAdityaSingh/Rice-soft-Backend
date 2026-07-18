@@ -73,8 +73,13 @@ export class OtpService {
     });
 
     // Compose message - MUST match DLT registered template EXACTLY
-    // DLT Template ID: 1007162144526914389 (from Airtel DLT portal)
-    const message = `-- ${otp} is your one time password for login on Santkripa. This is valid only for 15 minutes. SantKripa Equipments Private Limited`;
+    // DLT Template ID: 1077290810001122488 (from Airtel DLT portal)
+    const message = [
+      `${otp} is your one time password for login on Adhra Amrit for coupon redeem.`,
+      'This is valid only for 15 minutes.',
+      'Please do not share this OTP with anyone.',
+      'SantKripa Equipments Private Limited',
+    ].join('\n');
     // Log OTP for non-production environments to aid testing (do not enable in production)
     try {
       // Lazy import to avoid circulars

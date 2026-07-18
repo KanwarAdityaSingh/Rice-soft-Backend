@@ -1,5 +1,6 @@
 export interface Parameter {
   id: string;
+  sauda_id: string | null;
   inward_slip_pass_id: string | null;
   product_id: string | null;
   batch_id: string | null;
@@ -20,6 +21,7 @@ export interface Parameter {
 }
 
 export interface CreateParameterDTO {
+  sauda_id?: string | null;
   inward_slip_pass_id?: string | null;
   product_id?: string | null;
   batch_id?: string | null;
@@ -38,6 +40,7 @@ export interface CreateParameterDTO {
 
 /** Partial update: only defined keys are applied; explicit null clears a column */
 export interface UpdateParameterDTO {
+  sauda_id?: string | null;
   inward_slip_pass_id?: string | null;
   product_id?: string | null;
   batch_id?: string | null;
@@ -56,6 +59,7 @@ export interface UpdateParameterDTO {
 
 export interface ParameterResponse {
   id: string;
+  sauda_id: string | null;
   inward_slip_pass_id: string | null;
   product_id: string | null;
   batch_id: string | null;

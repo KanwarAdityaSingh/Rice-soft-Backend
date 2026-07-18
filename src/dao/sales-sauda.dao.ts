@@ -16,35 +16,51 @@ function formatDateToLocalString(date: Date | string | null | undefined): string
   return `${year}-${month}-${day}`;
 }
 
+const SALES_SAUDA_SELECT = `
+  ss.id, ss.sales_party_id, ss.salesman_id, sm.name as salesman_name,
+  ss.sauda_type, ss.status, ss.order_number, TO_CHAR(ss.sauda_date, 'YYYY-MM-DD') as sauda_date,
+  ss.financial_year, ss.billing_address, ss.delivery_address,
+  ss.notes, ss.payment_terms, ss.amount,
+  ss.created_at, ss.updated_at, ss.created_by, ss.updated_by
+`;
+
 export class SalesSaudaDAO {
-  async findAll(salesPartyId?: string, status?: SalesSaudaStatus): Promise<SalesSauda[]> {
+  async findAll(
+    salesPartyId?: string,
+    status?: SalesSaudaStatus,
+    financialYear?: string
+  ): Promise<SalesSauda[]> {
     let query = `
-      SELECT id, sales_party_id, status, order_number, TO_CHAR(sauda_date, 'YYYY-MM-DD') as sauda_date,
-             notes, payment_terms, amount, created_at, updated_at, created_by, updated_by
-      FROM sales_saudas
+      SELECT ${SALES_SAUDA_SELECT}
+      FROM sales_saudas ss
+      LEFT JOIN salesmen sm ON sm.id = ss.salesman_id
       WHERE 1=1
     `;
     const params: any[] = [];
     let paramCount = 1;
     if (salesPartyId) {
-      query += ` AND sales_party_id = $${paramCount++}`;
+      query += ` AND ss.sales_party_id = $${paramCount++}`;
       params.push(salesPartyId);
     }
     if (status) {
-      query += ` AND status = $${paramCount++}`;
+      query += ` AND ss.status = $${paramCount++}`;
       params.push(status);
     }
-    query += ` ORDER BY created_at DESC`;
+    if (financialYear) {
+      query += ` AND ss.financial_year = $${paramCount++}`;
+      params.push(financialYear);
+    }
+    query += ` ORDER BY ss.created_at DESC`;
     const result = await db.query<SalesSauda>(query, params);
     return result.rows;
   }
 
   async findById(id: string): Promise<SalesSauda | null> {
     const query = `
-      SELECT id, sales_party_id, status, order_number, TO_CHAR(sauda_date, 'YYYY-MM-DD') as sauda_date,
-             notes, payment_terms, amount, created_at, updated_at, created_by, updated_by
-      FROM sales_saudas
-      WHERE id = $1
+      SELECT ${SALES_SAUDA_SELECT}
+      FROM sales_saudas ss
+      LEFT JOIN salesmen sm ON sm.id = ss.salesman_id
+      WHERE ss.id = $1
     `;
     const result = await db.query<SalesSauda>(query, [id]);
     return result.rows[0] || null;
@@ -52,23 +68,35 @@ export class SalesSaudaDAO {
 
   async create(data: CreateSalesSaudaDTO): Promise<SalesSauda> {
     const query = `
-      INSERT INTO sales_saudas (sales_party_id, status, sauda_date, notes, payment_terms, amount, created_by)
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
-      RETURNING id, sales_party_id, status, order_number, TO_CHAR(sauda_date, 'YYYY-MM-DD') as sauda_date,
-                notes, payment_terms, amount, created_at, updated_at, created_by, updated_by
+      INSERT INTO sales_saudas (
+        sales_party_id, salesman_id, sauda_type, status, sauda_date, financial_year,
+        billing_address, delivery_address,
+        notes, payment_terms, amount, created_by
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      RETURNING id
     `;
     const values = [
       data.sales_party_id,
+      data.salesman_id ?? null,
+      data.sauda_type,
       data.status || 'draft',
-      data.sauda_date != null ? (typeof data.sauda_date === 'string' ? data.sauda_date : formatDateToLocalString(data.sauda_date as Date)) : null,
+      data.sauda_date != null
+        ? typeof data.sauda_date === 'string'
+          ? data.sauda_date
+          : formatDateToLocalString(data.sauda_date as Date)
+        : null,
+      data.financial_year,
+      data.billing_address != null ? JSON.stringify(data.billing_address) : null,
+      data.delivery_address != null ? JSON.stringify(data.delivery_address) : null,
       data.notes || null,
       data.payment_terms ?? null,
       data.amount != null ? Number(data.amount) : 0,
       data.created_by || null,
     ];
-    const result = await db.query<SalesSauda>(query, values);
-    logger.info('Sales sauda created', { id: result.rows[0].id });
-    return result.rows[0];
+    const result = await db.query<{ id: string }>(query, values);
+    logger.info('Sales sauda created', { id: result.rows[0].id, financialYear: data.financial_year });
+    return (await this.findById(result.rows[0].id))!;
   }
 
   async update(id: string, data: UpdateSalesSaudaDTO): Promise<SalesSauda | null> {
@@ -78,6 +106,14 @@ export class SalesSaudaDAO {
     if (data.sales_party_id !== undefined) {
       fields.push(`sales_party_id = $${paramCount++}`);
       values.push(data.sales_party_id);
+    }
+    if (data.salesman_id !== undefined) {
+      fields.push(`salesman_id = $${paramCount++}`);
+      values.push(data.salesman_id ?? null);
+    }
+    if (data.sauda_type !== undefined) {
+      fields.push(`sauda_type = $${paramCount++}`);
+      values.push(data.sauda_type);
     }
     if (data.status !== undefined) {
       fields.push(`status = $${paramCount++}`);
@@ -91,9 +127,23 @@ export class SalesSaudaDAO {
       fields.push(`sauda_date = $${paramCount++}`);
       values.push(
         data.sauda_date != null
-          ? (typeof data.sauda_date === 'string' ? data.sauda_date : formatDateToLocalString(data.sauda_date as Date))
+          ? typeof data.sauda_date === 'string'
+            ? data.sauda_date
+            : formatDateToLocalString(data.sauda_date as Date)
           : null
       );
+    }
+    if (data.financial_year !== undefined) {
+      fields.push(`financial_year = $${paramCount++}`);
+      values.push(data.financial_year);
+    }
+    if (data.billing_address !== undefined) {
+      fields.push(`billing_address = $${paramCount++}`);
+      values.push(data.billing_address != null ? JSON.stringify(data.billing_address) : null);
+    }
+    if (data.delivery_address !== undefined) {
+      fields.push(`delivery_address = $${paramCount++}`);
+      values.push(data.delivery_address != null ? JSON.stringify(data.delivery_address) : null);
     }
     if (data.notes !== undefined) {
       fields.push(`notes = $${paramCount++}`);
@@ -116,22 +166,25 @@ export class SalesSaudaDAO {
     values.push(id);
     const query = `
       UPDATE sales_saudas SET ${fields.join(', ')} WHERE id = $${paramCount}
-      RETURNING id, sales_party_id, status, order_number, TO_CHAR(sauda_date, 'YYYY-MM-DD') as sauda_date,
-                notes, payment_terms, amount, created_at, updated_at, created_by, updated_by
+      RETURNING id
     `;
-    const result = await db.query<SalesSauda>(query, values);
+    const result = await db.query<{ id: string }>(query, values);
     if (result.rows.length === 0) return null;
     logger.info('Sales sauda updated', { id });
-    return result.rows[0];
+    return this.findById(id);
   }
 
-  async getNextOrderNumber(): Promise<string> {
+  /** Next SO-NNN within the given Indian financial year. */
+  async getNextOrderNumber(financialYear: string): Promise<string> {
     const query = `
       SELECT order_number FROM sales_saudas
-      WHERE order_number IS NOT NULL AND order_number ~ '^SO-[0-9]+$'
-      ORDER BY order_number DESC LIMIT 1
+      WHERE financial_year = $1
+        AND order_number IS NOT NULL
+        AND order_number ~ '^SO-[0-9]+$'
+      ORDER BY order_number DESC
+      LIMIT 1
     `;
-    const result = await db.query<{ order_number: string }>(query);
+    const result = await db.query<{ order_number: string }>(query, [financialYear]);
     if (result.rows.length === 0) return 'SO-001';
     const last = result.rows[0].order_number;
     const num = parseInt(last.replace('SO-', ''), 10);

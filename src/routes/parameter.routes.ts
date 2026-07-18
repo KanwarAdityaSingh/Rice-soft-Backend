@@ -7,7 +7,7 @@ const router = Router();
 
 /**
  * @route   GET /api/v1/parameters
- * @query   batch_id, product_id, inward_slip_pass_id (all optional UUIDs; combined with AND)
+ * @query   sauda_id, batch_id, product_id, inward_slip_pass_id (all optional UUIDs; combined with AND)
  */
 router.get('/', authenticate, parameterController.getAll.bind(parameterController));
 

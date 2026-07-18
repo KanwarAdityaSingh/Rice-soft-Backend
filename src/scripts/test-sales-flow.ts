@@ -61,19 +61,24 @@ async function main() {
   logStep('Logged in as admin, token received');
 
   // 2. Fetch existing data
-  const [productsRes, salesPartiesRes, fgRes, transportersRes, vehiclesRes] = await Promise.all([
-    request('GET', '/products', token),
-    request('GET', '/sales-parties', token),
-    request('GET', '/inventory/finished-goods', token),
-    request('GET', '/transporters', token),
-    request('GET', '/vehicles', token),
-  ]);
+  const [productsRes, salesPartiesRes, fgRes, transportersRes, vehiclesRes, godownsRes] =
+    await Promise.all([
+      request('GET', '/products', token),
+      request('GET', '/sales-parties', token),
+      request('GET', '/inventory/finished-goods', token),
+      request('GET', '/transporters', token),
+      request('GET', '/vehicles', token),
+      request('GET', '/godowns', token),
+    ]);
 
   const products = productsRes.data?.data || [];
   const salesParties = salesPartiesRes.data?.data || [];
   const fgInventory = fgRes.data?.data || [];
   const transporters = transportersRes.data?.data || [];
   const vehicles = vehiclesRes.data?.data || [];
+  const godowns = godownsRes.data?.data || [];
+  const godownId =
+    fgInventory.find((f: any) => f.godown_id)?.godown_id || godowns[0]?.id || null;
 
   logStep('Existing data:', {
     products: products.length,
@@ -81,6 +86,8 @@ async function main() {
     finishedGoodsInventoryRows: fgInventory.length,
     transporters: transporters.length,
     vehicles: vehicles.length,
+    godowns: godowns.length,
+    godownId,
   });
 
   let salesPartyId = salesParties[0]?.id;
@@ -159,9 +166,13 @@ async function main() {
   logStep('Sales Sauda finalized', { order_number: order?.order_number, status: order?.status });
 
   // 5. Create Invoice Dispatch
+  if (!godownId) {
+    logStep('No godown available; cannot create invoice dispatch');
+    process.exit(1);
+  }
   const createDispatchRes = await request('POST', '/invoice-dispatches', token, {
     sales_sauda_id: salesSaudaId,
-    internal_invoice_number: `INV-TEST-${Date.now()}`,
+    godown_id: godownId,
     dispatch_date: new Date().toISOString().split('T')[0],
     transporter_id: transporterId,
     vehicle_id: vehicleId,

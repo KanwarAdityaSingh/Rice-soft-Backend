@@ -107,16 +107,12 @@ export class VendorSiteDAO {
     return row;
   }
 
-  async softDelete(id: string): Promise<boolean> {
-    const query = `
-      UPDATE vendor_sites
-      SET is_active = false, updated_at = CURRENT_TIMESTAMP
-      WHERE id = $1
-    `;
+  async delete(id: string): Promise<boolean> {
+    const query = `DELETE FROM vendor_sites WHERE id = $1`;
     const result = await db.query(query, [id]);
     const ok = (result.rowCount || 0) > 0;
     if (ok) {
-      logger.info('Vendor site soft deleted', { id });
+      logger.info('Vendor site deleted', { id });
     }
     return ok;
   }

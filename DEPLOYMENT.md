@@ -89,23 +89,27 @@ curl -sk https://api.adhraamrit.com/api/v1/health
 
 ## Updating Environment Variables
 
-If you need to update environment variables:
+**Important:** Production env comes from the Kubernetes secret `backend-env`, not your local `.env`. Applying an incomplete file **replaces the entire secret** and can remove existing keys (Surepass, AWS, Kaleyra, etc.).
 
-1. Edit `.env` file on the server:
+See **[docs/PRODUCTION_ENV.md](docs/PRODUCTION_ENV.md)** for the full guide. Safe summary:
+
+1. SSH to the server and **export current prod env** first:
 ```bash
-ssh -i ~/aws_keys/santkripa.pem ubuntu@3.6.49.120 'nano ~/Rice-soft-Backend/.env'
+ssh -i ~/aws_keys/santkripa.pem ubuntu@3.6.49.120
+sudo kubectl -n rice exec deploy/backend -- env | sort | \
+  grep -vE '^(KUBERNETES_|PATH=|HOME=|HOSTNAME=|NODE_VERSION=|YARN_|npm_)' \
+  > ~/backend-env.prod
 ```
 
-2. Update Kubernetes secret:
+2. Edit `~/backend-env.prod` (add/change only what you need — do not copy local `.env`).
+
+3. Apply secret and restart:
 ```bash
-ssh -i ~/aws_keys/santkripa.pem ubuntu@3.6.49.120 <<'EOF'
-cd ~/Rice-soft-Backend
 sudo kubectl -n rice create secret generic backend-env \
-  --from-env-file=.env \
+  --from-env-file=$HOME/backend-env.prod \
   --dry-run=client -o yaml | \
   sudo kubectl -n rice apply -f -
 sudo kubectl -n rice rollout restart deploy/backend
-EOF
 ```
 
 ## Troubleshooting

@@ -1,23 +1,34 @@
+import { PoolClient } from 'pg';
 import { db } from '../database/connection';
 import { CreateParameterDTO, Parameter, UpdateParameterDTO } from '../models/parameter.model';
 import { logger } from '../utils/logger';
+import {
+  normalizeSaudaParametersInput,
+  saudaParametersHasAnyValue,
+} from '../utils/sauda-parameters';
+import type { SaudaParametersInput } from '../constants/sauda-parameters';
+
+const PARAMETER_COLUMNS = `
+  id, sauda_id, inward_slip_pass_id, product_id, batch_id,
+  purity, natural_admixture, average_grain_length, moisture, broken_grain,
+  damage_discolour_grain, immature_grains, whiteness, foreign_matter, black_grains,
+  created_at, updated_at, created_by, updated_by
+`;
 
 export class ParameterDAO {
-  async create(data: CreateParameterDTO): Promise<Parameter> {
+  async create(data: CreateParameterDTO, client?: PoolClient): Promise<Parameter> {
     const query = `
       INSERT INTO parameters (
-        inward_slip_pass_id, product_id, batch_id,
+        sauda_id, inward_slip_pass_id, product_id, batch_id,
         purity, natural_admixture, average_grain_length, moisture, broken_grain,
         damage_discolour_grain, immature_grains, whiteness, foreign_matter, black_grains,
         created_by
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-      RETURNING id, inward_slip_pass_id, product_id, batch_id,
-        purity, natural_admixture, average_grain_length, moisture, broken_grain,
-        damage_discolour_grain, immature_grains, whiteness, foreign_matter, black_grains,
-        created_at, updated_at, created_by, updated_by
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+      RETURNING ${PARAMETER_COLUMNS}
     `;
     const values = [
+      data.sauda_id ?? null,
       data.inward_slip_pass_id ?? null,
       data.product_id ?? null,
       data.batch_id ?? null,
@@ -34,7 +45,9 @@ export class ParameterDAO {
       data.created_by ?? null,
     ];
     try {
-      const result = await db.query<Parameter>(query, values);
+      const result = client
+        ? await client.query<Parameter>(query, values)
+        : await db.query<Parameter>(query, values);
       return result.rows[0];
     } catch (error) {
       logger.error('Error creating parameter row', { error, data });
@@ -42,34 +55,60 @@ export class ParameterDAO {
     }
   }
 
-  async findById(id: string): Promise<Parameter | null> {
+  async findById(id: string, client?: PoolClient): Promise<Parameter | null> {
     const query = `
-      SELECT id, inward_slip_pass_id, product_id, batch_id,
-        purity, natural_admixture, average_grain_length, moisture, broken_grain,
-        damage_discolour_grain, immature_grains, whiteness, foreign_matter, black_grains,
-        created_at, updated_at, created_by, updated_by
+      SELECT ${PARAMETER_COLUMNS}
       FROM parameters
       WHERE id = $1
     `;
-    const result = await db.query<Parameter>(query, [id]);
+    const result = client
+      ? await client.query<Parameter>(query, [id])
+      : await db.query<Parameter>(query, [id]);
     return result.rows[0] || null;
   }
 
+  async findBySaudaId(saudaId: string, client?: PoolClient): Promise<Parameter | null> {
+    const query = `
+      SELECT ${PARAMETER_COLUMNS}
+      FROM parameters
+      WHERE sauda_id = $1
+    `;
+    const result = client
+      ? await client.query<Parameter>(query, [saudaId])
+      : await db.query<Parameter>(query, [saudaId]);
+    return result.rows[0] || null;
+  }
+
+  async findBySaudaIds(saudaIds: string[]): Promise<Parameter[]> {
+    if (saudaIds.length === 0) {
+      return [];
+    }
+    const query = `
+      SELECT ${PARAMETER_COLUMNS}
+      FROM parameters
+      WHERE sauda_id = ANY($1::uuid[])
+    `;
+    const result = await db.query<Parameter>(query, [saudaIds]);
+    return result.rows;
+  }
+
   async findAll(filters: {
+    sauda_id?: string;
     batch_id?: string;
     product_id?: string;
     inward_slip_pass_id?: string;
   }): Promise<Parameter[]> {
     let query = `
-      SELECT id, inward_slip_pass_id, product_id, batch_id,
-        purity, natural_admixture, average_grain_length, moisture, broken_grain,
-        damage_discolour_grain, immature_grains, whiteness, foreign_matter, black_grains,
-        created_at, updated_at, created_by, updated_by
+      SELECT ${PARAMETER_COLUMNS}
       FROM parameters
       WHERE 1=1
     `;
     const params: unknown[] = [];
     let n = 1;
+    if (filters.sauda_id) {
+      query += ` AND sauda_id = $${n++}`;
+      params.push(filters.sauda_id);
+    }
     if (filters.batch_id) {
       query += ` AND batch_id = $${n++}`;
       params.push(filters.batch_id);
@@ -87,7 +126,45 @@ export class ParameterDAO {
     return result.rows;
   }
 
-  async update(id: string, data: UpdateParameterDTO): Promise<Parameter | null> {
+  async upsertForSauda(
+    saudaId: string,
+    input: SaudaParametersInput,
+    userId?: string | null,
+    client?: PoolClient
+  ): Promise<Parameter | null> {
+    const values = normalizeSaudaParametersInput(input);
+    const existing = await this.findBySaudaId(saudaId, client);
+
+    if (!saudaParametersHasAnyValue(values)) {
+      if (existing) {
+        await this.delete(existing.id, client);
+      }
+      return null;
+    }
+
+    if (existing) {
+      const updated = await this.update(
+        existing.id,
+        {
+          ...values,
+          updated_by: userId ?? undefined,
+        },
+        client
+      );
+      return updated;
+    }
+
+    return this.create(
+      {
+        sauda_id: saudaId,
+        ...values,
+        created_by: userId ?? undefined,
+      },
+      client
+    );
+  }
+
+  async update(id: string, data: UpdateParameterDTO, client?: PoolClient): Promise<Parameter | null> {
     const fields: string[] = [];
     const values: unknown[] = [];
     let paramCount = 1;
@@ -97,6 +174,7 @@ export class ParameterDAO {
       values.push(value);
     };
 
+    if (data.sauda_id !== undefined) push('sauda_id', data.sauda_id);
     if (data.inward_slip_pass_id !== undefined) push('inward_slip_pass_id', data.inward_slip_pass_id);
     if (data.product_id !== undefined) push('product_id', data.product_id);
     if (data.batch_id !== undefined) push('batch_id', data.batch_id);
@@ -113,7 +191,7 @@ export class ParameterDAO {
     if (data.updated_by !== undefined) push('updated_by', data.updated_by);
 
     if (fields.length === 0) {
-      return this.findById(id);
+      return this.findById(id, client);
     }
 
     fields.push('updated_at = CURRENT_TIMESTAMP');
@@ -123,14 +201,13 @@ export class ParameterDAO {
       UPDATE parameters
       SET ${fields.join(', ')}
       WHERE id = $${paramCount}
-      RETURNING id, inward_slip_pass_id, product_id, batch_id,
-        purity, natural_admixture, average_grain_length, moisture, broken_grain,
-        damage_discolour_grain, immature_grains, whiteness, foreign_matter, black_grains,
-        created_at, updated_at, created_by, updated_by
+      RETURNING ${PARAMETER_COLUMNS}
     `;
 
     try {
-      const result = await db.query<Parameter>(query, values);
+      const result = client
+        ? await client.query<Parameter>(query, values)
+        : await db.query<Parameter>(query, values);
       return result.rows[0] || null;
     } catch (error) {
       logger.error('Error updating parameter row', { error, id, data });
@@ -138,9 +215,9 @@ export class ParameterDAO {
     }
   }
 
-  async delete(id: string): Promise<boolean> {
+  async delete(id: string, client?: PoolClient): Promise<boolean> {
     const query = 'DELETE FROM parameters WHERE id = $1';
-    const result = await db.query(query, [id]);
+    const result = client ? await client.query(query, [id]) : await db.query(query, [id]);
     return (result.rowCount || 0) > 0;
   }
 }

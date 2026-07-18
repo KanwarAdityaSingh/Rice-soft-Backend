@@ -1,12 +1,15 @@
 import { RiceType } from './lead.model';
+import type { RiceCategory } from '../constants/rice-categories';
 
 export interface InwardSlipLot {
   id: string;
   sauda_id: string;
   godown_id: string;
   lot_number: string;
+  rice_category: RiceCategory;
   rice_code_id: string | null;
-  rice_type: RiceType | null;
+  rice_type: RiceType;
+  rice_length_id: string | null;
   no_of_bags: number;
   bag_weight: number | null;
   total_weight: number | null;
@@ -14,7 +17,6 @@ export interface InwardSlipLot {
   received_weight: number;
   rate: number;
   amount: number | null;
-  /** Mirrors inward_slip_passes.created_at when lot came from kaanta; null for manual lots */
   inward_slip_pass_created_at: Date | null;
   created_at: Date;
   updated_at: Date;
@@ -26,14 +28,15 @@ export interface CreateInwardSlipLotDTO {
   sauda_id: string;
   godown_id: string;
   lot_number: string;
-  rice_code_id?: string;
-  rice_type?: RiceType;
+  rice_category: RiceCategory;
+  rice_code_id: string | null;
+  rice_type: RiceType;
+  rice_length_id: string | null;
   no_of_bags: number;
   bag_weight?: number;
   bill_weight: number;
   received_weight: number;
   rate: number;
-  /** If set (e.g. kaanta flow), stored on insert; otherwise null */
   inward_slip_pass_created_at?: Date | null;
   created_by?: string;
 }
@@ -41,8 +44,6 @@ export interface CreateInwardSlipLotDTO {
 export interface UpdateInwardSlipLotDTO {
   godown_id?: string;
   lot_number?: string;
-  rice_code_id?: string;
-  rice_type?: RiceType;
   no_of_bags?: number;
   bag_weight?: number;
   bill_weight?: number;
@@ -56,8 +57,10 @@ export interface InwardSlipLotResponse {
   sauda_id: string;
   godown_id: string;
   lot_number: string;
+  rice_category: RiceCategory;
   rice_code_id: string | null;
-  rice_type: RiceType | null;
+  rice_type: RiceType;
+  rice_length_id: string | null;
   no_of_bags: number;
   bag_weight: number | null;
   total_weight: number | null;
@@ -69,4 +72,3 @@ export interface InwardSlipLotResponse {
   created_at: string;
   updated_at: string;
 }
-

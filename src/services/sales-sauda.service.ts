@@ -1,6 +1,7 @@
 import { salesSaudaDAO } from '../dao/sales-sauda.dao';
 import { salesSaudaLineDAO } from '../dao/sales-sauda-line.dao';
 import { salesPartyDAO } from '../dao/sales-party.dao';
+import { salesmanDAO } from '../dao/salesman.dao';
 import { productDAO } from '../dao/product.dao';
 import { packagingDAO } from '../dao/packaging.dao';
 import {
@@ -10,6 +11,7 @@ import {
   UpdateSalesSaudaDTO,
 } from '../models/sales-sauda.model';
 import { CreateSalesSaudaLineDTO, SalesSaudaDiscountType } from '../models/sales-sauda-line.model';
+import { financialYearFromDate } from '../constants/financial-year';
 import { NotFoundError, ValidationError, ConflictError } from '../utils/errors';
 
 export class SalesSaudaService {
@@ -144,8 +146,18 @@ export class SalesSaudaService {
     });
   }
 
-  async list(salesPartyId?: string, status?: SalesSaudaStatus): Promise<SalesSauda[]> {
-    return salesSaudaDAO.findAll(salesPartyId, status);
+  private resolveFinancialYear(date?: string | Date | null): string {
+    const source =
+      date != null && String(date).trim() !== '' ? date : new Date();
+    return financialYearFromDate(source).label;
+  }
+
+  async list(
+    salesPartyId?: string,
+    status?: SalesSaudaStatus,
+    financialYear?: string
+  ): Promise<SalesSauda[]> {
+    return salesSaudaDAO.findAll(salesPartyId, status, financialYear);
   }
 
   async getById(id: string): Promise<SalesSauda & { lines?: any[] }> {
@@ -155,16 +167,28 @@ export class SalesSaudaService {
     return { ...sauda, lines };
   }
 
+  private async assertSalesmanExists(salesmanId: string | null | undefined): Promise<void> {
+    if (salesmanId == null) return;
+    const salesman = await salesmanDAO.findById(salesmanId);
+    if (!salesman) throw new NotFoundError('Salesman not found');
+  }
+
   async create(
     data: CreateSalesSaudaDTO & { lines?: CreateSalesSaudaLineDTO[] },
     userId?: string
   ): Promise<SalesSauda & { lines?: any[] }> {
     const salesParty = await salesPartyDAO.findById(data.sales_party_id);
     if (!salesParty) throw new NotFoundError('Sales party not found');
+    await this.assertSalesmanExists(data.salesman_id);
     const createDto: CreateSalesSaudaDTO = {
       sales_party_id: data.sales_party_id,
+      salesman_id: data.salesman_id ?? null,
+      sauda_type: data.sauda_type,
       status: data.status ?? 'draft',
       sauda_date: data.sauda_date,
+      financial_year: this.resolveFinancialYear(data.sauda_date),
+      billing_address: data.billing_address ?? null,
+      delivery_address: data.delivery_address ?? null,
       notes: data.notes,
       payment_terms: data.payment_terms,
       amount: 0,
@@ -194,14 +218,25 @@ export class SalesSaudaService {
       const salesParty = await salesPartyDAO.findById(data.sales_party_id);
       if (!salesParty) throw new NotFoundError('Sales party not found');
     }
-    await salesSaudaDAO.update(id, {
+    if (data.salesman_id !== undefined) {
+      await this.assertSalesmanExists(data.salesman_id);
+    }
+    const updatePayload: UpdateSalesSaudaDTO = {
       sales_party_id: data.sales_party_id,
+      salesman_id: data.salesman_id,
+      sauda_type: data.sauda_type,
       status: data.status,
       sauda_date: data.sauda_date,
+      billing_address: data.billing_address,
+      delivery_address: data.delivery_address,
       notes: data.notes,
       payment_terms: data.payment_terms,
       updated_by: userId,
-    });
+    };
+    if (data.sauda_date !== undefined) {
+      updatePayload.financial_year = this.resolveFinancialYear(data.sauda_date);
+    }
+    await salesSaudaDAO.update(id, updatePayload);
     if (data.lines !== undefined) {
       await salesSaudaLineDAO.deleteBySalesSaudaId(id);
       for (let i = 0; i < data.lines.length; i++) {
@@ -221,8 +256,15 @@ export class SalesSaudaService {
     if (existing.status !== 'draft') throw new ConflictError('Only draft sales sauda can be finalized');
     const lines = await salesSaudaLineDAO.findBySalesSaudaId(id);
     if (lines.length === 0) throw new ValidationError('Sales sauda must have at least one line to finalize');
-    const orderNumber = await salesSaudaDAO.getNextOrderNumber();
-    await salesSaudaDAO.update(id, { status: 'order', order_number: orderNumber, updated_by: userId });
+    const financialYear =
+      existing.financial_year || this.resolveFinancialYear(existing.sauda_date);
+    const orderNumber = await salesSaudaDAO.getNextOrderNumber(financialYear);
+    await salesSaudaDAO.update(id, {
+      status: 'order',
+      order_number: orderNumber,
+      financial_year: financialYear,
+      updated_by: userId,
+    });
     return this.getById(id);
   }
 

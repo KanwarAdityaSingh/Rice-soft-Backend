@@ -1,11 +1,9 @@
 /**
- * Rice length / cut grades (e.g. Dubar, Tibar, Wand) for dropdowns and validation.
- * Values are stable API identifiers; labels are for display.
+ * Default seed rows inserted by migration 148_create_rice_lengths_module.sql.
+ * Runtime data is served from GET /api/v1/riceLengths/getAllRiceLengths.
  */
-export const RICE_LENGTH_OPTIONS = [
-  { value: 'dubar', label: 'Dubar (Double)' },
-  { value: 'tibar', label: 'Tibar' },
-  { value: 'wand', label: 'Wand' },
+export const RICE_LENGTH_SEED = [
+  { name: 'Dubar (Double)' },
+  { name: 'Tibar' },
+  { name: 'Wand' },
 ] as const;
-
-export type RiceLength = (typeof RICE_LENGTH_OPTIONS)[number]['value'];

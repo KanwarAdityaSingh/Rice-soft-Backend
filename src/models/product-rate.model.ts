@@ -5,6 +5,8 @@ export interface ProductRate {
   product_id: string;
   holding_capacity: PackagingWeight;
   rate: number;
+  /** Business date the current rate applies to */
+  effective_date: Date | string;
   created_at: Date;
   updated_at: Date;
 }
@@ -13,10 +15,12 @@ export interface CreateProductRateDTO {
   product_id: string;
   holding_capacity: PackagingWeight;
   rate: number;
+  effective_date: string;
 }
 
 export interface UpsertProductRatesDTO {
   product_id: string;
+  effective_date: string;
   rates: Array<{ holding_capacity: PackagingWeight; rate: number }>;
 }
 
@@ -25,6 +29,8 @@ export interface ProductRateResponse {
   product_id: string;
   holding_capacity: number;
   rate: number;
+  /** YYYY-MM-DD */
+  effective_date: string;
   created_at: string;
   updated_at: string;
 }

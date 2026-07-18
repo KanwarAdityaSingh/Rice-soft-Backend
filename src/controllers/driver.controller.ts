@@ -145,6 +145,45 @@ export class DriverController {
     }
   }
 
+  /**
+   * Check whether a driving licence number is already registered.
+   * Query: license_number (required), exclude_id (optional, for edit forms).
+   */
+  async checkLicenseExists(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const licenseNumber = req.query.license_number as string | undefined;
+      const excludeId = req.query.exclude_id as string | undefined;
+
+      if (!licenseNumber?.trim()) {
+        throw new ValidationError('license_number is required');
+      }
+
+      if (excludeId) {
+        validate<string>(uuidSchema, excludeId);
+      }
+
+      const driver = await driverDAO.findByLicenseNumber(licenseNumber);
+      const taken =
+        driver !== null && (!excludeId || driver.id !== excludeId);
+
+      if (taken && driver) {
+        return ResponseHandler.success(
+          res,
+          { exists: true, driver: toResponse(driver) },
+          'Driving license number already exists'
+        );
+      }
+
+      return ResponseHandler.success(
+        res,
+        { exists: false, driver: null },
+        'Driving license number is available'
+      );
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async verifyDriver(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const body = validate<{
@@ -371,7 +410,7 @@ export class DriverController {
         throw new NotFoundError('Driver not found');
       }
 
-      await driverDAO.softDelete(id);
+      await driverDAO.delete(id);
       return ResponseHandler.success(res, { id }, 'Driver deleted successfully');
     } catch (error) {
       next(error);

@@ -13,6 +13,7 @@ import { CreateParameterDTO, ParameterResponse, UpdateParameterDTO } from '../mo
 
 function toResponse(row: {
   id: string;
+  sauda_id: string | null;
   inward_slip_pass_id: string | null;
   product_id: string | null;
   batch_id: string | null;
@@ -33,6 +34,7 @@ function toResponse(row: {
 }): ParameterResponse {
   return {
     id: row.id,
+    sauda_id: row.sauda_id,
     inward_slip_pass_id: row.inward_slip_pass_id,
     product_id: row.product_id,
     batch_id: row.batch_id,
@@ -57,12 +59,14 @@ export class ParameterController {
   async getAll(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const q = validate<{
+        sauda_id?: string;
         batch_id?: string;
         product_id?: string;
         inward_slip_pass_id?: string;
       }>(listParametersQuerySchema, req.query);
 
       const rows = await parameterService.list({
+        sauda_id: q.sauda_id,
         batch_id: q.batch_id,
         product_id: q.product_id,
         inward_slip_pass_id: q.inward_slip_pass_id,

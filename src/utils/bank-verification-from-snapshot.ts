@@ -79,7 +79,7 @@ export function compareBankDetailsWithKycSnapshot(
     return {
       status: 'missing_snapshot',
       message:
-        'Bank verification snapshot is required. Call GET /api/v1/kyc/bank/verify first and include kyc_verification_details.bank on create/update.',
+        'Bank verification snapshot is required. Call GET /api/v1/kyc/bank/verify or GET /api/v1/coupons/public/verifyBankAccount first and include kyc_verification_details.bank on create/update.',
     };
   }
 

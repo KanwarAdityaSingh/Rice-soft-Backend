@@ -7,6 +7,9 @@ import { PaymentAdvice, UpdatePaymentAdviceDTO, PaymentAdvicePreviewResponse } f
 import { computeKaantaPricingNetWeight, floorToMoneyStep } from '../utils/money';
 import { logger } from '../utils/logger';
 import { ValidationError } from '../utils/errors';
+import type { CalculationPolicyId } from '../constants/calculation-policies';
+import { calculationContextService } from './calculation-context.service';
+import type { PurchaseSummaryQueryOptions } from '../dao/purchase-summary.dao';
 
 export type PaymentAdviceKaantaMetrics = {
   bill_weight: number | null;
@@ -129,14 +132,19 @@ export class PaymentAdviceService {
 
   async resolveAmountFromSummary(
     saudaId?: string | null,
-    ispId?: string | null
+    ispId?: string | null,
+    calculationPolicyId?: CalculationPolicyId | null
   ): Promise<number | null> {
+    const summaryOptions: PurchaseSummaryQueryOptions | undefined = calculationPolicyId
+      ? { calculationPolicyId }
+      : undefined;
+
     if (saudaId) {
-      const summary = await purchaseSummaryDAO.getSaudaSummary(saudaId);
+      const summary = await purchaseSummaryDAO.getSaudaSummary(saudaId, undefined, summaryOptions);
       return floorToMoneyStep(summary.final_total_amount);
     }
     if (ispId) {
-      const summary = await purchaseSummaryDAO.getIspSummary(ispId);
+      const summary = await purchaseSummaryDAO.getIspSummary(ispId, undefined, summaryOptions);
       return floorToMoneyStep(summary.final_total_amount);
     }
     return null;
@@ -159,9 +167,14 @@ export class PaymentAdviceService {
       throw new ValidationError('Either sauda_id or inward_slip_pass_id must be provided');
     }
 
+    const calculationContext = await calculationContextService.resolveForCreate({ saudaId, ispId });
+    const summaryOptions: PurchaseSummaryQueryOptions = {
+      calculationPolicyId: calculationContext.policyId,
+    };
+
     const summary = saudaId
-      ? await purchaseSummaryDAO.getSaudaSummary(saudaId, input.godownId)
-      : await purchaseSummaryDAO.getIspSummary(ispId!, input.godownId);
+      ? await purchaseSummaryDAO.getSaudaSummary(saudaId, input.godownId, summaryOptions)
+      : await purchaseSummaryDAO.getIspSummary(ispId!, input.godownId, summaryOptions);
 
     const metrics = await this.computeKaantaMetrics(saudaId, ispId);
     const amount = floorToMoneyStep(summary.final_total_amount);
@@ -180,6 +193,8 @@ export class PaymentAdviceService {
       amount,
       total_charges: totalCharges,
       net_payable: netPayable,
+      financial_year: calculationContext.financialYear,
+      calculation_policy_id: calculationContext.policyId,
       summary,
     };
   }
@@ -247,7 +262,12 @@ export class PaymentAdviceService {
       return;
     }
 
-    const amount = await this.resolveAmountFromSummary(advice.sauda_id, advice.inward_slip_pass_id);
+    const calculationContext = await calculationContextService.resolveForPaymentAdvice(advice);
+    const amount = await this.resolveAmountFromSummary(
+      advice.sauda_id,
+      advice.inward_slip_pass_id,
+      calculationContext.policyId
+    );
 
     const updateData: UpdatePaymentAdviceDTO = {
       bill_weight: metrics.bill_weight ?? undefined,

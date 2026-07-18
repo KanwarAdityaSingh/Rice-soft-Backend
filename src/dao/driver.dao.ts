@@ -7,6 +7,7 @@ import {
   DriverVerificationSnapshot,
 } from '../models/driver.model';
 import { logger } from '../utils/logger';
+import { ConflictError } from '../utils/errors';
 import { normalizeDrivingLicenseForStorage, driverProfileFromMapped, parseTransportLicenseExpiryDate } from '../utils/driver-license';
 
 const SELECT_COLUMNS = `
@@ -123,7 +124,7 @@ export class DriverDAO {
 
   async licenseNumberExists(licenseNumber: string, excludeId?: string): Promise<boolean> {
     const normalized = normalizeDrivingLicenseForStorage(licenseNumber);
-    let query = `SELECT EXISTS(SELECT 1 FROM drivers WHERE license_number = $1 AND is_active = true`;
+    let query = `SELECT EXISTS(SELECT 1 FROM drivers WHERE license_number = $1`;
     const params: unknown[] = [normalized];
     if (excludeId) {
       query += ` AND id != $2`;
@@ -195,7 +196,7 @@ export class DriverDAO {
     if (data.license_number !== undefined) {
       const exists = await this.licenseNumberExists(data.license_number, id);
       if (exists) {
-        throw new Error('Driving license number already exists');
+        throw new ConflictError('Driving license number already exists');
       }
     }
 
@@ -388,16 +389,96 @@ export class DriverDAO {
     return row;
   }
 
-  async softDelete(id: string): Promise<boolean> {
-    const query = `
-      UPDATE drivers
-      SET is_active = false, updated_at = CURRENT_TIMESTAMP
-      WHERE id = $1
-    `;
+  /** Tables/columns that reference this driver (FK, driver_id, or driver_ids[]). */
+  private async findReferenceBlockers(driverId: string): Promise<Array<{ label: string; count: number }>> {
+    const blockers: Array<{ label: string; count: number }> = [];
+
+    const fkResult = await db.query<{ table_name: string; column_name: string }>(
+      `
+      SELECT
+        cl.relname AS table_name,
+        att.attname AS column_name
+      FROM pg_constraint con
+      JOIN pg_class cl ON cl.oid = con.conrelid
+      JOIN pg_namespace ns ON ns.oid = cl.relnamespace
+      JOIN pg_attribute att ON att.attrelid = con.conrelid AND att.attnum = ANY(con.conkey)
+      WHERE con.contype = 'f'
+        AND con.confrelid = 'public.drivers'::regclass
+        AND ns.nspname = 'public'
+        AND cl.relname <> 'drivers'
+        AND array_length(con.conkey, 1) = 1
+      `
+    );
+
+    for (const { table_name, column_name } of fkResult.rows) {
+      const countResult = await db.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count FROM "${table_name}" WHERE "${column_name}" = $1`,
+        [driverId]
+      );
+      const count = parseInt(countResult.rows[0]?.count ?? '0', 10);
+      if (count > 0) {
+        blockers.push({ label: table_name, count });
+      }
+    }
+
+    const columnResult = await db.query<{ table_name: string; column_name: string; udt_name: string }>(
+      `
+      SELECT c.table_name, c.column_name, c.udt_name
+      FROM information_schema.columns c
+      JOIN information_schema.tables t
+        ON t.table_schema = c.table_schema AND t.table_name = c.table_name
+      WHERE c.table_schema = 'public'
+        AND t.table_type = 'BASE TABLE'
+        AND c.table_name <> 'drivers'
+        AND c.column_name IN ('driver_id', 'driver_ids')
+      `
+    );
+
+    for (const { table_name, column_name, udt_name } of columnResult.rows) {
+      const alreadyCounted = blockers.some((b) => b.label === table_name);
+      if (alreadyCounted) {
+        continue;
+      }
+
+      if (column_name === 'driver_ids' && udt_name === '_uuid') {
+        const countResult = await db.query<{ count: string }>(
+          `SELECT COUNT(*)::text AS count FROM "${table_name}" WHERE $1 = ANY("${column_name}")`,
+          [driverId]
+        );
+        const count = parseInt(countResult.rows[0]?.count ?? '0', 10);
+        if (count > 0) {
+          blockers.push({ label: table_name, count });
+        }
+        continue;
+      }
+
+      if (column_name === 'driver_id' && udt_name === 'uuid') {
+        const countResult = await db.query<{ count: string }>(
+          `SELECT COUNT(*)::text AS count FROM "${table_name}" WHERE "${column_name}" = $1`,
+          [driverId]
+        );
+        const count = parseInt(countResult.rows[0]?.count ?? '0', 10);
+        if (count > 0) {
+          blockers.push({ label: table_name, count });
+        }
+      }
+    }
+
+    return blockers;
+  }
+
+  async delete(id: string): Promise<boolean> {
+    const blockers = await this.findReferenceBlockers(id);
+    if (blockers.length > 0) {
+      const details = blockers.map((b) => `${b.label} (${b.count})`).join(', ');
+      throw new ConflictError(`Cannot delete driver linked to: ${details}`);
+    }
+
+    const query = `DELETE FROM drivers WHERE id = $1`;
     const result = await db.query(query, [id]);
     const ok = (result.rowCount || 0) > 0;
     if (ok) {
-      logger.info('Driver soft deleted', { id });
+      logger.info('Driver deleted', { id });
     }
     return ok;
   }

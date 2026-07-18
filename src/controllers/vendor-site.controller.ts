@@ -126,7 +126,7 @@ export class VendorSiteController {
         throw new NotFoundError('Site not found');
       }
 
-      await vendorSiteDAO.softDelete(id);
+      await vendorSiteDAO.delete(id);
       return ResponseHandler.success(res, { id }, 'Site deleted successfully');
     } catch (error) {
       next(error);

@@ -1,5 +1,5 @@
 import { RiceType } from './lead.model';
-import type { RiceLength } from '../constants/rice-lengths';
+import type { RiceCategory } from '../constants/rice-categories';
 
 export interface PurchaseSummary {
   // Identifiers
@@ -7,6 +7,9 @@ export interface PurchaseSummary {
   /** Short label for UI (4 hex chars); set when sauda_id is present */
   sauda_display_id?: string;
   inward_slip_pass_id?: string;
+  /** Indian FY label derived from sauda/ISP date (e.g. 2025-2026). */
+  financial_year?: string | null;
+  calculation_policy_id?: string | null;
   
   // Separate Fields - Step by Step Breakdown (Vendor POV)
   total_lots: number;
@@ -54,8 +57,10 @@ export interface SaudaSummaryDetails {
   id: string;
   display_id: string;
   sauda_type: string;
+  rice_category: RiceCategory;
   rice_type: RiceType;
-  rice_length: RiceLength | null;
+  rice_length_id: string | null;
+  rice_length_name: string | null;
   rice_code_id: string | null;
   rate: number;
   broker_id: string | null;

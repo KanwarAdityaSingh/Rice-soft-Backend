@@ -8,8 +8,9 @@ const productController = new ProductController();
 // Apply authentication middleware to all routes
 router.use(authenticate);
 
-// Brands endpoint (must come before /:id route)
+// Static option endpoints (must come before /:id route)
 router.get('/brands', productController.getBrands.bind(productController));
+router.get('/hsn-codes', productController.getHsnCodes.bind(productController));
 
 // Product CRUD routes
 router.get('/', productController.getAll.bind(productController));

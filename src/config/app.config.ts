@@ -40,7 +40,11 @@ export const appConfig = {
   },
   
   cors: {
-    origin: process.env.CORS_ORIGIN || 'http://localhost:3001',
+    /** Comma-separated allowed browser origins, e.g. http://localhost:3001,http://localhost:4000 */
+    origins: (process.env.CORS_ORIGIN || 'http://localhost:3001,http://localhost:4000')
+      .split(',')
+      .map((o) => o.trim())
+      .filter(Boolean),
   },
   
   // External API Configurations
@@ -99,6 +103,17 @@ export const appConfig = {
     mastersIndia: {
       url: process.env.MASTERS_INDIA_API_URL || 'https://commonapi.mastersindia.co/commonapis/searchgstin/',
       authUrl: process.env.MASTERS_INDIA_AUTH_URL || 'https://pro.mastersindia.co/oauth/access_token',
+      eInvoiceUrl:
+        process.env.MASTERS_INDIA_EINVOICE_URL || 'https://pro.mastersindia.co/api/v1/einvoice/',
+      eWayBillUrl:
+        process.env.MASTERS_INDIA_EWAY_BILL_URL || 'https://pro.mastersindia.co/ewayBillsGenerate',
+      distanceUrl:
+        process.env.MASTERS_INDIA_DISTANCE_URL ||
+        'https://pro.mastersindia.co/ewayBillDistance',
+      sellerGstin: (process.env.MASTERS_INDIA_SELLER_GSTIN || '').trim().toUpperCase(),
+      defaultHsnCode: process.env.MASTERS_INDIA_DEFAULT_HSN_CODE || '100630',
+      notificationEmail:
+        process.env.MASTERS_INDIA_NOTIFICATION_EMAIL || 'info@santkripaequipment.com',
       username: process.env.MASTERS_INDIA_USERNAME || '',
       password: process.env.MASTERS_INDIA_PASSWORD || '',
       clientId: process.env.MASTERS_INDIA_CLIENT_ID || '',
@@ -107,8 +122,8 @@ export const appConfig = {
     kaleyra: {
       url: process.env.KALEYRA_BASE_URL || 'https://api.kaleyra.io/v1/HXAP1679900797IN/messages',
       apiKey: process.env.KALEYRA_API_KEY || 'A7817538772624b312d23974ca14997bb',
-      senderId: process.env.KALEYRA_SENDER_ID || 'SNTKRI',
-      templateId: process.env.KALEYRA_TEMPLATE_ID || '1007162144526914389',
+      senderId: process.env.KALEYRA_SENDER_ID || 'SNTREQ',
+      templateId: process.env.KALEYRA_TEMPLATE_ID || '1077290810001122488',
       // WhatsApp Configuration
       whatsappUrl: process.env.KALEYRA_WHATSAPP_URL || 'https://api.kaleyra.io/v1/HXAP1679900797IN/whatsapp',
       whatsappFromNumber: process.env.KALEYRA_WHATSAPP_FROM_NUMBER || '',
@@ -131,6 +146,8 @@ export const appConfig = {
     enabled: process.env.OPENAI_NAME_SIMILARITY_ENABLED !== 'false',
     /** Vision extraction of kaanta slip weights (Gross/Tare/Net, ticket, vehicle). */
     kaantaExtractionEnabled: process.env.OPENAI_KAANTA_EXTRACTION_ENABLED !== 'false',
+    /** Stronger vision model for dense weighbridge slip OCR; defaults to gpt-4o. */
+    kaantaModel: process.env.OPENAI_KAANTA_MODEL || 'gpt-4o',
   },
 
   otp: {
@@ -168,6 +185,30 @@ export const appConfig = {
     name: process.env.DEFAULT_RECIPIENT_NAME || 'ADHRA AMRIT AGRO PRODUCTS LLP',
     address: process.env.DEFAULT_RECIPIENT_ADDRESS || 'Plot No. 09, Sector 23, Phase-III, HSIIDC Industrial Estate, Barhi, Sonipat, Haryana, India-131101',
     llpin: process.env.DEFAULT_RECIPIENT_LLPIN || 'AAU-3262',
+  },
+
+  coupons: {
+    /**
+     * Public redeem page base URL (no query). Used as default when creating batches
+     * and as CSV/QR fallback if batch.redeem_base_url is empty.
+     * Set per environment: COUPON_REDEEM_BASE_URL
+     *   local: http://localhost:4000/redeem/
+     *   prod:  https://aadhraamrit.vercel.app/redeem/
+     */
+    redeemBaseUrl: (process.env.COUPON_REDEEM_BASE_URL || '').trim(),
+    payoutEnabled: process.env.COUPON_PAYOUT_ENABLED === 'true',
+    payoutWorkerIntervalMs: parseInt(process.env.COUPON_PAYOUT_WORKER_INTERVAL_MS || '300000', 10),
+    expiryCronEnabled: process.env.COUPON_EXPIRY_CRON_ENABLED === 'true',
+    expiryCronMs: parseInt(process.env.COUPON_EXPIRY_CRON_MS || '86400000', 10),
+    /** When false, skip Kaleyra SMS for public coupon OTP (OTP still stored in DB). */
+    publicSmsEnabled: process.env.COUPON_PUBLIC_SMS_ENABLED !== 'false',
+  },
+
+  razorpay: {
+    keyId: process.env.RAZORPAY_KEY_ID || '',
+    keySecret: process.env.RAZORPAY_KEY_SECRET || '',
+    webhookSecret: process.env.RAZORPAY_WEBHOOK_SECRET || '',
+    accountNumber: process.env.RAZORPAY_PAYOUT_ACCOUNT_NUMBER || '',
   },
 };
 

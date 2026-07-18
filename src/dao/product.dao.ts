@@ -2,10 +2,15 @@ import { db } from '../database/connection';
 import { Product, CreateProductDTO, UpdateProductDTO } from '../models/product.model';
 import { logger } from '../utils/logger';
 
+const PRODUCT_SELECT = `
+  id, name, description, brand, rice_type, hsn_code,
+  created_at, updated_at, created_by, updated_by
+`;
+
 export class ProductDAO {
   async findAll(): Promise<Product[]> {
     const query = `
-      SELECT id, name, description, brand, rice_type, created_at, updated_at, created_by, updated_by
+      SELECT ${PRODUCT_SELECT}
       FROM products
       ORDER BY name ASC
     `;
@@ -15,7 +20,7 @@ export class ProductDAO {
 
   async findById(id: string): Promise<Product | null> {
     const query = `
-      SELECT id, name, description, brand, rice_type, created_at, updated_at, created_by, updated_by
+      SELECT ${PRODUCT_SELECT}
       FROM products
       WHERE id = $1
     `;
@@ -25,9 +30,9 @@ export class ProductDAO {
 
   async create(productData: CreateProductDTO): Promise<Product> {
     const query = `
-      INSERT INTO products (name, description, brand, rice_type, created_by)
-      VALUES ($1, $2, $3, $4, $5)
-      RETURNING id, name, description, brand, rice_type, created_at, updated_at, created_by, updated_by
+      INSERT INTO products (name, description, brand, rice_type, hsn_code, created_by)
+      VALUES ($1, $2, $3, $4, $5, $6)
+      RETURNING ${PRODUCT_SELECT}
     `;
 
     const values = [
@@ -35,7 +40,8 @@ export class ProductDAO {
       productData.description || null,
       productData.brand || null,
       productData.rice_type || null,
-      productData.created_by || null
+      productData.hsn_code || null,
+      productData.created_by || null,
     ];
 
     try {
@@ -69,6 +75,10 @@ export class ProductDAO {
       fields.push(`rice_type = $${paramCount++}`);
       values.push(productData.rice_type || null);
     }
+    if (productData.hsn_code !== undefined) {
+      fields.push(`hsn_code = $${paramCount++}`);
+      values.push(productData.hsn_code || null);
+    }
     if (productData.updated_by !== undefined) {
       fields.push(`updated_by = $${paramCount++}`);
       values.push(productData.updated_by);
@@ -85,7 +95,7 @@ export class ProductDAO {
       UPDATE products
       SET ${fields.join(', ')}
       WHERE id = $${paramCount}
-      RETURNING id, name, description, brand, rice_type, created_at, updated_at, created_by, updated_by
+      RETURNING ${PRODUCT_SELECT}
     `;
 
     try {

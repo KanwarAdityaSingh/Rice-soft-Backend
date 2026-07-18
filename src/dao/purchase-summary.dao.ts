@@ -20,25 +20,35 @@ import {
 import { logger } from '../utils/logger';
 import { formatSaudaDisplayId } from '../utils/sauda-display';
 import { computeKaantaPricingNetWeight, floorToMoneyStep } from '../utils/money';
-import { ValidationError } from '../utils/errors';
 import type { RiceType } from '../models/lead.model';
+import {
+  DEFAULT_CALCULATION_POLICY_ID,
+  getCalculationPolicy,
+  type CalculationPolicyId,
+} from '../constants/calculation-policies';
+import { resolvePolicyFromDate } from '../constants/financial-year';
+import {
+  computePurchaseStepTotals,
+  type LotRowForMetrics,
+  type SaudaRowForMetrics,
+} from '../services/payment-calculation.engine';
 
-type SaudaRowForMetrics = {
-  cash_discount: unknown;
-  cash_discount_type: string;
-  broker_commission: unknown;
-  broker_commission_type: string;
-  received_until_now: unknown;
-  completion_percentage: unknown;
-  rate: unknown;
-  is_dana_required: boolean | null;
+export type PurchaseSummaryQueryOptions = {
+  calculationPolicyId?: CalculationPolicyId;
 };
 
-type LotRowForMetrics = {
-  no_of_bags?: unknown;
-  received_weight?: unknown;
-  amount?: unknown;
-};
+function resolveCalculationPolicyId(
+  policyDate: Date | string | null | undefined,
+  override?: CalculationPolicyId
+): CalculationPolicyId {
+  if (override) {
+    return override;
+  }
+  if (policyDate) {
+    return resolvePolicyFromDate(policyDate).policyId;
+  }
+  return DEFAULT_CALCULATION_POLICY_ID;
+}
 
 export class PurchaseSummaryDAO {
   /**
@@ -50,108 +60,38 @@ export class PurchaseSummaryDAO {
     lots: LotRowForMetrics[],
     transportationCost: number,
     baseAmountOverride?: number,
-    danaDeductionAmount = 0
-  ): {
-    totalLots: number;
-    totalBags: number;
-    totalWeight: number;
-    baseAmount: number;
-    danaDeductionAmount: number;
-    amountAfterDana: number;
-    cashDiscountAmount: number;
-    amountAfterDiscount: number;
-    brokerCommissionAmount: number;
-    amountAfterCommission: number;
-    transportationCost: number;
-    amountAfterTransportation: number;
-    igstAmount: number;
-    igstPercentage: number;
-    finalTotalAmount: number;
-    netPayable: number;
-  } {
-    const totalLots = lots.length;
-    const totalBags = lots.reduce((sum, lot) => sum + parseInt(String(lot.no_of_bags || '0'), 10), 0);
-    const totalWeight = lots.reduce((sum, lot) => sum + parseFloat(String(lot.received_weight || '0')), 0);
-    const baseAmount = baseAmountOverride !== undefined
-      ? baseAmountOverride
-      : lots.reduce((sum, lot) => sum + parseFloat(String(lot.amount || '0')), 0);
-    const danaAmount = Math.max(Number(danaDeductionAmount) || 0, 0);
-    const amountAfterDana = Math.max(baseAmount - danaAmount, 0);
-    const receivedUntilNow = parseFloat(String(sauda.received_until_now || '0'));
-    const completionPercentage = sauda.completion_percentage ? parseFloat(String(sauda.completion_percentage)) : null;
-    const isPartialSauda = completionPercentage !== null && completionPercentage < 100;
-
-    let cashDiscountAmount = 0;
-    const cashDiscount = parseFloat(String(sauda.cash_discount || '0'));
-    const cashDiscountType = sauda.cash_discount_type || 'rupees';
-    if (cashDiscount > 0) {
-      if (cashDiscountType === 'percentage') {
-        cashDiscountAmount = baseAmount * (cashDiscount / 100);
-      } else {
-        cashDiscountAmount = cashDiscount;
-      }
-    }
-    const amountAfterDiscount = amountAfterDana - cashDiscountAmount;
-
-    let brokerCommissionAmount = 0;
-    const brokerCommission = parseFloat(String(sauda.broker_commission || '0'));
-    const brokerCommissionType = sauda.broker_commission_type || 'percentage';
-    if (brokerCommission > 0) {
-      if (brokerCommissionType === 'percentage') {
-        // Percentage is applied to amount after dana (pre-discount commercial base).
-        brokerCommissionAmount = amountAfterDana * (brokerCommission / 100);
-      } else if (brokerCommissionType === 'weight') {
-        const weightForCommission = isPartialSauda ? receivedUntilNow : totalWeight;
-        brokerCommissionAmount = brokerCommission * weightForCommission;
-      } else {
-        brokerCommissionAmount = brokerCommission;
-      }
-    }
-    const COMMISSION_EXCESS_EPS = 1e-6;
-    if (brokerCommissionAmount - amountAfterDiscount > COMMISSION_EXCESS_EPS) {
-      throw new ValidationError(
-        'Broker commission exceeds amount after cash discount; reduce commission or adjust discount.'
-      );
-    }
-    const amountAfterCommission = amountAfterDiscount - brokerCommissionAmount;
-    // Use Number() so a rare string from DB/JSON cannot trigger JS string concatenation with +.
-    const amountAfterTransportation = Number(amountAfterCommission) + Number(transportationCost);
-    const igstAmount = 0;
-    const igstPercentage = 0;
-    const finalTotalAmount = Number(amountAfterTransportation) + Number(igstAmount);
-    const f = floorToMoneyStep;
-    return {
-      totalLots,
-      totalBags,
-      totalWeight,
-      baseAmount: f(baseAmount),
-      danaDeductionAmount: f(danaAmount),
-      amountAfterDana: f(amountAfterDana),
-      cashDiscountAmount: f(cashDiscountAmount),
-      amountAfterDiscount: f(amountAfterDiscount),
-      brokerCommissionAmount: f(brokerCommissionAmount),
-      amountAfterCommission: f(amountAfterCommission),
-      transportationCost: f(transportationCost),
-      amountAfterTransportation: f(amountAfterTransportation),
-      igstAmount: f(igstAmount),
-      igstPercentage,
-      finalTotalAmount: f(finalTotalAmount),
-      netPayable: f(finalTotalAmount),
-    };
+    danaDeductionAmount = 0,
+    policyId: CalculationPolicyId = DEFAULT_CALCULATION_POLICY_ID
+  ) {
+    return computePurchaseStepTotals({
+      sauda,
+      lots,
+      transportationCost,
+      baseAmountOverride,
+      danaDeductionAmount,
+      policyId,
+    });
   }
 
   /**
    * Get purchase summary for a single sauda
    * Aggregates all lots and applies sauda-level discounts/commissions
    */
-  async getSaudaSummary(saudaId: string, godownId?: string): Promise<PurchaseSummary> {
+  async getSaudaSummary(
+    saudaId: string,
+    godownId?: string,
+    options?: PurchaseSummaryQueryOptions
+  ): Promise<PurchaseSummary> {
     // Get sauda details
     const saudaQuery = `
-      SELECT id, sauda_type, rice_type, rice_length, rice_code_id, rate, broker_id,
-             broker_commission, broker_commission_type, cash_discount, cash_discount_type,
-             quantity, received_until_now, completion_percentage, purchaser_id, status, is_dana_required
-      FROM saudas
-      WHERE id = $1
+      SELECT s.id, s.sauda_type, s.rice_category, s.rice_type, s.rice_length_id, s.rice_code_id, s.rate, s.broker_id,
+             s.broker_commission, s.broker_commission_type, s.cash_discount, s.cash_discount_type,
+             s.quantity, s.received_until_now, s.completion_percentage, s.purchaser_id, s.status, s.is_dana_required,
+             s.sauda_date,
+             rl.name AS rice_length_name
+      FROM saudas s
+      LEFT JOIN rice_lengths rl ON rl.rice_length_id = s.rice_length_id
+      WHERE s.id = $1
     `;
     const saudaResult = await db.query(saudaQuery, [saudaId]);
     
@@ -160,6 +100,15 @@ export class PurchaseSummaryDAO {
     }
     
     const sauda = saudaResult.rows[0];
+    const calculationPolicyId = resolveCalculationPolicyId(sauda.sauda_date, options?.calculationPolicyId);
+    const calculationPolicy = getCalculationPolicy(calculationPolicyId);
+    const financialYear = sauda.sauda_date
+      ? resolvePolicyFromDate(
+          sauda.sauda_date instanceof Date
+            ? sauda.sauda_date.toISOString().split('T')[0]
+            : String(sauda.sauda_date).split('T')[0]
+        ).financialYear
+      : null;
 
     // Get lots for this sauda; optional godownId scopes to physical stock in that godown
     const lotsParams: unknown[] = [saudaId];
@@ -230,9 +179,10 @@ export class PurchaseSummaryDAO {
         isDanaRequired: shouldApplyDana,
       });
       const saudaRate = parseFloat(String(sauda.rate || '0'));
-      baseAmountOverride = pricing.grossWeightBeforeDana * saudaRate;
+      const kaantaMoney = calculationPolicy.buildKaantaMoneyInputs(pricing, saudaRate);
+      baseAmountOverride = kaantaMoney.baseAmountOverride;
       danaDeductionKg = pricing.danaDeductionKg;
-      danaDeductionAmount = danaDeductionKg * saudaRate;
+      danaDeductionAmount = kaantaMoney.danaDeductionAmount;
     }
 
     const step = this.computeStepTotalsFromSaudaAndLots(
@@ -240,7 +190,8 @@ export class PurchaseSummaryDAO {
       lots,
       transportationCost,
       baseAmountOverride,
-      danaDeductionAmount
+      danaDeductionAmount,
+      calculationPolicyId
     );
     const {
       totalLots,
@@ -305,8 +256,10 @@ export class PurchaseSummaryDAO {
       id: sauda.id,
       display_id: formatSaudaDisplayId(sauda.id as string),
       sauda_type: sauda.sauda_type,
+      rice_category: sauda.rice_category,
       rice_type: sauda.rice_type,
-      rice_length: sauda.rice_length ?? null,
+      rice_length_id: sauda.rice_length_id ?? null,
+      rice_length_name: sauda.rice_length_name ?? null,
       rice_code_id: sauda.rice_code_id,
       rate: parseFloat(sauda.rate),
       broker_id: sauda.broker_id,
@@ -326,6 +279,8 @@ export class PurchaseSummaryDAO {
     return {
       sauda_id: saudaId,
       sauda_display_id: formatSaudaDisplayId(saudaId),
+      financial_year: financialYear,
+      calculation_policy_id: calculationPolicyId,
       total_lots: totalLots,
       total_bags: totalBags,
       total_weight: totalWeight,
@@ -357,7 +312,11 @@ export class PurchaseSummaryDAO {
    * Get purchase summary for an ISP (aggregates all saudas in that ISP)
    * Returns combined summary with per-sauda breakdown
    */
-  async getIspSummary(ispId: string, godownId?: string): Promise<PurchaseSummary> {
+  async getIspSummary(
+    ispId: string,
+    godownId?: string,
+    options?: PurchaseSummaryQueryOptions
+  ): Promise<PurchaseSummary> {
     // IGST removed - always set to 0
     const igstPercentage = 0;
 
@@ -379,6 +338,12 @@ export class PurchaseSummaryDAO {
     if (godownId && isp.godown_id !== godownId) {
       throw new Error('Inward slip pass not found');
     }
+
+    const ispPolicyId = resolveCalculationPolicyId(isp.date, options?.calculationPolicyId);
+    const ispFinancialYear = resolvePolicyFromDate(isp.date).financialYear;
+    const saudaSummaryOptions: PurchaseSummaryQueryOptions = {
+      calculationPolicyId: ispPolicyId,
+    };
 
     // Get all saudas linked to this ISP (via kaantas)
     const saudasQuery = `
@@ -413,7 +378,7 @@ export class PurchaseSummaryDAO {
     let totalFinalAmount = 0;
 
     for (const saudaId of saudaIds) {
-      const saudaSummary = await this.getSaudaSummary(saudaId, godownId);
+      const saudaSummary = await this.getSaudaSummary(saudaId, godownId, saudaSummaryOptions);
       
       const breakdown: SaudaBreakdown = {
         sauda_id: saudaId,
@@ -477,6 +442,8 @@ export class PurchaseSummaryDAO {
     const agg = floorToMoneyStep;
     return {
       inward_slip_pass_id: ispId,
+      financial_year: ispFinancialYear,
+      calculation_policy_id: ispPolicyId,
       total_lots: totalLots,
       total_bags: totalBags,
       total_weight: totalWeight,
@@ -509,17 +476,20 @@ export class PurchaseSummaryDAO {
    */
   async getKaantaPurchaseOverview(saudaId: string, godownId?: string): Promise<KaantaPurchaseOverview> {
     const saudaQuery = `
-      SELECT id, sauda_type, rice_type, rice_length, rice_code_id, rate, broker_id,
-             broker_commission, broker_commission_type, cash_discount, cash_discount_type,
-             quantity, received_until_now, completion_percentage, purchaser_id, status
-      FROM saudas
-      WHERE id = $1
+      SELECT s.id, s.sauda_type, s.rice_category, s.rice_type, s.rice_length_id, s.rice_code_id, s.rate, s.broker_id,
+             s.broker_commission, s.broker_commission_type, s.cash_discount, s.cash_discount_type,
+             s.quantity, s.received_until_now, s.completion_percentage, s.purchaser_id, s.status, s.sauda_date,
+             rl.name AS rice_length_name
+      FROM saudas s
+      LEFT JOIN rice_lengths rl ON rl.rice_length_id = s.rice_length_id
+      WHERE s.id = $1
     `;
     const saudaResult = await db.query(saudaQuery, [saudaId]);
     if (saudaResult.rows.length === 0) {
       throw new Error('Sauda not found');
     }
     const sauda = saudaResult.rows[0];
+    const calculationPolicyId = resolveCalculationPolicyId(sauda.sauda_date);
 
     const lotsParams: unknown[] = [saudaId];
     let lotsQuery = `
@@ -579,7 +549,14 @@ export class PurchaseSummaryDAO {
       (sum, row) => sum + parseFloat(String(row.transportation_cost || '0')),
       0
     );
-    const step = this.computeStepTotalsFromSaudaAndLots(sauda, kaantaLots, transportationCost);
+    const step = this.computeStepTotalsFromSaudaAndLots(
+      sauda,
+      kaantaLots,
+      transportationCost,
+      undefined,
+      0,
+      calculationPolicyId
+    );
 
     const isps: KaantaIspOverviewRow[] = ispRows.map(row => ({
       id: row.id,

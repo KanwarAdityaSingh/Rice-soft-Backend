@@ -46,7 +46,7 @@ router.put(
 
 /**
  * @route   DELETE /api/v1/sales-party-sites/:id
- * @desc    Soft-delete site
+ * @desc    Delete site
  * @access  Private
  */
 router.delete(

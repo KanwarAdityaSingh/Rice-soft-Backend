@@ -22,9 +22,9 @@ curl -X POST "https://api.kaleyra.io/v1/HXAP1679900797IN/messages" \
   -H "Content-Type: application/x-www-form-urlencoded" \
   --data-urlencode "source=API" \
   --data-urlencode "to=${PHONE}" \
-  --data-urlencode "sender=SNTKRI" \
-  --data-urlencode "body=-- ${OTP} is your one time password for login on Santkripa. This is valid only for 15 minutes. SantKripa Equipments Private Limited" \
-  --data-urlencode "template_id=1007162144526914389" \
+  --data-urlencode "sender=SNTREQ" \
+  --data-urlencode $'body=AAAPL Rice Rewards\nYour verification code is '"${OTP}"$'. Enter it to access your rewards account. This code expires in 10 minutes. Never share this code with anyone.' \
+  --data-urlencode "template_id=1077290810001122488" \
   --data-urlencode "type=OTP" \
   -w "\n\nHTTP Status: %{http_code}\n" \
   -s | jq '.' 2>/dev/null || cat

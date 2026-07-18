@@ -1,7 +1,6 @@
 import { Response, NextFunction } from 'express';
 import { inwardSlipLotDAO } from '../dao/inward-slip-lot.dao';
 import { saudaDAO } from '../dao/sauda.dao';
-import { riceCodeDAO } from '../dao/rice-code.dao';
 import { ResponseHandler } from '../utils/response';
 import {
   validate,
@@ -9,17 +8,15 @@ import {
   updateLotSchema,
   uuidSchema,
 } from '../utils/validators';
+import { NotFoundError } from '../utils/errors';
 import {
-  NotFoundError,
-} from '../utils/errors';
-import {
-  CreateInwardSlipLotDTO,
   UpdateInwardSlipLotDTO,
   InwardSlipLot,
   InwardSlipLotResponse,
 } from '../models/inward-slip-lot.model';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { godownService } from '../services/godown.service';
+import { resolveLotRiceFromSauda } from '../utils/lot-rice-from-sauda';
 
 function toInwardSlipLotResponse(lot: InwardSlipLot): InwardSlipLotResponse {
   return {
@@ -27,8 +24,10 @@ function toInwardSlipLotResponse(lot: InwardSlipLot): InwardSlipLotResponse {
     sauda_id: lot.sauda_id,
     godown_id: lot.godown_id,
     lot_number: lot.lot_number,
+    rice_category: lot.rice_category,
     rice_code_id: lot.rice_code_id,
     rice_type: lot.rice_type,
+    rice_length_id: lot.rice_length_id,
     no_of_bags: lot.no_of_bags,
     bag_weight: lot.bag_weight ? parseFloat(lot.bag_weight.toString()) : null,
     total_weight: lot.total_weight ? parseFloat(lot.total_weight.toString()) : null,
@@ -49,12 +48,9 @@ export class LotController {
     try {
       const saudaId = req.query.sauda_id as string | undefined;
       const godownId = req.query.godown_id as string | undefined;
-      
+
       const lots = await inwardSlipLotDAO.findAll(saudaId, godownId);
-
-      const lotResponses: InwardSlipLotResponse[] = lots.map((lot) => toInwardSlipLotResponse(lot));
-
-      return ResponseHandler.success(res, lotResponses);
+      return ResponseHandler.success(res, lots.map(toInwardSlipLotResponse));
     } catch (error) {
       next(error);
     }
@@ -63,12 +59,10 @@ export class LotController {
   async getById(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const id = validate<string>(uuidSchema, req.params.id);
-
       const lot = await inwardSlipLotDAO.findById(id);
       if (!lot) {
         throw new NotFoundError('Lot not found');
       }
-
       return ResponseHandler.success(res, toInwardSlipLotResponse(lot));
     } catch (error) {
       next(error);
@@ -77,29 +71,34 @@ export class LotController {
 
   async create(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const lotData = validate<CreateInwardSlipLotDTO>(createLotSchema, req.body);
+      const lotPayload = validate(createLotSchema, req.body) as {
+        sauda_id: string;
+        godown_id: string;
+        lot_number: string;
+        no_of_bags: number;
+        bag_weight?: number;
+        bill_weight: number;
+        received_weight: number;
+        rate: number;
+        created_by?: string;
+      };
 
-      // Validate sauda exists
-      const sauda = await saudaDAO.findById(lotData.sauda_id);
+      const sauda = await saudaDAO.findById(lotPayload.sauda_id);
       if (!sauda) {
         throw new NotFoundError('Sauda not found');
       }
-      await godownService.assertActive(lotData.godown_id);
+      await godownService.assertActive(lotPayload.godown_id);
 
-      // Validate rice_code if provided
-      if (lotData.rice_code_id) {
-        const riceCode = await riceCodeDAO.findById(lotData.rice_code_id);
-        if (!riceCode) {
-          throw new NotFoundError('Rice code not found');
-        }
-      }
+      const riceSnapshot = resolveLotRiceFromSauda(sauda);
 
-      // Set created_by from authenticated user
       if (req.user) {
-        lotData.created_by = req.user.userId;
+        lotPayload.created_by = req.user.userId;
       }
 
-      const lot = await inwardSlipLotDAO.create(lotData);
+      const lot = await inwardSlipLotDAO.create({
+        ...lotPayload,
+        ...riceSnapshot,
+      });
 
       return ResponseHandler.created(res, toInwardSlipLotResponse(lot), 'Lot created successfully');
     } catch (error) {
@@ -112,18 +111,16 @@ export class LotController {
       const id = validate<string>(uuidSchema, req.params.id);
       const lotData = validate<UpdateInwardSlipLotDTO>(updateLotSchema, req.body);
 
-      // Check if lot exists
       const existingLot = await inwardSlipLotDAO.findById(id);
       if (!existingLot) {
         throw new NotFoundError('Lot not found');
       }
 
-      // Set updated_by from authenticated user
       if (req.user) {
         lotData.updated_by = req.user.userId;
       }
       if (lotData.godown_id !== undefined) {
-        delete (lotData as any).godown_id;
+        delete (lotData as { godown_id?: string }).godown_id;
       }
 
       const lot = await inwardSlipLotDAO.update(id, lotData);
@@ -151,9 +148,6 @@ export class LotController {
         throw new NotFoundError('Lot not found or could not be deleted');
       }
 
-      // TODO: Trigger recalculation of any linked Purchases
-      // This would require finding all purchases linked to this lot and recalculating
-
       return ResponseHandler.success(res, null, 'Lot deleted successfully');
     } catch (error) {
       next(error);
@@ -162,4 +156,3 @@ export class LotController {
 }
 
 export const lotController = new LotController();
-

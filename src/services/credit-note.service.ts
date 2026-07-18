@@ -8,11 +8,22 @@ import { invoiceDispatchAllocationDAO } from '../dao/invoice-dispatch-allocation
 import { finishedGoodsInventoryDAO } from '../dao/finished-goods-inventory.dao';
 import { packagingDAO } from '../dao/packaging.dao';
 import { inventoryLedgerDAO } from '../dao/inventory-ledger.dao';
+import { financialYearFromDate } from '../constants/financial-year';
 import { NotFoundError, ValidationError, ConflictError } from '../utils/errors';
 
 export class CreditNoteService {
-  async list(invoiceDispatchId?: string, status?: 'draft' | 'confirmed') {
-    return creditNoteDAO.findAll(invoiceDispatchId, status);
+  private resolveFinancialYear(date?: string | Date | null): string {
+    const source =
+      date != null && String(date).trim() !== '' ? date : new Date();
+    return financialYearFromDate(source).label;
+  }
+
+  async list(
+    invoiceDispatchId?: string,
+    status?: 'draft' | 'confirmed',
+    financialYear?: string
+  ) {
+    return creditNoteDAO.findAll(invoiceDispatchId, status, financialYear);
   }
 
   async getById(id: string) {
@@ -49,14 +60,25 @@ export class CreditNoteService {
       }
     }
 
-    const creditNote = await creditNoteDAO.create({
-      invoice_dispatch_id: data.invoice_dispatch_id,
-      sales_sauda_id: data.sales_sauda_id,
-      credit_note_number: data.credit_note_number,
-      credit_note_date: data.credit_note_date,
-      reason: data.reason,
-      created_by: userId,
-    });
+    let creditNote;
+    try {
+      creditNote = await creditNoteDAO.create({
+        invoice_dispatch_id: data.invoice_dispatch_id,
+        sales_sauda_id: data.sales_sauda_id,
+        credit_note_number: data.credit_note_number,
+        credit_note_date: data.credit_note_date,
+        financial_year: this.resolveFinancialYear(data.credit_note_date),
+        reason: data.reason,
+        created_by: userId,
+      });
+    } catch (err: any) {
+      if (err?.code === '23505') {
+        throw new ConflictError(
+          'Credit note number already exists for this financial year'
+        );
+      }
+      throw err;
+    }
 
     for (const line of data.lines) {
       await creditNoteLineDAO.create({

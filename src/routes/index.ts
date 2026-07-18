@@ -8,6 +8,7 @@ import leadRoutes from './lead.routes';
 import leaderboardRoutes from './leaderboard.routes';
 import documentRoutes from './document.routes';
 import riceCodeRoutes from './rice-code.routes';
+import riceLengthRoutes from './rice-length.routes';
 import pincodeRoutes from './pincode.routes';
 import bankRoutes from './bank.routes';
 import transporterRoutes from './transporter.routes';
@@ -36,6 +37,9 @@ import salesPartySiteRoutes from './sales-party-site.routes';
 import driverRoutes from './driver.routes';
 import parameterRoutes from './parameter.routes';
 import kycRoutes from './kyc.routes';
+import couponAdminRoutes from './coupon-admin.routes';
+import couponPublicRoutes from './coupon-public.routes';
+import couponAnalyticsRoutes from './coupon-analytics.routes';
 
 const router = Router();
 
@@ -58,6 +62,7 @@ router.use('/leads', leadRoutes);
 router.use('/leaderboard', leaderboardRoutes);
 router.use('/documents', documentRoutes);
 router.use('/riceCodes', riceCodeRoutes);
+router.use('/riceLengths', riceLengthRoutes);
 router.use('/pincode', pincodeRoutes);
 router.use('/bank', bankRoutes);
 router.use('/transporters', transporterRoutes);
@@ -86,6 +91,9 @@ router.use('/sales-party-sites', salesPartySiteRoutes);
 router.use('/drivers', driverRoutes);
 router.use('/parameters', parameterRoutes);
 router.use('/kyc', kycRoutes);
+router.use('/coupons/admin', couponAdminRoutes);
+router.use('/coupons/public', couponPublicRoutes);
+router.use('/coupons/analytics', couponAnalyticsRoutes);
 
 export default router;
 

@@ -307,17 +307,12 @@ export class VehicleDAO {
       throw new Error('Cannot delete vehicle that is linked to inward slip passes');
     }
 
-    // Soft delete
-    const query = `
-      UPDATE vehicles
-      SET is_active = false, updated_at = CURRENT_TIMESTAMP
-      WHERE id = $1
-    `;
+    const query = `DELETE FROM vehicles WHERE id = $1`;
     const result = await db.query(query, [id]);
     const deleted = (result.rowCount || 0) > 0;
 
     if (deleted) {
-      logger.info('Vehicle soft deleted', { vehicleId: id });
+      logger.info('Vehicle deleted', { vehicleId: id });
     }
 
     return deleted;

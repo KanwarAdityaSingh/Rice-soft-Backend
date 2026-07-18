@@ -358,6 +358,7 @@ export class VendorDAO {
       SET bank_details_verified_at = CURRENT_TIMESTAMP,
           bank_details_verified_by = $2,
           bank_verification_error = NULL,
+          is_active = CASE WHEN is_verified THEN true ELSE is_active END,
           updated_at = CURRENT_TIMESTAMP
       WHERE id = $1
       RETURNING ${VENDOR_SELECT_COLUMNS}

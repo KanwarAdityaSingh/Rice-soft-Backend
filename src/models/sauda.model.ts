@@ -1,5 +1,6 @@
 import { RiceType } from './lead.model';
-import type { RiceLength } from '../constants/rice-lengths';
+import type { RiceCategory } from '../constants/rice-categories';
+import type { SaudaParametersInput, SaudaParametersSnapshot } from '../constants/sauda-parameters';
 
 export type SaudaType = 'exgodown' | 'for';
 export type SaudaStatus = 'draft' | 'active' | 'completed' | 'cancelled';
@@ -9,14 +10,18 @@ export type BrokerCommissionType = 'rupees' | 'percentage' | 'weight';
 export interface Sauda {
   id: string;
   sauda_type: SaudaType;
+  rice_category: RiceCategory;
   rice_type: RiceType;
-  rice_length: RiceLength | null;
+  rice_length_id: string | null;
+  rice_length_name?: string | null;
   rice_code_id: string | null;
   rate: number;
   broker_id: string | null;
   broker_commission: number | null;
   broker_commission_type: BrokerCommissionType;
   quantity: number | null;
+  no_of_bags: number | null;
+  bag_weight: number | null;
   received_until_now: number;
   completion_percentage: number | null;
   cash_discount: number | null;
@@ -28,7 +33,7 @@ export interface Sauda {
   status: SaudaStatus;
   notes: string | null;
   is_dana_required: boolean | null;
-  sauda_date: Date | string | null; // Can be Date object or string (when using TO_CHAR in SQL)
+  sauda_date: Date | string | null;
   created_at: Date;
   updated_at: Date;
   created_by: string | null;
@@ -37,14 +42,17 @@ export interface Sauda {
 
 export interface CreateSaudaDTO {
   sauda_type: SaudaType;
+  rice_category: RiceCategory;
   rice_type: RiceType;
-  rice_length?: RiceLength | null;
+  rice_length_id?: string | null;
   rice_code_id?: string;
   rate: number;
   broker_id?: string;
   broker_commission?: number;
   broker_commission_type?: BrokerCommissionType;
   quantity?: number;
+  no_of_bags?: number | null;
+  bag_weight?: number | null;
   cash_discount?: number;
   cash_discount_type?: CashDiscountType;
   estimated_delivery_time?: number;
@@ -55,19 +63,23 @@ export interface CreateSaudaDTO {
   notes?: string;
   is_dana_required?: boolean;
   sauda_date?: string | Date;
+  parameters?: SaudaParametersInput;
   created_by?: string;
 }
 
 export interface UpdateSaudaDTO {
   sauda_type?: SaudaType;
+  rice_category?: RiceCategory;
   rice_type?: RiceType;
-  rice_length?: RiceLength | null;
+  rice_length_id?: string | null;
   rice_code_id?: string;
   rate?: number;
   broker_id?: string;
   broker_commission?: number;
   broker_commission_type?: BrokerCommissionType;
   quantity?: number;
+  no_of_bags?: number | null;
+  bag_weight?: number | null;
   cash_discount?: number;
   cash_discount_type?: CashDiscountType;
   estimated_delivery_time?: number;
@@ -78,22 +90,26 @@ export interface UpdateSaudaDTO {
   notes?: string;
   is_dana_required?: boolean;
   sauda_date?: string | Date;
+  parameters?: SaudaParametersInput;
   updated_by?: string;
 }
 
 export interface SaudaResponse {
   id: string;
-  /** First 4 hex digits of id — use in tables instead of full UUID */
   display_id: string;
   sauda_type: SaudaType;
+  rice_category: RiceCategory;
   rice_type: RiceType;
-  rice_length: RiceLength | null;
+  rice_length_id: string | null;
+  rice_length_name: string | null;
   rice_code_id: string | null;
   rate: number;
   broker_id: string | null;
   broker_commission: number | null;
   broker_commission_type: BrokerCommissionType;
   quantity: number | null;
+  no_of_bags: number | null;
+  bag_weight: number | null;
   received_until_now: number;
   completion_percentage: number | null;
   cash_discount: number | null;
@@ -106,7 +122,7 @@ export interface SaudaResponse {
   notes: string | null;
   is_dana_required: boolean | null;
   sauda_date: string | null;
+  parameters: SaudaParametersSnapshot | null;
   created_at: string;
   updated_at: string;
 }
-

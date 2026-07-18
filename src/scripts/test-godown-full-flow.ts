@@ -898,7 +898,6 @@ async function run() {
     {
       sales_sauda_id: salesSaudaAId,
       godown_id: godownAId,
-      internal_invoice_number: `INV-${Date.now()}`,
       dispatch_date: new Date().toISOString().slice(0, 10),
       transporter_id: master.transporterId,
       vehicle_id: master.vehicleId,

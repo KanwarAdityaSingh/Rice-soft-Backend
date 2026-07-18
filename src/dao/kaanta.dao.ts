@@ -3,6 +3,7 @@ import { db } from '../database/connection';
 import { Kaanta, CreateKaantaDTO, UpdateKaantaDTO, type BagType } from '../models/kaanta.model';
 import { logger } from '../utils/logger';
 import { BadRequestError } from '../utils/errors';
+import { resolveLotRiceFromSauda } from '../utils/lot-rice-from-sauda';
 import { saudaDAO } from './sauda.dao';
 import { inwardSlipPassDAO } from './inward-slip-pass.dao';
 import { CreateInwardSlipLotDTO } from '../models/inward-slip-lot.model';
@@ -104,8 +105,10 @@ async function syncKaantaLinkedLotAndInventory(
   saudaRow: {
     quantity: unknown;
     rate: unknown;
+    rice_category: string;
     rice_code_id: string | null;
-    rice_type: string | null;
+    rice_type: string;
+    rice_length_id: string | null;
   },
   updatedBy: string | null
 ): Promise<void> {
@@ -137,12 +140,14 @@ async function syncKaantaLinkedLotAndInventory(
       bill_weight = $3,
       received_weight = $4,
       rate = $5,
-      rice_code_id = $6,
-      rice_type = $7,
-      godown_id = $8,
-      updated_by = $9,
+      rice_category = $6,
+      rice_code_id = $7,
+      rice_type = $8,
+      rice_length_id = $9,
+      godown_id = $10,
+      updated_by = $11,
       updated_at = CURRENT_TIMESTAMP
-    WHERE id = $10
+    WHERE id = $12
     `,
     [
       updated.no_of_bags,
@@ -150,8 +155,10 @@ async function syncKaantaLinkedLotAndInventory(
       billWeight,
       newReceived,
       rate,
+      saudaRow.rice_category,
       saudaRow.rice_code_id,
       saudaRow.rice_type,
+      saudaRow.rice_length_id,
       updated.godown_id,
       updatedBy,
       lotId,
@@ -335,38 +342,40 @@ export class KaantaDAO {
       });
 
       // Auto-create lot with data from kaanta and sauda
+      const riceSnapshot = resolveLotRiceFromSauda(sauda);
+
       const lotData: CreateInwardSlipLotDTO = {
         sauda_id: createdKaanta.sauda_id,
         godown_id: createdKaanta.godown_id,
         lot_number: `LOT-${createdKaanta.kaanta_id}`,
-        rice_code_id: sauda.rice_code_id || undefined,
-        rice_type: sauda.rice_type,
+        ...riceSnapshot,
         no_of_bags: createdKaanta.no_of_bags,
         bag_weight: createdKaanta.bag_weight,
-        bill_weight: sauda.quantity || 0, // Expected weight from sauda
-        received_weight: createdKaanta.kaanta_weight || 0, // Actual weight from kaanta
+        bill_weight: sauda.quantity || 0,
+        received_weight: createdKaanta.kaanta_weight || 0,
         rate: sauda.rate,
         inward_slip_pass_created_at: isp.created_at,
         created_by: createdKaanta.created_by || undefined,
       };
 
-      // Create lot using the existing DAO method (within same transaction)
       const lotQuery = `
-        INSERT INTO inward_slip_lots (sauda_id, godown_id, lot_number, rice_code_id, rice_type, 
-                                     no_of_bags, bag_weight, bill_weight, received_weight, 
+        INSERT INTO inward_slip_lots (sauda_id, godown_id, lot_number, rice_category, rice_code_id, rice_type, rice_length_id,
+                                     no_of_bags, bag_weight, bill_weight, received_weight,
                                      rate, inward_slip_pass_created_at, created_by)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-        RETURNING id, sauda_id, godown_id, lot_number, rice_code_id, rice_type, no_of_bags, 
-                  bag_weight, total_weight, bill_weight, received_weight, rate, amount, 
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+        RETURNING id, sauda_id, godown_id, lot_number, rice_category, rice_code_id, rice_type, rice_length_id,
+                  no_of_bags, bag_weight, total_weight, bill_weight, received_weight, rate, amount,
                   inward_slip_pass_created_at, created_at, updated_at, created_by, updated_by
       `;
-      
+
       const lotValues = [
         lotData.sauda_id,
         lotData.godown_id,
         lotData.lot_number,
-        lotData.rice_code_id || null,
-        lotData.rice_type || null,
+        lotData.rice_category,
+        lotData.rice_code_id,
+        lotData.rice_type,
+        lotData.rice_length_id,
         lotData.no_of_bags,
         lotData.bag_weight || null,
         lotData.bill_weight,
@@ -507,9 +516,14 @@ export class KaantaDAO {
       const saudaRes = await client.query<{
         quantity: unknown;
         rate: unknown;
+        rice_category: string;
         rice_code_id: string | null;
-        rice_type: string | null;
-      }>(`SELECT quantity, rate, rice_code_id, rice_type FROM saudas WHERE id = $1`, [updatedKaanta.sauda_id]);
+        rice_type: string;
+        rice_length_id: string | null;
+      }>(
+        `SELECT quantity, rate, rice_category, rice_code_id, rice_type, rice_length_id FROM saudas WHERE id = $1`,
+        [updatedKaanta.sauda_id]
+      );
       if (saudaRes.rows.length === 0) {
         throw new Error(`Sauda not found for kaanta: ${updatedKaanta.sauda_id}`);
       }

@@ -1,6 +1,13 @@
 import Joi from 'joi';
 import { ValidationError } from './errors';
 import { BAG_TYPE_VALUES } from '../constants/bag-types';
+import { HSN_CODES } from '../constants/hsn-codes';
+import { SALES_SAUDA_TYPES } from '../constants/sales-sauda-types';
+import {
+  BASMATI_VARIANT_VALUES,
+  NON_BASMATI_VARIANT_VALUES,
+  RICE_CATEGORY_VALUES,
+} from '../constants/rice-categories';
 import { normalizeDriverDobForSurepass } from './driver-license';
 
 export const validate = <T>(schema: Joi.Schema, data: any): T => {
@@ -549,11 +556,41 @@ export const convertLeadToVendorSchema = Joi.object({
 // Rice code validation schemas
 export const createRiceCodeSchema = Joi.object({
   rice_code_name: Joi.string().required().min(1).max(255),
+  category: Joi.string()
+    .required()
+    .valid(...RICE_CATEGORY_VALUES),
+  variants: Joi.array()
+    .items(
+      Joi.string().valid(...BASMATI_VARIANT_VALUES, ...NON_BASMATI_VARIANT_VALUES)
+    )
+    .min(1)
+    .required(),
   created_by: Joi.string().optional().uuid(),
 });
 
 export const updateRiceCodeSchema = Joi.object({
   rice_code_name: Joi.string().optional().min(1).max(255),
+  category: Joi.string()
+    .optional()
+    .valid(...RICE_CATEGORY_VALUES),
+  variants: Joi.array()
+    .items(
+      Joi.string().valid(...BASMATI_VARIANT_VALUES, ...NON_BASMATI_VARIANT_VALUES)
+    )
+    .min(1)
+    .optional(),
+  updated_by: Joi.string().optional().uuid(),
+}).min(1);
+
+export const createRiceLengthSchema = Joi.object({
+  name: Joi.string().required().trim().min(1).max(255),
+  is_active: Joi.boolean().optional(),
+  created_by: Joi.string().optional().uuid(),
+});
+
+export const updateRiceLengthSchema = Joi.object({
+  name: Joi.string().optional().trim().min(1).max(255),
+  is_active: Joi.boolean().optional(),
   updated_by: Joi.string().optional().uuid(),
 }).min(1);
 
@@ -629,16 +666,34 @@ export const updateTransporterSchema = Joi.object({
   updated_by: Joi.string().optional().uuid(),
   kyc_verification_details: kycVerificationDetailsSchema,
 }).min(1);
+
+const saudaParamSpec = Joi.string().optional().allow(null, '').max(2000);
+export const saudaParametersSchema = Joi.object({
+  whiteness: saudaParamSpec,
+  average_grain_length: saudaParamSpec,
+}).optional();
+
 export const createSaudaSchema = Joi.object({
   sauda_type: Joi.string().required().valid('exgodown', 'for'),
-  rice_type: Joi.string().required().valid('basmati', 'non_basmati', 'parboiled', 'raw', 'raw_basmati', 'steam_basmati', 'white_sella', 'golden_sella'),
-  rice_length: Joi.string().optional().valid('dubar', 'tibar', 'wand').allow(null),
+  rice_category: Joi.string()
+    .required()
+    .valid(...RICE_CATEGORY_VALUES),
+  rice_type: Joi.string()
+    .required()
+    .when('rice_category', {
+      is: 'basmati',
+      then: Joi.valid(...BASMATI_VARIANT_VALUES),
+      otherwise: Joi.valid(...NON_BASMATI_VARIANT_VALUES),
+    }),
+  rice_length_id: Joi.string().optional().uuid().allow(null),
   rice_code_id: Joi.string().optional().uuid().allow(null),
   rate: Joi.number().required().min(0).precision(2),
   broker_id: Joi.string().optional().uuid().allow(null),
   broker_commission: Joi.number().optional().min(0).precision(2).allow(null),
   broker_commission_type: Joi.string().optional().valid('rupees', 'percentage', 'weight').default('percentage'),
   quantity: Joi.number().optional().min(0).precision(2).allow(null),
+  no_of_bags: Joi.number().optional().integer().min(1).allow(null),
+  bag_weight: Joi.number().optional().min(0).precision(2).allow(null),
   cash_discount: Joi.number().optional().min(0).precision(2).allow(null),
   cash_discount_type: Joi.string().optional().valid('rupees', 'percentage').default('rupees'),
   estimated_delivery_time: Joi.number().optional().integer().min(0).allow(null),
@@ -649,19 +704,27 @@ export const createSaudaSchema = Joi.object({
   notes: Joi.string().optional().allow(null, '').max(1000),
   is_dana_required: Joi.boolean().optional().default(true),
   sauda_date: Joi.string().optional().allow(null, '').isoDate(),
+  parameters: saudaParametersSchema,
   created_by: Joi.string().optional().uuid(),
 });
 
 export const updateSaudaSchema = Joi.object({
   sauda_type: Joi.string().optional().valid('exgodown', 'for'),
-  rice_type: Joi.string().optional().valid('basmati', 'non_basmati', 'parboiled', 'raw', 'raw_basmati', 'steam_basmati', 'white_sella', 'golden_sella'),
-  rice_length: Joi.string().optional().valid('dubar', 'tibar', 'wand').allow(null),
+  rice_category: Joi.string()
+    .optional()
+    .valid(...RICE_CATEGORY_VALUES),
+  rice_type: Joi.string()
+    .optional()
+    .valid(...BASMATI_VARIANT_VALUES, ...NON_BASMATI_VARIANT_VALUES),
+  rice_length_id: Joi.string().optional().uuid().allow(null),
   rice_code_id: Joi.string().optional().uuid().allow(null),
   rate: Joi.number().optional().min(0).precision(2),
   broker_id: Joi.string().optional().uuid().allow(null),
   broker_commission: Joi.number().optional().min(0).precision(2).allow(null),
   broker_commission_type: Joi.string().optional().valid('rupees', 'percentage', 'weight'),
   quantity: Joi.number().optional().min(0).precision(2).allow(null),
+  no_of_bags: Joi.number().optional().integer().min(1).allow(null),
+  bag_weight: Joi.number().optional().min(0).precision(2).allow(null),
   cash_discount: Joi.number().optional().min(0).precision(2).allow(null),
   cash_discount_type: Joi.string().optional().valid('rupees', 'percentage'),
   estimated_delivery_time: Joi.number().optional().integer().min(0).allow(null),
@@ -672,6 +735,7 @@ export const updateSaudaSchema = Joi.object({
   notes: Joi.string().optional().allow(null, '').max(1000),
   is_dana_required: Joi.boolean().optional(),
   sauda_date: Joi.string().optional().allow(null, '').isoDate(),
+  parameters: saudaParametersSchema,
   updated_by: Joi.string().optional().uuid(),
 }).min(1);
 
@@ -695,8 +759,14 @@ const salesSaudaLineItemSchema = Joi.object({
 
 export const createSalesSaudaSchema = Joi.object({
   sales_party_id: Joi.string().required().uuid(),
+  salesman_id: Joi.string().optional().uuid().allow(null),
+  sauda_type: Joi.string()
+    .required()
+    .valid(...SALES_SAUDA_TYPES),
   status: Joi.string().optional().valid('draft', 'order', 'cancelled').default('draft'),
   sauda_date: Joi.string().optional().allow(null, '').isoDate(),
+  billing_address: addressSchema.optional().allow(null),
+  delivery_address: addressSchema.optional().allow(null),
   notes: Joi.string().optional().allow(null, '').max(2000),
   payment_terms: Joi.number().optional().integer().min(0).allow(null),
   amount: Joi.any().forbidden(),
@@ -707,8 +777,14 @@ export const createSalesSaudaSchema = Joi.object({
 
 export const updateSalesSaudaSchema = Joi.object({
   sales_party_id: Joi.string().optional().uuid(),
+  salesman_id: Joi.string().optional().uuid().allow(null),
+  sauda_type: Joi.string()
+    .optional()
+    .valid(...SALES_SAUDA_TYPES),
   status: Joi.string().optional().valid('draft', 'order', 'cancelled'),
   sauda_date: Joi.string().optional().allow(null, '').isoDate(),
+  billing_address: addressSchema.optional().allow(null),
+  delivery_address: addressSchema.optional().allow(null),
   notes: Joi.string().optional().allow(null, '').max(2000),
   payment_terms: Joi.number().optional().integer().min(0).allow(null),
   amount: Joi.any().forbidden(),
@@ -721,12 +797,26 @@ export const updateSalesSaudaSchema = Joi.object({
 export const createInvoiceDispatchSchema = Joi.object({
   sales_sauda_id: Joi.string().required().uuid(),
   godown_id: Joi.string().required().uuid(),
-  internal_invoice_number: Joi.string().required().max(100),
+  /** Auto-generated from godown GST state + FY; clients must not send */
+  internal_invoice_number: Joi.forbidden(),
   dispatch_date: Joi.string().optional().allow(null, '').isoDate(),
   transporter_id: Joi.string().optional().uuid().allow(null),
   vehicle_id: Joi.string().optional().uuid().allow(null),
+  /** Lorry Receipt / transporter document number */
+  lr_number: Joi.string().optional().allow(null, '').trim().max(100),
+  transportation_cost: Joi.number().optional().min(0).precision(2).allow(null),
   distance_km: Joi.number().optional().min(0).allow(null),
   route_description: Joi.string().optional().allow(null, '').max(1000),
+  usp: Joi.string().optional().allow(null, '').max(2000),
+});
+
+/** Body for POST /invoice-dispatches/:id/e-way-bill */
+export const generateEWayBillSchema = Joi.object({
+  vehicle_number: Joi.string().optional().allow(null, '').trim().max(50),
+  distance_km: Joi.number().optional().min(0).allow(null),
+  route: Joi.string().optional().allow(null, '').max(1000),
+  transporter_id: Joi.string().optional().uuid().allow(null),
+  lr_number: Joi.string().optional().allow(null, '').trim().max(100),
 });
 
 // Credit Note validation schemas
@@ -750,8 +840,10 @@ export const createLotSchema = Joi.object({
   sauda_id: Joi.string().required().uuid(),
   godown_id: Joi.string().required().uuid(),
   lot_number: Joi.string().required().max(255),
-  rice_code_id: Joi.string().optional().uuid().allow(null),
-  rice_type: Joi.string().optional().valid('basmati', 'non_basmati', 'parboiled', 'raw', 'raw_basmati', 'steam_basmati', 'white_sella', 'golden_sella').allow(null),
+  rice_category: Joi.forbidden(),
+  rice_code_id: Joi.forbidden(),
+  rice_type: Joi.forbidden(),
+  rice_length_id: Joi.forbidden(),
   no_of_bags: Joi.number().required().integer().min(1),
   bag_weight: Joi.number().optional().min(0).precision(2),
   bill_weight: Joi.number().required().min(0).precision(2),
@@ -765,8 +857,10 @@ export const createLotSchema = Joi.object({
 export const updateLotSchema = Joi.object({
   godown_id: Joi.forbidden(),
   lot_number: Joi.string().optional().max(255),
-  rice_code_id: Joi.string().optional().uuid().allow(null),
-  rice_type: Joi.string().optional().valid('basmati', 'non_basmati', 'parboiled', 'raw', 'raw_basmati', 'steam_basmati', 'white_sella', 'golden_sella').allow(null),
+  rice_category: Joi.forbidden(),
+  rice_code_id: Joi.forbidden(),
+  rice_type: Joi.forbidden(),
+  rice_length_id: Joi.forbidden(),
   no_of_bags: Joi.number().optional().integer().min(1),
   bag_weight: Joi.number().optional().min(0).precision(2).allow(null),
   bill_weight: Joi.number().optional().min(0).precision(2),
@@ -1108,6 +1202,10 @@ export const createProductSchema = Joi.object({
   description: Joi.string().optional().allow(null, ''),
   brand: Joi.string().optional().valid('Tamara', 'Hariom').allow(null, ''),
   rice_type: Joi.string().optional().valid('basmati', 'non_basmati', 'parboiled', 'raw', 'raw_basmati', 'steam_basmati', 'white_sella', 'golden_sella').allow(null, ''),
+  hsn_code: Joi.string()
+    .optional()
+    .valid(...HSN_CODES)
+    .allow(null, ''),
   created_by: Joi.string().optional().uuid(),
 });
 
@@ -1116,11 +1214,22 @@ export const updateProductSchema = Joi.object({
   description: Joi.string().optional().allow(null, ''),
   brand: Joi.string().optional().valid('Tamara', 'Hariom').allow(null, ''),
   rice_type: Joi.string().optional().valid('basmati', 'non_basmati', 'parboiled', 'raw', 'raw_basmati', 'steam_basmati', 'white_sella', 'golden_sella').allow(null, ''),
+  hsn_code: Joi.string()
+    .optional()
+    .valid(...HSN_CODES)
+    .allow(null, ''),
   updated_by: Joi.string().optional().uuid(),
 }).min(1);
 
-/** Body for PUT /products/:id/rates — set suggested rates per holding capacity */
+/** Body for PUT /products/:id/rates — set suggested rates per holding capacity as of a date */
 export const setProductRatesSchema = Joi.object({
+  /** Business date the rates apply to (YYYY-MM-DD) */
+  effective_date: Joi.string()
+    .required()
+    .pattern(/^\d{4}-\d{2}-\d{2}$/)
+    .messages({
+      'string.pattern.base': 'effective_date must be YYYY-MM-DD',
+    }),
   rates: Joi.array()
     .items(
       Joi.object({
@@ -1132,11 +1241,17 @@ export const setProductRatesSchema = Joi.object({
     .min(1),
 });
 
-/** Query for GET /products/:id/rates/history */
+/** Query for GET /products/:id/rates/history — from/to filter on effective_date */
 export const productRateHistoryQuerySchema = Joi.object({
   holding_capacity: Joi.number().optional().valid(5, 10, 25, 26, 30, 50),
-  from: Joi.string().optional().isoDate(),
-  to: Joi.string().optional().isoDate(),
+  from: Joi.string()
+    .optional()
+    .pattern(/^\d{4}-\d{2}-\d{2}$/)
+    .messages({ 'string.pattern.base': 'from must be YYYY-MM-DD' }),
+  to: Joi.string()
+    .optional()
+    .pattern(/^\d{4}-\d{2}-\d{2}$/)
+    .messages({ 'string.pattern.base': 'to must be YYYY-MM-DD' }),
   limit: Joi.number().integer().min(1).max(5000).default(2000),
   offset: Joi.number().integer().min(0).default(0),
 });
@@ -1306,12 +1421,14 @@ const optionalNullableUuid = Joi.alternatives()
 const optionalNullableParamSpec = Joi.string().optional().allow(null, '').max(2000);
 
 export const listParametersQuerySchema = Joi.object({
+  sauda_id: Joi.string().optional().uuid(),
   batch_id: Joi.string().optional().uuid(),
   product_id: Joi.string().optional().uuid(),
   inward_slip_pass_id: Joi.string().optional().uuid(),
 });
 
 export const createParameterSchema = Joi.object({
+  sauda_id: optionalNullableUuid,
   inward_slip_pass_id: optionalNullableUuid,
   product_id: optionalNullableUuid,
   batch_id: optionalNullableUuid,
@@ -1329,6 +1446,7 @@ export const createParameterSchema = Joi.object({
 });
 
 export const updateParameterSchema = Joi.object({
+  sauda_id: optionalNullableUuid,
   inward_slip_pass_id: optionalNullableUuid,
   product_id: optionalNullableUuid,
   batch_id: optionalNullableUuid,

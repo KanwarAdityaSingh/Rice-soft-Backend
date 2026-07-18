@@ -1881,8 +1881,9 @@ export class GSTLookupService {
    */
   static async ocrGst(input: {
     file: Express.Multer.File;
+    usePdf?: boolean;
   }): Promise<SurepassApiEnvelope<GstOcrResult>> {
-    const formData = this.buildSurepassDocumentOcrFormData(input.file);
+    const formData = this.buildSurepassDocumentOcrFormData(input.file, { usePdf: input.usePdf });
     logger.info('Scanning GST document via Surepass OCR');
 
     try {
@@ -1959,8 +1960,9 @@ export class GSTLookupService {
    */
   static async ocrAadhaar(input: {
     file: Express.Multer.File;
+    usePdf?: boolean;
   }): Promise<SurepassApiEnvelope<AadhaarOcrResult>> {
-    const formData = this.buildSurepassDocumentOcrFormData(input.file);
+    const formData = this.buildSurepassDocumentOcrFormData(input.file, { usePdf: input.usePdf });
     logger.info('Scanning Aadhaar document via Surepass OCR');
 
     try {
@@ -2002,8 +2004,9 @@ export class GSTLookupService {
    */
   static async ocrVehicleRc(input: {
     file: Express.Multer.File;
+    usePdf?: boolean;
   }): Promise<SurepassApiEnvelope<VehicleRcOcrResult>> {
-    const formData = this.buildSurepassDocumentOcrFormData(input.file);
+    const formData = this.buildSurepassDocumentOcrFormData(input.file, { usePdf: input.usePdf });
     logger.info('Scanning vehicle RC via Surepass OCR');
 
     try {

@@ -24,6 +24,7 @@ function formatCreditNote(cn: any) {
     sales_sauda_id: cn.sales_sauda_id,
     credit_note_number: cn.credit_note_number,
     credit_note_date: typeof cn.credit_note_date === 'string' ? cn.credit_note_date : cn.credit_note_date?.toISOString?.()?.split('T')[0] ?? null,
+    financial_year: cn.financial_year,
     status: cn.status,
     reason: cn.reason,
     created_at: cn.created_at instanceof Date ? cn.created_at.toISOString() : cn.created_at,
@@ -37,7 +38,8 @@ export class CreditNoteController {
     try {
       const invoiceDispatchId = req.query.invoice_dispatch_id as string | undefined;
       const status = req.query.status as 'draft' | 'confirmed' | undefined;
-      const list = await creditNoteService.list(invoiceDispatchId, status);
+      const financialYear = req.query.financial_year as string | undefined;
+      const list = await creditNoteService.list(invoiceDispatchId, status, financialYear);
       const data = list.map((c) => formatCreditNote({ ...c, lines: [] }));
       return ResponseHandler.success(res, data);
     } catch (error) {

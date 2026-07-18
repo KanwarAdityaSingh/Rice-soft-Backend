@@ -1,5 +1,6 @@
 import { CreatePaymentAdviceChargeDTO, PaymentAdviceChargeResponse } from './payment-advice-charge.model';
 import type { PurchaseSummary } from './purchase-summary.model';
+import type { CalculationPolicyId } from '../constants/calculation-policies';
 
 export type PaymentAdviceStatus = 'pending' | 'completed' | 'failed';
 
@@ -26,6 +27,8 @@ export interface PaymentAdvice {
   final_weight: number | null;
   rate: number | null;
   amount: number;
+  financial_year: string | null;
+  calculation_policy_id: CalculationPolicyId | string | null;
   transaction_id: string | null;
   date_of_payment: Date;
   status: PaymentAdviceStatus;
@@ -59,6 +62,8 @@ export interface CreatePaymentAdviceDTO {
   final_weight?: number;
   rate?: number;
   amount: number;
+  financial_year?: string | null;
+  calculation_policy_id?: CalculationPolicyId | null;
   transaction_id?: string;
   date_of_payment: string;
   status?: PaymentAdviceStatus;
@@ -90,6 +95,8 @@ export interface UpdatePaymentAdviceDTO {
   final_weight?: number;
   rate?: number;
   amount?: number;
+  financial_year?: string | null;
+  calculation_policy_id?: CalculationPolicyId | null;
   transaction_id?: string;
   date_of_payment?: string;
   status?: PaymentAdviceStatus;
@@ -123,6 +130,8 @@ export interface PaymentAdviceResponse {
   final_weight: number | null;
   rate: number | null;
   amount: number;
+  financial_year: string | null;
+  calculation_policy_id: CalculationPolicyId | string | null;
   transaction_id: string | null;
   date_of_payment: string;
   status: PaymentAdviceStatus;
@@ -149,6 +158,8 @@ export interface PaymentAdvicePreviewResponse {
   total_charges: number;
   /** amount − total_charges, floored to whole rupees. */
   net_payable: number;
+  financial_year: string | null;
+  calculation_policy_id: CalculationPolicyId | string | null;
   summary: PurchaseSummary;
 }
 

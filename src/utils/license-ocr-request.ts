@@ -18,7 +18,9 @@ export function parseLicenseOcrUpload(req: AuthRequest): {
     rawUsePdf === true ||
     rawUsePdf === 'true' ||
     rawUsePdf === '1' ||
-    rawUsePdf === 1;
+    rawUsePdf === 1 ||
+    front.mimetype === 'application/pdf' ||
+    back?.mimetype === 'application/pdf';
 
   return { front, back, usePdf };
 }

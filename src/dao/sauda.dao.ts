@@ -1,4 +1,5 @@
 import { db } from '../database/connection';
+import { PoolClient } from 'pg';
 import { Sauda, CreateSaudaDTO, UpdateSaudaDTO, SaudaStatus, SaudaType } from '../models/sauda.model';
 import { logger } from '../utils/logger';
 
@@ -16,6 +17,20 @@ function formatDateToLocalString(date: Date): string {
   return `${year}-${month}-${day}`;
 }
 
+const SAUDA_SELECT = `
+  s.id, s.sauda_type, s.rice_category, s.rice_type, s.rice_length_id, s.rice_code_id, s.rate, s.broker_id, s.broker_commission, s.broker_commission_type,
+  s.quantity, s.no_of_bags, s.bag_weight, s.received_until_now, s.completion_percentage, s.cash_discount, s.cash_discount_type, s.estimated_delivery_time,
+  s.purchaser_id, s.cooked_rice_image_url, s.uncooked_rice_image_url, s.status, s.notes, s.is_dana_required,
+  TO_CHAR(s.sauda_date, 'YYYY-MM-DD') as sauda_date,
+  s.created_at, s.updated_at, s.created_by, s.updated_by,
+  rl.name AS rice_length_name
+`;
+
+const SAUDA_FROM = `
+  FROM saudas s
+  LEFT JOIN rice_lengths rl ON rl.rice_length_id = s.rice_length_id
+`;
+
 export class SaudaDAO {
   async findAll(
     includeInactive = false,
@@ -24,12 +39,8 @@ export class SaudaDAO {
     purchaserId?: string
   ): Promise<Sauda[]> {
     let query = `
-      SELECT id, sauda_type, rice_type, rice_length, rice_code_id, rate, broker_id, broker_commission, broker_commission_type,
-             quantity, received_until_now, completion_percentage, cash_discount, cash_discount_type, estimated_delivery_time,
-             purchaser_id, cooked_rice_image_url, uncooked_rice_image_url, status, notes, is_dana_required, 
-             TO_CHAR(sauda_date, 'YYYY-MM-DD') as sauda_date,
-             created_at, updated_at, created_by, updated_by
-      FROM saudas
+      SELECT ${SAUDA_SELECT}
+      ${SAUDA_FROM}
       WHERE 1=1
     `;
     
@@ -61,43 +72,40 @@ export class SaudaDAO {
     return result.rows;
   }
 
-  async findById(id: string): Promise<Sauda | null> {
+  async findById(id: string, client?: PoolClient): Promise<Sauda | null> {
     const query = `
-      SELECT id, sauda_type, rice_type, rice_length, rice_code_id, rate, broker_id, broker_commission, broker_commission_type,
-             quantity, received_until_now, completion_percentage, cash_discount, cash_discount_type, estimated_delivery_time,
-             purchaser_id, cooked_rice_image_url, uncooked_rice_image_url, status, notes, is_dana_required, 
-             TO_CHAR(sauda_date, 'YYYY-MM-DD') as sauda_date,
-             created_at, updated_at, created_by, updated_by
-      FROM saudas
-      WHERE id = $1
+      SELECT ${SAUDA_SELECT}
+      ${SAUDA_FROM}
+      WHERE s.id = $1
     `;
-    const result = await db.query<Sauda>(query, [id]);
+    const result = client
+      ? await client.query<Sauda>(query, [id])
+      : await db.query<Sauda>(query, [id]);
     return result.rows[0] || null;
   }
 
-  async create(saudaData: CreateSaudaDTO): Promise<Sauda> {
+  async create(saudaData: CreateSaudaDTO, client?: PoolClient): Promise<Sauda> {
     const query = `
-      INSERT INTO saudas (sauda_type, rice_type, rice_length, rice_code_id, rate, broker_id, broker_commission, broker_commission_type,
-                         quantity, cash_discount, cash_discount_type, estimated_delivery_time,
+      INSERT INTO saudas (sauda_type, rice_category, rice_type, rice_length_id, rice_code_id, rate, broker_id, broker_commission, broker_commission_type,
+                         quantity, no_of_bags, bag_weight, cash_discount, cash_discount_type, estimated_delivery_time,
                          purchaser_id, cooked_rice_image_url, uncooked_rice_image_url, status, notes, is_dana_required, sauda_date, created_by)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
-      RETURNING id, sauda_type, rice_type, rice_length, rice_code_id, rate, broker_id, broker_commission, broker_commission_type,
-                quantity, received_until_now, completion_percentage, cash_discount, cash_discount_type, estimated_delivery_time,
-                purchaser_id, cooked_rice_image_url, uncooked_rice_image_url, status, notes, is_dana_required, 
-                TO_CHAR(sauda_date, 'YYYY-MM-DD') as sauda_date,
-                created_at, updated_at, created_by, updated_by
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
+      RETURNING id
     `;
     
     const values = [
       saudaData.sauda_type,
+      saudaData.rice_category,
       saudaData.rice_type,
-      saudaData.rice_length ?? null,
+      saudaData.rice_length_id ?? null,
       saudaData.rice_code_id || null,
       saudaData.rate,
       saudaData.broker_id || null,
       saudaData.broker_commission || null,
       saudaData.broker_commission_type || 'percentage',
       saudaData.quantity || null,
+      saudaData.no_of_bags ?? null,
+      saudaData.bag_weight ?? null,
       saudaData.cash_discount || null,
       saudaData.cash_discount_type || 'rupees',
       saudaData.estimated_delivery_time || null,
@@ -116,16 +124,23 @@ export class SaudaDAO {
     ];
 
     try {
-      const result = await db.query<Sauda>(query, values);
-      logger.info('Sauda created', { id: result.rows[0].id });
-      return result.rows[0];
+      const result = client
+        ? await client.query<{ id: string }>(query, values)
+        : await db.query<{ id: string }>(query, values);
+      const createdId = result.rows[0].id;
+      logger.info('Sauda created', { id: createdId });
+      const created = await this.findById(createdId, client);
+      if (!created) {
+        throw new Error('Sauda not found after create');
+      }
+      return created;
     } catch (error) {
       logger.error('Error creating sauda', { error, saudaData });
       throw error;
     }
   }
 
-  async update(id: string, saudaData: UpdateSaudaDTO): Promise<Sauda | null> {
+  async update(id: string, saudaData: UpdateSaudaDTO, client?: PoolClient): Promise<Sauda | null> {
     const fields: string[] = [];
     const values: any[] = [];
     let paramCount = 1;
@@ -134,13 +149,17 @@ export class SaudaDAO {
       fields.push(`sauda_type = $${paramCount++}`);
       values.push(saudaData.sauda_type);
     }
+    if (saudaData.rice_category !== undefined) {
+      fields.push(`rice_category = $${paramCount++}`);
+      values.push(saudaData.rice_category);
+    }
     if (saudaData.rice_type !== undefined) {
       fields.push(`rice_type = $${paramCount++}`);
       values.push(saudaData.rice_type);
     }
-    if (saudaData.rice_length !== undefined) {
-      fields.push(`rice_length = $${paramCount++}`);
-      values.push(saudaData.rice_length ?? null);
+    if (saudaData.rice_length_id !== undefined) {
+      fields.push(`rice_length_id = $${paramCount++}`);
+      values.push(saudaData.rice_length_id ?? null);
     }
     if (saudaData.rice_code_id !== undefined) {
       fields.push(`rice_code_id = $${paramCount++}`);
@@ -165,6 +184,14 @@ export class SaudaDAO {
     if (saudaData.quantity !== undefined) {
       fields.push(`quantity = $${paramCount++}`);
       values.push(saudaData.quantity || null);
+    }
+    if (saudaData.no_of_bags !== undefined) {
+      fields.push(`no_of_bags = $${paramCount++}`);
+      values.push(saudaData.no_of_bags ?? null);
+    }
+    if (saudaData.bag_weight !== undefined) {
+      fields.push(`bag_weight = $${paramCount++}`);
+      values.push(saudaData.bag_weight ?? null);
     }
     if (saudaData.cash_discount !== undefined) {
       fields.push(`cash_discount = $${paramCount++}`);
@@ -222,7 +249,7 @@ export class SaudaDAO {
     }
 
     if (fields.length === 0) {
-      return this.findById(id);
+      return this.findById(id, client);
     }
 
     fields.push(`updated_at = CURRENT_TIMESTAMP`);
@@ -232,20 +259,17 @@ export class SaudaDAO {
       UPDATE saudas
       SET ${fields.join(', ')}
       WHERE id = $${paramCount}
-      RETURNING id, sauda_type, rice_type, rice_length, rice_code_id, rate, broker_id, broker_commission, broker_commission_type,
-                quantity, received_until_now, completion_percentage, cash_discount, cash_discount_type, estimated_delivery_time,
-                purchaser_id, cooked_rice_image_url, uncooked_rice_image_url, status, notes, is_dana_required, 
-                TO_CHAR(sauda_date, 'YYYY-MM-DD') as sauda_date,
-                created_at, updated_at, created_by, updated_by
     `;
 
     try {
-      const result = await db.query<Sauda>(query, values);
-      if (result.rows.length === 0) {
+      const result = client
+        ? await client.query(query, values)
+        : await db.query(query, values);
+      if ((result.rowCount || 0) === 0) {
         return null;
       }
       logger.info('Sauda updated', { id });
-      return result.rows[0];
+      return this.findById(id, client);
     } catch (error) {
       logger.error('Error updating sauda', { error, id });
       throw error;

@@ -13,8 +13,12 @@
     "create-admin": "ts-node src/scripts/create-admin.ts",
     "reset-admin-password": "ts-node src/scripts/reset-admin-password.ts",
     "clear-purchase-module-data": "ts-node src/scripts/clear-purchase-module-data.ts",
+    "clear-coupon-module-data": "ts-node src/scripts/clear-coupon-module-data.ts",
     "seed-purchase-module-data": "ts-node src/scripts/seed-purchase-module-data.ts",
     "test:godown-flow": "ts-node src/scripts/test-godown-full-flow.ts",
+    "test:coupon-flow": "ts-node src/scripts/test-coupon-full-flow.ts",
+    "test:coupon-comprehensive": "ts-node src/scripts/test-coupon-comprehensive.ts",
+    "test:coupon-fraud": "ts-node src/scripts/test-coupon-fraud.ts",
     "lint": "eslint . --ext .ts",
     "format": "prettier --write \"src/**/*.ts\""
   },

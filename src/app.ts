@@ -16,7 +16,15 @@ export function createApp(): Application {
   app.use(cookieParser());
   app.use(
     cors({
-      origin: appConfig.cors.origin,
+      origin(origin, callback) {
+        const allowed = appConfig.cors.origins;
+        // Non-browser clients (curl, Postman) may omit Origin
+        if (!origin || allowed.includes(origin)) {
+          callback(null, true);
+          return;
+        }
+        callback(new Error(`CORS blocked for origin: ${origin}`));
+      },
       credentials: true,
     })
   );

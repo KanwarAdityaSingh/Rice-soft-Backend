@@ -1,52 +1,72 @@
 import { eInvoiceDAO } from '../dao/e-invoice.dao';
 import { invoiceDispatchDAO } from '../dao/invoice-dispatch.dao';
-import { NotFoundError, ConflictError } from '../utils/errors';
+import { ConflictError, NotFoundError } from '../utils/errors';
+import { mastersIndiaApiService } from './masters-india-api.service';
+import {
+  buildEInvoicePayload,
+  loadSalesDocumentContext,
+} from './masters-india-sales-document.service';
 
-/**
- * Stub for MasterIndia e-invoice API. Replace with real HTTP client when integrating.
- * Idempotent: if e-invoice already exists for this dispatch, returns existing.
- */
-export class EInvoiceService {
-  async getByInvoiceDispatchId(invoiceDispatchId: string): Promise<{
-    id: string;
-    invoice_dispatch_id: string;
-    irn: string;
-    acknowledgement_number: string | null;
-    ack_date: string | null;
-    qr_code_content: string | null;
-    government_response_payload: Record<string, unknown> | null;
-    status: string;
-    created_at: string;
-    updated_at: string;
-  } | null> {
-    const existing = await eInvoiceDAO.findByInvoiceDispatchId(invoiceDispatchId);
-    if (!existing) return null;
-    return {
-      id: existing.id,
-      invoice_dispatch_id: existing.invoice_dispatch_id,
-      irn: existing.irn,
-      acknowledgement_number: existing.acknowledgement_number,
-      ack_date: existing.ack_date?.toISOString() ?? null,
-      qr_code_content: existing.qr_code_content,
-      government_response_payload: existing.government_response_payload as Record<string, unknown> | null,
-      status: existing.status,
-      created_at: existing.created_at.toISOString(),
-      updated_at: existing.updated_at.toISOString(),
-    };
+type EInvoicePayload = {
+  id: string;
+  invoice_dispatch_id: string;
+  irn: string;
+  acknowledgement_number: string | null;
+  ack_date: string | null;
+  qr_code_content: string | null;
+  government_response_payload: Record<string, unknown> | null;
+  status: string;
+  created_at: string;
+  updated_at: string;
+};
+
+function mapRow(row: Awaited<ReturnType<typeof eInvoiceDAO.findByInvoiceDispatchId>>): EInvoicePayload {
+  if (!row) throw new NotFoundError('E-Invoice not found');
+  return {
+    id: row.id,
+    invoice_dispatch_id: row.invoice_dispatch_id,
+    irn: row.irn,
+    acknowledgement_number: row.acknowledgement_number,
+    ack_date: row.ack_date?.toISOString() ?? null,
+    qr_code_content: row.qr_code_content,
+    government_response_payload: row.government_response_payload as Record<string, unknown> | null,
+    status: row.status,
+    created_at: row.created_at.toISOString(),
+    updated_at: row.updated_at.toISOString(),
+  };
+}
+
+function parseEInvoiceResponse(message: Record<string, unknown>): {
+  irn: string;
+  acknowledgement_number: string | null;
+  ack_date: Date | null;
+  qr_code_content: string | null;
+} {
+  const irn = String(message.Irn || message.irn || '').trim();
+  if (!irn) {
+    throw new ConflictError('MastersIndia e-invoice response did not include IRN');
   }
 
-  async generateForDispatch(invoiceDispatchId: string): Promise<{
-    id: string;
-    invoice_dispatch_id: string;
-    irn: string;
-    acknowledgement_number: string | null;
-    ack_date: string | null;
-    qr_code_content: string | null;
-    government_response_payload: Record<string, unknown> | null;
-    status: string;
-    created_at: string;
-    updated_at: string;
-  }> {
+  const ackNo = message.AckNo ?? message.ackNo ?? message.acknowledgement_number;
+  const ackDtRaw = message.AckDt ?? message.ackDt ?? message.ack_date;
+  const qr = message.SignedQRCode ?? message.signed_qr_code ?? message.qr_code;
+
+  return {
+    irn,
+    acknowledgement_number: ackNo != null ? String(ackNo) : null,
+    ack_date: ackDtRaw ? new Date(String(ackDtRaw)) : new Date(),
+    qr_code_content: qr != null ? String(qr) : null,
+  };
+}
+
+export class EInvoiceService {
+  async getByInvoiceDispatchId(invoiceDispatchId: string): Promise<EInvoicePayload | null> {
+    const existing = await eInvoiceDAO.findByInvoiceDispatchId(invoiceDispatchId);
+    if (!existing) return null;
+    return mapRow(existing);
+  }
+
+  async generateForDispatch(invoiceDispatchId: string): Promise<EInvoicePayload> {
     const dispatch = await invoiceDispatchDAO.findById(invoiceDispatchId);
     if (!dispatch) throw new NotFoundError('Invoice dispatch not found');
     if (dispatch.status !== 'confirmed') {
@@ -55,52 +75,28 @@ export class EInvoiceService {
 
     const existing = await eInvoiceDAO.findByInvoiceDispatchId(invoiceDispatchId);
     if (existing) {
-      return {
-        id: existing.id,
-        invoice_dispatch_id: existing.invoice_dispatch_id,
-        irn: existing.irn,
-        acknowledgement_number: existing.acknowledgement_number,
-        ack_date: existing.ack_date?.toISOString() ?? null,
-        qr_code_content: existing.qr_code_content,
-        government_response_payload: existing.government_response_payload as Record<string, unknown> | null,
-        status: existing.status,
-        created_at: existing.created_at.toISOString(),
-        updated_at: existing.updated_at.toISOString(),
-      };
+      return mapRow(existing);
     }
 
-    // Stub: generate placeholder IRN. Replace with MasterIndia API call.
-    const stubIrn = `IRN-STUB-${invoiceDispatchId.slice(0, 8)}-${Date.now()}`;
-    const stubPayload = {
-      Irn: stubIrn,
-      AckNo: `ACK-${Date.now()}`,
-      AckDt: new Date().toISOString(),
-      SignedQRCode: 'stub-qr-code',
-      Status: 'generated',
-    };
+    const ctx = await loadSalesDocumentContext(invoiceDispatchId);
+    const requestPayload = buildEInvoicePayload(ctx);
+    const responseMessage = await mastersIndiaApiService.generateEInvoice(requestPayload);
+    const parsed = parseEInvoiceResponse(responseMessage);
 
     const created = await eInvoiceDAO.create({
       invoice_dispatch_id: invoiceDispatchId,
-      irn: stubIrn,
-      acknowledgement_number: (stubPayload as any).AckNo,
-      ack_date: new Date(),
-      qr_code_content: (stubPayload as any).SignedQRCode,
-      government_response_payload: stubPayload,
+      irn: parsed.irn,
+      acknowledgement_number: parsed.acknowledgement_number ?? undefined,
+      ack_date: parsed.ack_date ?? undefined,
+      qr_code_content: parsed.qr_code_content ?? undefined,
+      government_response_payload: {
+        request: requestPayload,
+        response: responseMessage,
+      },
       status: 'generated',
     });
 
-    return {
-      id: created.id,
-      invoice_dispatch_id: created.invoice_dispatch_id,
-      irn: created.irn,
-      acknowledgement_number: created.acknowledgement_number,
-      ack_date: created.ack_date?.toISOString() ?? null,
-      qr_code_content: created.qr_code_content,
-      government_response_payload: created.government_response_payload as Record<string, unknown> | null,
-      status: created.status,
-      created_at: created.created_at.toISOString(),
-      updated_at: created.updated_at.toISOString(),
-    };
+    return mapRow(created);
   }
 }
 

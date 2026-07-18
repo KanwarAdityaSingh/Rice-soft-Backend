@@ -407,7 +407,12 @@ export class VendorController {
         );
       }
 
-      return ResponseHandler.success(res, toVendorResponse(vendor), 'Vendor updated successfully');
+      const finalVendor = await vendorDAO.findById(vendor.id);
+      return ResponseHandler.success(
+        res,
+        toVendorResponse(finalVendor ?? vendor),
+        'Vendor updated successfully'
+      );
     } catch (error) {
       next(error);
     }

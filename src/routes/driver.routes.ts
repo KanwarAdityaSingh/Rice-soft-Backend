@@ -26,6 +26,18 @@ router.get(
 );
 
 /**
+ * @route   GET /api/v1/drivers/checkExists
+ * @desc    Check if a driving licence number is already registered
+ * @access  Private
+ * @query   license_number: string (required), exclude_id: uuid (optional, when editing)
+ */
+router.get(
+  '/checkExists',
+  authenticate,
+  driverController.checkLicenseExists.bind(driverController)
+);
+
+/**
  * @route   POST /api/v1/drivers/verify
  * @desc    Verify driving licence via Surepass; auto-updates driver when driver_id or matching license exists
  * @access  Private
@@ -37,7 +49,7 @@ router.post('/verify', authenticate, driverController.verifyDriver.bind(driverCo
  * @route   POST /api/v1/drivers/ocr
  * @desc    OCR driving licence images via Surepass; optionally prefill driver when driver_id is sent
  * @access  Private
- * @form    front: file (required), back: file (optional), use_pdf: boolean (optional), driver_id: string (optional)
+ * @form    front: file (required), back: file (optional), use_pdf: boolean (optional, set true for PDF uploads), driver_id: string (optional)
  */
 router.post(
   '/ocr',
@@ -92,7 +104,7 @@ router.put(
 
 /**
  * @route   DELETE /api/v1/drivers/:id
- * @desc    Soft-delete driver
+ * @desc    Delete driver permanently (blocked when linked elsewhere)
  * @access  Private
  */
 router.delete(

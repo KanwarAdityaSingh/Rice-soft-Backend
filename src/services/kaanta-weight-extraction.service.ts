@@ -150,11 +150,13 @@ export async function extractKaantaWeightsFromImage(
   mimeType: string,
   inwardSlipPassId?: string
 ): Promise<KaantaWeightExtractionResult> {
-  const { apiKey, model, kaantaExtractionEnabled } = appConfig.openai;
+  const { apiKey, kaantaModel, kaantaExtractionEnabled } = appConfig.openai;
 
   if (!kaantaExtractionEnabled || !apiKey) {
     throw new Error('Kaanta weight extraction is not configured');
   }
+
+  const model = kaantaModel;
 
   const dataUrl = imageMimeToDataUrl(mimeType, imageBuffer);
 
