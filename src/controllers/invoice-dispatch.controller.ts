@@ -2,7 +2,12 @@ import { Response, NextFunction } from 'express';
 import { invoiceDispatchService } from '../services/invoice-dispatch.service';
 import { invoiceDispatchDAO } from '../dao/invoice-dispatch.dao';
 import { ResponseHandler } from '../utils/response';
-import { validate, createInvoiceDispatchSchema, uuidSchema } from '../utils/validators';
+import {
+  validate,
+  createInvoiceDispatchSchema,
+  updateInvoiceDispatchSchema,
+  uuidSchema,
+} from '../utils/validators';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { InvoiceDispatchLine } from '../models/invoice-dispatch-line.model';
 import { UpdateInvoiceDispatchDTO } from '../models/invoice-dispatch.model';
@@ -25,6 +30,8 @@ function formatLine(line: InvoiceDispatchLine) {
     sales_sauda_line_id: line.sales_sauda_line_id,
     product_id: line.product_id,
     packaging_id: line.packaging_id,
+    packet_count:
+      line.packet_count != null ? parseInt(line.packet_count.toString(), 10) : null,
     quantity: parseFloat(line.quantity.toString()),
     quantity_unit: line.quantity_unit,
     rate: parseFloat(line.rate.toString()),
@@ -39,6 +46,7 @@ function formatDispatch(dispatch: any) {
     id: dispatch.id,
     sales_sauda_id: dispatch.sales_sauda_id,
     godown_id: dispatch.godown_id,
+    to_godown_id: dispatch.to_godown_id ?? null,
     internal_invoice_number: dispatch.internal_invoice_number,
     dispatch_date: typeof dispatch.dispatch_date === 'string' ? dispatch.dispatch_date : dispatch.dispatch_date?.toISOString?.()?.split('T')[0] ?? null,
     financial_year: dispatch.financial_year,
@@ -58,6 +66,8 @@ function formatDispatch(dispatch: any) {
     usp: dispatch.usp ?? null,
     bilti_image_url: dispatch.bilti_image_url ?? null,
     bilti_pdf_url: dispatch.bilti_pdf_url ?? null,
+    receiving_doc_image_url: dispatch.receiving_doc_image_url ?? null,
+    receiving_doc_pdf_url: dispatch.receiving_doc_pdf_url ?? null,
     status: dispatch.status,
     created_at: dispatch.created_at instanceof Date ? dispatch.created_at.toISOString() : dispatch.created_at,
     updated_at: dispatch.updated_at instanceof Date ? dispatch.updated_at.toISOString() : dispatch.updated_at,
@@ -70,7 +80,7 @@ export class InvoiceDispatchController {
     try {
       const salesSaudaId = req.query.sales_sauda_id as string | undefined;
       const godownId = req.query.godown_id as string | undefined;
-      const status = req.query.status as 'draft' | 'confirmed' | undefined;
+      const status = req.query.status as 'draft' | 'confirmed' | 'cancelled' | undefined;
       const financialYear = req.query.financial_year as string | undefined;
       const list = await invoiceDispatchService.list(salesSaudaId, status, godownId, financialYear);
       const data = list.map((d) => formatDispatch({ ...d, lines: [] }));
@@ -95,6 +105,7 @@ export class InvoiceDispatchController {
       const body = validate<{
         sales_sauda_id: string;
         godown_id: string;
+        to_godown_id?: string | null;
         dispatch_date?: string;
         transporter_id?: string;
         vehicle_id?: string;
@@ -103,12 +114,18 @@ export class InvoiceDispatchController {
         distance_km?: number;
         route_description?: string;
         usp?: string | null;
+        lines?: Array<{
+          sales_sauda_line_id: string;
+          quantity?: number;
+          packet_count?: number;
+        }>;
       }>(createInvoiceDispatchSchema, req.body);
       const userId = req.user?.userId;
       const dispatch = await invoiceDispatchService.create(
         {
           sales_sauda_id: body.sales_sauda_id,
           godown_id: body.godown_id,
+          to_godown_id: body.to_godown_id,
           dispatch_date: body.dispatch_date,
           transporter_id: body.transporter_id,
           vehicle_id: body.vehicle_id,
@@ -117,10 +134,42 @@ export class InvoiceDispatchController {
           distance_km: body.distance_km,
           route_description: body.route_description,
           usp: body.usp,
+          lines: body.lines,
         },
         userId
       );
       return ResponseHandler.created(res, formatDispatch(dispatch), 'Invoice dispatch created successfully');
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async update(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const id = validate<string>(uuidSchema, req.params.id);
+      const body = validate<{
+        dispatch_date?: string | null;
+        transporter_id?: string | null;
+        vehicle_id?: string | null;
+        lr_number?: string | null;
+        transportation_cost?: number | null;
+        distance_km?: number | null;
+        route_description?: string | null;
+        usp?: string | null;
+      }>(updateInvoiceDispatchSchema, req.body);
+      const dispatch = await invoiceDispatchService.update(id, body, req.user?.userId);
+      return ResponseHandler.success(res, formatDispatch(dispatch), 'Invoice dispatch updated successfully');
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async delete(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const id = validate<string>(uuidSchema, req.params.id);
+      const userId = req.user?.userId;
+      await invoiceDispatchService.delete(id, userId);
+      return ResponseHandler.success(res, null, 'Invoice dispatch deleted successfully');
     } catch (error) {
       next(error);
     }
@@ -132,6 +181,25 @@ export class InvoiceDispatchController {
       const userId = req.user?.userId;
       const dispatch = await invoiceDispatchService.confirm(id, userId);
       return ResponseHandler.success(res, formatDispatch(dispatch), 'Invoice dispatch confirmed successfully');
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /invoice-dispatches/:id/cancel
+   * Reverse a confirmed godown-transfer dispatch (stock back to from, out of to).
+   */
+  async cancel(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const id = validate<string>(uuidSchema, req.params.id);
+      const userId = req.user?.userId;
+      const dispatch = await invoiceDispatchService.cancel(id, userId);
+      return ResponseHandler.success(
+        res,
+        formatDispatch(dispatch),
+        'Godown transfer dispatch cancelled and stock reversed successfully'
+      );
     } catch (error) {
       next(error);
     }
@@ -197,6 +265,76 @@ export class InvoiceDispatchController {
           bilti_pdf_url: dispatch.bilti_pdf_url,
         },
         'Bilti uploaded successfully'
+      );
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /invoice-dispatches/:id/upload-receiving-doc
+   * multipart field: file (image or PDF)
+   */
+  async uploadReceivingDoc(
+    req: AuthRequest,
+    res: Response,
+    next: NextFunction
+  ): Promise<Response | void> {
+    try {
+      const id = validate<string>(uuidSchema, req.params.id);
+
+      const existing = await invoiceDispatchDAO.findById(id);
+      if (!existing) {
+        throw new NotFoundError('Invoice dispatch not found');
+      }
+
+      if (!req.file) {
+        throw new ValidationError('File is required');
+      }
+
+      validateFileSize(req.file.size, 10);
+      validateFileType(req.file.mimetype, [
+        'image/jpeg',
+        'image/jpg',
+        'image/png',
+        'image/gif',
+        'application/pdf',
+      ]);
+
+      let uploadResult;
+      try {
+        uploadResult = await uploadToS3(
+          req.file.buffer,
+          req.file.originalname,
+          appConfig.aws.s3.receivingDocFolder
+        );
+      } catch {
+        throw new InternalServerError('Failed to upload receiving document. Please try again.');
+      }
+
+      const isPdf = req.file.mimetype === 'application/pdf';
+      const updateData: UpdateInvoiceDispatchDTO = {
+        updated_by: req.user?.userId,
+      };
+      if (isPdf) {
+        updateData.receiving_doc_pdf_url = uploadResult.url;
+      } else {
+        updateData.receiving_doc_image_url = uploadResult.url;
+      }
+
+      const dispatch = await invoiceDispatchDAO.update(id, updateData);
+      if (!dispatch) {
+        throw new NotFoundError('Invoice dispatch not found');
+      }
+
+      return ResponseHandler.success(
+        res,
+        {
+          url: uploadResult.url,
+          receiving_doc_image_url: dispatch.receiving_doc_image_url,
+          receiving_doc_pdf_url: dispatch.receiving_doc_pdf_url,
+        },
+        'Receiving document uploaded successfully'
       );
     } catch (error) {
       next(error);

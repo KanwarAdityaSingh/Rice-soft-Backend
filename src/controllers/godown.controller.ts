@@ -29,6 +29,7 @@ function toResponse(godown: Godown) {
     address: godown.address,
     google_maps_link: godown.google_maps_link,
     contact_persons: godown.contact_persons,
+    sales_party_id: godown.sales_party_id ?? null,
     is_active: godown.is_active,
     created_at: godown.created_at instanceof Date ? godown.created_at.toISOString() : godown.created_at,
     updated_at: godown.updated_at instanceof Date ? godown.updated_at.toISOString() : godown.updated_at,

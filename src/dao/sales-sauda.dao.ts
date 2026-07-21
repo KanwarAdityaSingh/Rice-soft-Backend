@@ -4,6 +4,7 @@ import {
   CreateSalesSaudaDTO,
   UpdateSalesSaudaDTO,
   SalesSaudaStatus,
+  SalesMovementType,
 } from '../models/sales-sauda.model';
 import { logger } from '../utils/logger';
 
@@ -18,7 +19,9 @@ function formatDateToLocalString(date: Date | string | null | undefined): string
 
 const SALES_SAUDA_SELECT = `
   ss.id, ss.sales_party_id, ss.salesman_id, sm.name as salesman_name,
-  ss.sauda_type, ss.status, ss.order_number, TO_CHAR(ss.sauda_date, 'YYYY-MM-DD') as sauda_date,
+  ss.salesman_commission_type, ss.salesman_commission_config,
+  ss.sauda_type, ss.movement_type, ss.from_godown_id, ss.to_godown_id,
+  ss.status, ss.order_number, TO_CHAR(ss.sauda_date, 'YYYY-MM-DD') as sauda_date,
   ss.financial_year, ss.billing_address, ss.delivery_address,
   ss.notes, ss.payment_terms, ss.amount,
   ss.created_at, ss.updated_at, ss.created_by, ss.updated_by
@@ -28,7 +31,8 @@ export class SalesSaudaDAO {
   async findAll(
     salesPartyId?: string,
     status?: SalesSaudaStatus,
-    financialYear?: string
+    financialYear?: string,
+    movementType?: SalesMovementType | 'all'
   ): Promise<SalesSauda[]> {
     let query = `
       SELECT ${SALES_SAUDA_SELECT}
@@ -50,6 +54,15 @@ export class SalesSaudaDAO {
       query += ` AND ss.financial_year = $${paramCount++}`;
       params.push(financialYear);
     }
+    // Default: customer sales only (exclude godown transfers from normal lists)
+    if (movementType === undefined || movementType === 'sale') {
+      query += ` AND ss.movement_type = $${paramCount++}`;
+      params.push('sale');
+    } else if (movementType === 'godown_transfer') {
+      query += ` AND ss.movement_type = $${paramCount++}`;
+      params.push('godown_transfer');
+    }
+    // movementType === 'all' → no filter
     query += ` ORDER BY ss.created_at DESC`;
     const result = await db.query<SalesSauda>(query, params);
     return result.rows;
@@ -69,17 +82,26 @@ export class SalesSaudaDAO {
   async create(data: CreateSalesSaudaDTO): Promise<SalesSauda> {
     const query = `
       INSERT INTO sales_saudas (
-        sales_party_id, salesman_id, sauda_type, status, sauda_date, financial_year,
+        sales_party_id, salesman_id, salesman_commission_type, salesman_commission_config,
+        sauda_type, movement_type, from_godown_id, to_godown_id,
+        status, sauda_date, financial_year,
         billing_address, delivery_address,
         notes, payment_terms, amount, created_by
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
       RETURNING id
     `;
     const values = [
       data.sales_party_id,
       data.salesman_id ?? null,
+      data.salesman_commission_type ?? null,
+      data.salesman_commission_config != null
+        ? JSON.stringify(data.salesman_commission_config)
+        : null,
       data.sauda_type,
+      data.movement_type ?? 'sale',
+      data.from_godown_id ?? null,
+      data.to_godown_id ?? null,
       data.status || 'draft',
       data.sauda_date != null
         ? typeof data.sauda_date === 'string'
@@ -95,7 +117,11 @@ export class SalesSaudaDAO {
       data.created_by || null,
     ];
     const result = await db.query<{ id: string }>(query, values);
-    logger.info('Sales sauda created', { id: result.rows[0].id, financialYear: data.financial_year });
+    logger.info('Sales sauda created', {
+      id: result.rows[0].id,
+      financialYear: data.financial_year,
+      movementType: data.movement_type ?? 'sale',
+    });
     return (await this.findById(result.rows[0].id))!;
   }
 
@@ -111,9 +137,33 @@ export class SalesSaudaDAO {
       fields.push(`salesman_id = $${paramCount++}`);
       values.push(data.salesman_id ?? null);
     }
+    if (data.salesman_commission_type !== undefined) {
+      fields.push(`salesman_commission_type = $${paramCount++}`);
+      values.push(data.salesman_commission_type ?? null);
+    }
+    if (data.salesman_commission_config !== undefined) {
+      fields.push(`salesman_commission_config = $${paramCount++}`);
+      values.push(
+        data.salesman_commission_config != null
+          ? JSON.stringify(data.salesman_commission_config)
+          : null
+      );
+    }
     if (data.sauda_type !== undefined) {
       fields.push(`sauda_type = $${paramCount++}`);
       values.push(data.sauda_type);
+    }
+    if (data.movement_type !== undefined) {
+      fields.push(`movement_type = $${paramCount++}`);
+      values.push(data.movement_type);
+    }
+    if (data.from_godown_id !== undefined) {
+      fields.push(`from_godown_id = $${paramCount++}`);
+      values.push(data.from_godown_id ?? null);
+    }
+    if (data.to_godown_id !== undefined) {
+      fields.push(`to_godown_id = $${paramCount++}`);
+      values.push(data.to_godown_id ?? null);
     }
     if (data.status !== undefined) {
       fields.push(`status = $${paramCount++}`);

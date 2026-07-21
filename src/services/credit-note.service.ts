@@ -10,6 +10,7 @@ import { packagingDAO } from '../dao/packaging.dao';
 import { inventoryLedgerDAO } from '../dao/inventory-ledger.dao';
 import { financialYearFromDate } from '../constants/financial-year';
 import { NotFoundError, ValidationError, ConflictError } from '../utils/errors';
+import { salesmanCommissionLedgerService } from './salesman-commission-ledger.service';
 
 export class CreditNoteService {
   private resolveFinancialYear(date?: string | Date | null): string {
@@ -127,7 +128,7 @@ export class CreditNoteService {
               stock_after: newWeight,
               reference_type: 'credit_note',
               reference_id: id,
-              batch_id: row.batch_id,
+              batch_id: row.batch_id ?? undefined,
               packaging_id: row.packaging_id,
               created_by: userId,
             },
@@ -166,7 +167,7 @@ export class CreditNoteService {
               stock_after: newWeight,
               reference_type: 'credit_note',
               reference_id: id,
-              batch_id: fgi.batch_id,
+              batch_id: fgi.batch_id ?? undefined,
               packaging_id: fgi.packaging_id,
               created_by: userId,
             },
@@ -194,7 +195,7 @@ export class CreditNoteService {
               stock_after: newWeight,
               reference_type: 'credit_note',
               reference_id: id,
-              batch_id: row.batch_id,
+              batch_id: row.batch_id ?? undefined,
               packaging_id: row.packaging_id,
               created_by: userId,
             },
@@ -207,6 +208,8 @@ export class CreditNoteService {
         `UPDATE credit_notes SET status = 'confirmed', updated_at = CURRENT_TIMESTAMP, updated_by = $1 WHERE id = $2`,
         [userId ?? null, id]
       );
+
+      await salesmanCommissionLedgerService.reverseOnCreditNoteConfirm(id, userId, client);
     });
 
     return this.getById(id);

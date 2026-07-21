@@ -1,4 +1,9 @@
-export type InventoryLedgerSourceType = 'purchase_inward' | 'sales_dispatch' | 'sale_return' | 'adjustment';
+export type InventoryLedgerSourceType =
+  | 'purchase_inward'
+  | 'sales_dispatch'
+  | 'sale_return'
+  | 'adjustment'
+  | 'godown_transfer';
 
 export interface InventoryLedgerEntry {
   id: string;

@@ -618,18 +618,24 @@ Customers can now log in with their phone number to view their redemption histor
 - Rate limited: 10 OTP requests/minute per IP
 - JWT tokens signed with server secret
 
-### Local development (Kaleyra off)
+### Local development (Kaleyra off / fixed OTP)
 
-When SMS is unavailable:
+When SMS is unavailable, configure `.env` for predictable login during UI testing:
 
 ```bash
 NODE_ENV=development
 COUPON_PUBLIC_SMS_ENABLED=false
+COUPON_PUBLIC_FIXED_OTP=996806
+# Optional — only these phones get the fixed OTP; omit for all phones in dev
+# COUPON_PUBLIC_FIXED_OTP_PHONES=9876543210
 ```
 
-`POST /sendOtp` stores a random OTP in the DB (SMS skipped) and logs the OTP to the server console in development. Use that value for `POST /verifyOtp`.
+**Flow:**
 
-For real SMS, set `COUPON_PUBLIC_SMS_ENABLED=true` with Kaleyra configured.
+1. `POST /sendOtp` with any allowed phone → OTP **`996806`** is stored in DB (SMS skipped).
+2. `POST /verifyOtp` with `{ "phone": "...", "otp": "996806" }` → JWT + refresh token.
+
+For real SMS, set `COUPON_PUBLIC_SMS_ENABLED=true` with Kaleyra configured (and clear `COUPON_PUBLIC_FIXED_OTP` if you want random OTPs).
 
 ---
 

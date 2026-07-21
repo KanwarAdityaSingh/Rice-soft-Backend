@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { createApp } from '../app';
-import { appConfig } from '../config/app.config';
+import { appConfig, assertSafePublicOtpConfig } from '../config/app.config';
 import { db } from '../database/connection';
 import { logger } from '../utils/logger';
 import { couponExpiryService } from '../services/coupon-expiry.service';
@@ -12,6 +12,15 @@ async function initializeServer() {
     // Log to console immediately to ensure we see output
     console.log('🚀 Starting Rice Soft Backend Server...');
     logger.info('Starting Rice Soft Backend Server...');
+
+    assertSafePublicOtpConfig();
+    if (appConfig.coupons.publicFixedOtp) {
+      logger.warn('Public coupon OTP: fixed OTP enabled', {
+        smsEnabled: appConfig.coupons.publicSmsEnabled,
+        productionUatAllowlist: appConfig.env === 'production',
+        allowlistedPhoneCount: appConfig.coupons.publicFixedOtpPhones.length,
+      });
+    }
 
     // Test database connection
     console.log('🔌 Testing database connection...');

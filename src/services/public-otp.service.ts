@@ -1,5 +1,5 @@
 import { PublicOtpDAO } from '../dao/public-otp.dao';
-import { appConfig, isDevelopment } from '../config/app.config';
+import { appConfig, isDevelopment, isProduction } from '../config/app.config';
 import { BadRequestError } from '../utils/errors';
 import { normalizePhone } from '../utils/coupon.helpers';
 import { logger } from '../utils/logger';
@@ -31,7 +31,7 @@ export class PublicOtpService {
       );
     }
 
-    const otp = this.generateOtp();
+    const otp = this.resolveOtp(normalized);
     const expiresAt = new Date(Date.now() + this.OTP_EXPIRY_MINUTES * 60 * 1000);
 
     await this.otpDAO.create({
@@ -49,6 +49,7 @@ export class PublicOtpService {
       phone: normalized,
       purpose,
       expiresAt,
+      fixedDevOtp: this.usesFixedOtp(normalized),
       smsEnabled: appConfig.coupons.publicSmsEnabled,
     });
 
@@ -83,6 +84,33 @@ export class PublicOtpService {
     return { verified: true, phone: normalized };
   }
 
+  private usesFixedOtp(normalizedPhone: string): boolean {
+    const fixed = appConfig.coupons.publicFixedOtp;
+    if (!fixed) {
+      return false;
+    }
+
+    const allowlist = appConfig.coupons.publicFixedOtpPhones;
+
+    if (isProduction) {
+      return allowlist.includes(normalizedPhone);
+    }
+
+    // Dev/staging: empty allowlist → all phones get the fixed OTP
+    if (allowlist.length === 0) {
+      return true;
+    }
+
+    return allowlist.includes(normalizedPhone);
+  }
+
+  private resolveOtp(normalizedPhone: string): string {
+    if (this.usesFixedOtp(normalizedPhone)) {
+      return appConfig.coupons.publicFixedOtp;
+    }
+    return this.generateOtp();
+  }
+
   private generateOtp(): string {
     const num = crypto.randomInt(100000, 999999);
     return num.toString();
@@ -90,8 +118,11 @@ export class PublicOtpService {
 
   private async sendSms(phone: string, otp: string): Promise<void> {
     if (!appConfig.coupons.publicSmsEnabled) {
-      if (isDevelopment) {
-        logger.info('Public OTP SMS disabled — OTP stored in DB only', { phone, otp });
+      if (isDevelopment || this.usesFixedOtp(phone)) {
+        logger.info(
+          'Public OTP SMS disabled — allowlisted testers use COUPON_PUBLIC_FIXED_OTP; others need SMS enabled',
+          { phone, otp: this.usesFixedOtp(phone) ? undefined : otp }
+        );
       }
       return;
     }

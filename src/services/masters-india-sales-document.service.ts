@@ -45,8 +45,12 @@ export interface SalesDocumentContext {
   itemRows: Array<{
     description: string;
     hsn: string;
+    /** Primary quantity (kg or packets as stored on the line) */
     quantity: number;
+    /** GST UQC for primary quantity: KGS or PCS */
     unit: string;
+    /** Sales-sauda bag/packet count when present */
+    bags: number | null;
     unitPrice: number;
     taxableAmount: number;
     gstPercent: number;
@@ -175,11 +179,19 @@ export async function loadSalesDocumentContext(
       );
     }
 
+    const quantity = parseFloat(String(line.quantity));
+    const unit = line.quantity_unit === 'packets' ? 'PCS' : 'KGS';
+    const bags =
+      saudaLine?.packet_count != null && Number(saudaLine.packet_count) > 0
+        ? Number(saudaLine.packet_count)
+        : null;
+
     itemRows.push({
       description: product?.name || 'Rice product',
       hsn,
-      quantity: parseFloat(String(line.quantity)),
-      unit: line.quantity_unit === 'packets' ? 'PCS' : 'KGS',
+      quantity,
+      unit,
+      bags,
       unitPrice: parseFloat(String(line.rate)),
       taxableAmount: lineTaxable,
       gstPercent,
@@ -320,7 +332,7 @@ export function buildEInvoicePayload(ctx: SalesDocumentContext): Record<string, 
 
 export function buildEWayBillPayload(
   ctx: SalesDocumentContext,
-  distanceKm: number
+  distanceKm: number | null
 ): Record<string, unknown> {
   // Consignor = ship-from (godown); consignee = ship-to (delivery)
   const sellerAddr = addressParts(ctx.shipFromAddress);
@@ -331,7 +343,7 @@ export function buildEWayBillPayload(
     supply_type: 'Outward',
     sub_supply_type: 'Supply',
     sub_supply_description: '',
-    document_type: 'Tax Invoice',
+    document_type: 'Bill of Supply',
     document_number: ctx.documentNumber,
     document_date: ctx.documentDate,
     gstin_of_consignor: ctx.sellerGstin,
@@ -361,7 +373,7 @@ export function buildEWayBillPayload(
     cess_nonadvol_value: 0,
     transportation_mode: 'road',
     transporter_document_date: ctx.documentDate,
-    transportation_distance: String(distanceKm),
+    transportation_distance: distanceKm != null ? String(distanceKm) : '',
     vehicle_number: ctx.vehicleNumber,
     vehicle_type: 'Regular',
     generate_status: 1,

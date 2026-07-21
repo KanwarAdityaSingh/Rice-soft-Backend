@@ -7,11 +7,18 @@ import {
   SalesPartyResponse,
   SalesParty,
   SalesPartyRegistrationType,
+  SalesPartyCustomerType,
 } from '../models/sales-party.model';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { salesPartyService } from '../services/sales-party.service';
 import { ValidationError } from '../utils/errors';
 import { parseEntityKycDetails } from '../utils/kyc-verification';
+
+const SALES_PARTY_REGISTRATION_TYPES: SalesPartyRegistrationType[] = [
+  'registered',
+  'unregistered',
+  'retail',
+];
 
 function toResponse(party: SalesParty): SalesPartyResponse {
   return {
@@ -22,6 +29,7 @@ function toResponse(party: SalesParty): SalesPartyResponse {
     business_details: party.business_details,
     aadhar_number: party.aadhar_number ?? null,
     registration_type: party.registration_type,
+    customer_type: party.customer_type ?? null,
     bank_details: party.bank_details,
     is_active: party.is_active,
     is_verified: party.is_verified,
@@ -40,8 +48,22 @@ function toResponse(party: SalesParty): SalesPartyResponse {
 function assertSalesPartyRegistrationFields(
   registrationType: SalesPartyRegistrationType,
   businessDetails: CreateSalesPartyDTO['business_details'],
-  aadharNumber?: string | null
+  aadharNumber?: string | null,
+  customerType?: SalesPartyCustomerType | null
 ): void {
+  if (registrationType === 'retail') {
+    if (!customerType) {
+      throw new ValidationError(
+        'Retail sales parties require customer_type (individual, small_retailer, or cash_customer)'
+      );
+    }
+    return;
+  }
+
+  if (customerType) {
+    throw new ValidationError('customer_type is only allowed when registration_type is retail');
+  }
+
   if (registrationType === 'registered') {
     const hasGst = Boolean(businessDetails.gst_number?.trim());
     const hasPan = Boolean(businessDetails.pan_number?.trim());
@@ -65,7 +87,22 @@ function assertSalesPartyRegistrationOnUpdate(existing: SalesParty, update: Upda
   const aadharNumber =
     update.aadhar_number !== undefined ? update.aadhar_number : existing.aadhar_number;
 
-  assertSalesPartyRegistrationFields(registrationType, businessDetails, aadharNumber);
+  let customerType: SalesPartyCustomerType | null;
+  if (update.customer_type !== undefined) {
+    customerType = update.customer_type;
+  } else if (update.registration_type !== undefined && update.registration_type !== 'retail') {
+    // Leaving retail clears customer_type (DAO also nulls it).
+    customerType = null;
+  } else {
+    customerType = existing.customer_type;
+  }
+
+  assertSalesPartyRegistrationFields(
+    registrationType,
+    businessDetails,
+    aadharNumber,
+    customerType
+  );
 }
 
 export class SalesPartyController {
@@ -83,10 +120,11 @@ export class SalesPartyController {
       const registrationType = req.query.registration_type as SalesPartyRegistrationType | undefined;
       if (
         registrationType &&
-        registrationType !== 'registered' &&
-        registrationType !== 'unregistered'
+        !SALES_PARTY_REGISTRATION_TYPES.includes(registrationType)
       ) {
-        throw new ValidationError('registration_type must be registered or unregistered');
+        throw new ValidationError(
+          'registration_type must be registered, unregistered, or retail'
+        );
       }
 
       const list = await salesPartyService.list({
@@ -116,7 +154,8 @@ export class SalesPartyController {
       assertSalesPartyRegistrationFields(
         data.registration_type,
         data.business_details,
-        data.aadhar_number
+        data.aadhar_number,
+        data.customer_type
       );
       const created = await salesPartyService.create({
         ...data,

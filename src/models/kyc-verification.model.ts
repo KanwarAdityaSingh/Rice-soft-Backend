@@ -35,7 +35,7 @@ export interface SurepassVerificationSnapshot {
   mapped?: unknown;
 }
 
-/** Stored on vendors, brokers, transporters, sales_parties (JSONB column). */
+/** Stored on vendors, brokers, transporters, sales_parties, salesmen (JSONB column). */
 export interface EntityKycVerificationDetails {
   pan?: SurepassVerificationSnapshot;
   pan_comprehensive?: SurepassVerificationSnapshot;
@@ -62,6 +62,7 @@ export type PersistableEntityType =
   | 'broker'
   | 'transporter'
   | 'sales_party'
+  | 'salesman'
   | 'driver'
   | 'vehicle';
 

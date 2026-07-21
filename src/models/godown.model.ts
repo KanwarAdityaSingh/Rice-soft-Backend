@@ -7,6 +7,8 @@ export interface Godown {
   address: Address;
   google_maps_link: string | null;
   contact_persons: ContactPerson[];
+  /** Linked sales party used as consignee when this godown is a transfer destination */
+  sales_party_id: string | null;
   is_active: boolean;
   created_at: Date;
   updated_at: Date;
@@ -30,6 +32,7 @@ export interface UpdateGodownDTO {
   address?: Address;
   google_maps_link?: string | null;
   contact_persons?: ContactPerson[];
+  sales_party_id?: string | null;
   is_active?: boolean;
   updated_by?: string;
 }
@@ -41,6 +44,7 @@ export interface GodownResponse {
   address: Address;
   google_maps_link: string | null;
   contact_persons: ContactPerson[];
+  sales_party_id: string | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;

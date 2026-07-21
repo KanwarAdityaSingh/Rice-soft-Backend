@@ -4,7 +4,7 @@ import type { ContactPerson } from '../models/vendor.model';
 import { logger } from '../utils/logger';
 
 const COLUMNS =
-  'id, name, gst_number, address, google_maps_link, contact_persons, is_active, created_at, updated_at, created_by, updated_by';
+  'id, name, gst_number, address, google_maps_link, contact_persons, sales_party_id, is_active, created_at, updated_at, created_by, updated_by';
 
 export class GodownDAO {
   private transformContactPersons(data: unknown): ContactPerson[] {
@@ -101,6 +101,10 @@ export class GodownDAO {
     if (data.contact_persons !== undefined) {
       fields.push(`contact_persons = $${n++}`);
       values.push(JSON.stringify(data.contact_persons));
+    }
+    if (data.sales_party_id !== undefined) {
+      fields.push(`sales_party_id = $${n++}`);
+      values.push(data.sales_party_id ?? null);
     }
     if (data.is_active !== undefined) {
       fields.push(`is_active = $${n++}`);

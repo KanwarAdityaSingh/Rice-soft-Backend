@@ -37,6 +37,29 @@ export class InvoiceDispatchAllocationDAO {
     );
     return result.rows;
   }
+
+  async findByInvoiceDispatchId(
+    invoiceDispatchId: string,
+    client?: PoolClient
+  ): Promise<
+    Array<{
+      id: string;
+      invoice_dispatch_line_id: string;
+      finished_goods_inventory_id: string;
+      quantity_deducted: number;
+    }>
+  > {
+    const query = `
+      SELECT id, invoice_dispatch_line_id, finished_goods_inventory_id, quantity_deducted
+      FROM invoice_dispatch_allocations
+      WHERE invoice_dispatch_id = $1
+      ORDER BY id ASC
+    `;
+    const result = client
+      ? await client.query(query, [invoiceDispatchId])
+      : await db.query(query, [invoiceDispatchId]);
+    return result.rows;
+  }
 }
 
 export const invoiceDispatchAllocationDAO = new InvoiceDispatchAllocationDAO();

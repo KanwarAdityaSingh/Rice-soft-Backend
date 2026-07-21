@@ -14,6 +14,7 @@ const ENTITY_TYPES: PersistableEntityType[] = [
   'broker',
   'transporter',
   'sales_party',
+  'salesman',
   'driver',
   'vehicle',
 ];
@@ -36,7 +37,9 @@ export function parsePersistKycRequest(
   }
 
   if (typeof entityType !== 'string' || !ENTITY_TYPES.includes(entityType as PersistableEntityType)) {
-    throw new ValidationError('entity_type must be vendor, broker, transporter, sales_party, driver, or vehicle');
+    throw new ValidationError(
+      'entity_type must be vendor, broker, transporter, sales_party, salesman, driver, or vehicle'
+    );
   }
 
   if (typeof entityId !== 'string' || entityId.trim() === '') {

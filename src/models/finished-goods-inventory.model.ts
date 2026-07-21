@@ -2,7 +2,8 @@ export interface FinishedGoodsInventory {
   id: string;
   godown_id: string;
   product_id: string;
-  batch_id: string;
+  /** Nullable when stock is credited before batch linkage (e.g. godown transfer) */
+  batch_id: string | null;
   packaging_id: string;
   no_of_packets: number;
   total_weight: number;
@@ -15,7 +16,7 @@ export interface FinishedGoodsInventory {
 export interface CreateFinishedGoodsInventoryDTO {
   godown_id?: string;
   product_id: string;
-  batch_id: string;
+  batch_id?: string | null;
   packaging_id: string;
   no_of_packets: number;
   total_weight: number;
@@ -26,7 +27,7 @@ export interface FinishedGoodsInventoryResponse {
   id: string;
   godown_id: string;
   product_id: string;
-  batch_id: string;
+  batch_id: string | null;
   packaging_id: string;
   no_of_packets: number;
   total_weight: number;

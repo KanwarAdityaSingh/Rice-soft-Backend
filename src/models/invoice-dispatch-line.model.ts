@@ -4,6 +4,7 @@ export interface InvoiceDispatchLine {
   sales_sauda_line_id: string | null;
   product_id: string;
   packaging_id: string | null;
+  packet_count: number | null;
   quantity: number;
   quantity_unit: string;
   rate: number;

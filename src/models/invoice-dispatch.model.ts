@@ -1,9 +1,11 @@
-export type InvoiceDispatchStatus = 'draft' | 'confirmed';
+export type InvoiceDispatchStatus = 'draft' | 'confirmed' | 'cancelled';
 
 export interface InvoiceDispatch {
   id: string;
   sales_sauda_id: string;
   godown_id: string;
+  /** Destination godown for godown_transfer; null for normal sales */
+  to_godown_id: string | null;
   internal_invoice_number: string;
   dispatch_date: Date | string | null;
   /** Indian FY label Apr–Mar, e.g. 2025-2026 */
@@ -22,6 +24,8 @@ export interface InvoiceDispatch {
   usp: string | null;
   bilti_image_url: string | null;
   bilti_pdf_url: string | null;
+  receiving_doc_image_url: string | null;
+  receiving_doc_pdf_url: string | null;
   status: InvoiceDispatchStatus;
   created_at: Date;
   updated_at: Date;
@@ -30,16 +34,25 @@ export interface InvoiceDispatch {
 }
 
 export interface UpdateInvoiceDispatchDTO {
+  dispatch_date?: string | Date | null;
+  transporter_id?: string | null;
+  vehicle_id?: string | null;
+  lr_number?: string | null;
+  transportation_cost?: number | null;
+  distance_km?: number | null;
+  route_description?: string | null;
+  usp?: string | null;
   bilti_image_url?: string | null;
   bilti_pdf_url?: string | null;
-  transportation_cost?: number | null;
-  lr_number?: string | null;
+  receiving_doc_image_url?: string | null;
+  receiving_doc_pdf_url?: string | null;
   updated_by?: string;
 }
 
 export interface CreateInvoiceDispatchDTO {
   sales_sauda_id: string;
   godown_id: string;
+  to_godown_id?: string | null;
   internal_invoice_number: string;
   dispatch_date?: string | Date;
   financial_year?: string;
@@ -61,6 +74,7 @@ export interface InvoiceDispatchResponse {
   id: string;
   sales_sauda_id: string;
   godown_id: string;
+  to_godown_id: string | null;
   internal_invoice_number: string;
   dispatch_date: string | null;
   financial_year: string;
@@ -77,6 +91,8 @@ export interface InvoiceDispatchResponse {
   usp: string | null;
   bilti_image_url: string | null;
   bilti_pdf_url: string | null;
+  receiving_doc_image_url: string | null;
+  receiving_doc_pdf_url: string | null;
   status: InvoiceDispatchStatus;
   created_at: string;
   updated_at: string;

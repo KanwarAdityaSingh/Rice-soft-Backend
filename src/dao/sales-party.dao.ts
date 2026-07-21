@@ -15,7 +15,7 @@ import { logger } from '../utils/logger';
 
 const COLUMNS = `
   id, business_name, contact_persons, contact_person, email, phone, address, business_details,
-  aadhar_number, registration_type, bank_details, is_active, is_verified, verified_at,
+  aadhar_number, registration_type, customer_type, bank_details, is_active, is_verified, verified_at,
   user_id, lead_id, created_at, updated_at, created_by, updated_by,
   last_enquiry_date, google_location_link, business_card_url, kyc_verification_details`;
 
@@ -95,13 +95,16 @@ export class SalesPartyDAO {
         : isSalesPartyKycVerified(data.registration_type, kycDetails);
     const isActive = resolveSalesPartyIsActive(isVerified, data.is_active);
 
+    const customerType =
+      data.registration_type === 'retail' ? data.customer_type ?? null : null;
+
     const query = `
       INSERT INTO sales_parties (
         business_name, contact_persons, contact_person, email, phone, address, business_details,
-        aadhar_number, registration_type, bank_details, is_active, is_verified, verified_at,
+        aadhar_number, registration_type, customer_type, bank_details, is_active, is_verified, verified_at,
         created_by, user_id, lead_id, google_location_link, business_card_url, kyc_verification_details
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
       RETURNING ${COLUMNS}
     `;
     const values = [
@@ -111,9 +114,10 @@ export class SalesPartyDAO {
       primaryEmail,
       primaryPhone,
       JSON.stringify(data.address),
-      JSON.stringify(data.business_details),
+      JSON.stringify(data.business_details ?? {}),
       data.aadhar_number || null,
       data.registration_type,
+      customerType,
       data.bank_details ? JSON.stringify(data.bank_details) : null,
       isActive,
       isVerified,
@@ -175,6 +179,15 @@ export class SalesPartyDAO {
     if (data.registration_type !== undefined) {
       updateFields.push(`registration_type = $${paramCount++}`);
       values.push(data.registration_type);
+      // Non-retail parties must not keep a customer_type.
+      if (data.registration_type !== 'retail' && data.customer_type === undefined) {
+        updateFields.push(`customer_type = $${paramCount++}`);
+        values.push(null);
+      }
+    }
+    if (data.customer_type !== undefined) {
+      updateFields.push(`customer_type = $${paramCount++}`);
+      values.push(data.customer_type || null);
     }
     if (data.bank_details !== undefined) {
       updateFields.push(`bank_details = $${paramCount++}`);

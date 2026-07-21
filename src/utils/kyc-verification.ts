@@ -144,6 +144,9 @@ function hasKycSnapshot(
 /** Registered → GST or PAN snapshot; unregistered → Aadhaar snapshot. */
 export type RegistrationType = 'registered' | 'unregistered';
 
+/** Sales parties also support retail (no KYC). */
+export type SalesPartyKycRegistrationType = RegistrationType | 'retail';
+
 export function isRegistrationKycVerified(
   registrationType: RegistrationType,
   kyc: EntityKycVerificationDetails
@@ -175,11 +178,24 @@ export function isVendorKycVerified(
   return isRegistrationKycVerified(registrationType, kyc);
 }
 
+/** Retail parties skip KYC and are treated as verified. */
 export function isSalesPartyKycVerified(
-  registrationType: RegistrationType,
+  registrationType: SalesPartyKycRegistrationType,
   kyc: EntityKycVerificationDetails
 ): boolean {
+  if (registrationType === 'retail') {
+    return true;
+  }
   return isRegistrationKycVerified(registrationType, kyc);
+}
+
+/** Salesman identity KYC: PAN or Aadhaar snapshot. Does not gate is_active. */
+export function isSalesmanKycVerified(kyc: EntityKycVerificationDetails): boolean {
+  return (
+    hasKycSnapshot(kyc, 'aadhaar') ||
+    hasKycSnapshot(kyc, 'pan_comprehensive') ||
+    hasKycSnapshot(kyc, 'pan')
+  );
 }
 
 /** Entities stay inactive until primary KYC is verified. */

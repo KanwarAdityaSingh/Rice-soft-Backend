@@ -11,6 +11,7 @@ import type { DriverLicenseVerificationResult } from '../models/driver.model';
 import { surepassDriverVerificationDetails } from '../models/driver.model';
 import {
   buildSurepassSnapshot,
+  isSalesmanKycVerified,
   isSalesPartyKycVerified,
   isTransporterKycVerified,
   isVendorKycVerified,
@@ -24,11 +25,15 @@ import type { VendorRegistrationType } from '../models/vendor.model';
 import type { SalesPartyRegistrationType } from '../models/sales-party.model';
 import { driverProfileFromMapped } from '../utils/driver-license';
 
-const ENTITY_KYC_TABLES: Record<'vendor' | 'broker' | 'transporter' | 'sales_party', string> = {
+const ENTITY_KYC_TABLES: Record<
+  'vendor' | 'broker' | 'transporter' | 'sales_party' | 'salesman',
+  string
+> = {
   vendor: 'vendors',
   broker: 'brokers',
   transporter: 'transporters',
   sales_party: 'sales_parties',
+  salesman: 'salesmen',
 };
 
 function entityKycKeyForVerification(
@@ -77,7 +82,7 @@ function vehicleKeyForVerification(
 
 export class KycPersistenceService {
   static async saveEntityVerification<TMapped>(
-    entityType: 'vendor' | 'broker' | 'transporter' | 'sales_party',
+    entityType: 'vendor' | 'broker' | 'transporter' | 'sales_party' | 'salesman',
     entityId: string,
     verificationKey: KycVerificationKey,
     envelope: SurepassApiEnvelope<TMapped>,
@@ -118,6 +123,9 @@ export class KycPersistenceService {
     }
     if (entityType === 'sales_party') {
       await this.syncSalesPartyVerificationStatus(entityId);
+    }
+    if (entityType === 'salesman') {
+      await this.syncSalesmanVerificationStatus(entityId);
     }
 
     logger.info('Surepass verification snapshot saved', {
@@ -310,6 +318,28 @@ export class KycPersistenceService {
        SET is_verified = $2,
            verified_at = CASE WHEN $2 THEN CURRENT_TIMESTAMP ELSE NULL END,
            is_active = $2,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1`,
+      [entityId, verified]
+    );
+  }
+
+  /** Updates is_verified only — does not gate salesman is_active (login / sauda links). */
+  static async syncSalesmanVerificationStatus(entityId: string): Promise<void> {
+    const existingResult = await db.query<{
+      kyc_verification_details: unknown;
+    }>(`SELECT kyc_verification_details FROM salesmen WHERE id = $1`, [entityId]);
+    if (existingResult.rows.length === 0) {
+      return;
+    }
+
+    const kyc = parseEntityKycDetails(existingResult.rows[0].kyc_verification_details);
+    const verified = isSalesmanKycVerified(kyc);
+
+    await db.query(
+      `UPDATE salesmen
+       SET is_verified = $2,
+           verified_at = CASE WHEN $2 THEN CURRENT_TIMESTAMP ELSE NULL END,
            updated_at = CURRENT_TIMESTAMP
        WHERE id = $1`,
       [entityId, verified]

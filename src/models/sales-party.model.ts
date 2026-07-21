@@ -12,7 +12,10 @@ import type { EntityKycVerificationDetails } from './kyc-verification.model';
 
 export type { Address, ContactPerson, BusinessDetails, BankDetails };
 
-export type SalesPartyRegistrationType = 'registered' | 'unregistered';
+export type SalesPartyRegistrationType = 'registered' | 'unregistered' | 'retail';
+
+/** Required when registration_type is retail. */
+export type SalesPartyCustomerType = 'individual' | 'small_retailer' | 'cash_customer';
 
 export interface SalesParty {
   id: string;
@@ -25,6 +28,8 @@ export interface SalesParty {
   business_details: BusinessDetails;
   aadhar_number: string | null;
   registration_type: SalesPartyRegistrationType;
+  /** Set only for retail parties. */
+  customer_type: SalesPartyCustomerType | null;
   bank_details: BankDetails | null;
   is_active: boolean;
   is_verified: boolean;
@@ -48,6 +53,8 @@ export interface CreateSalesPartyDTO {
   business_details: BusinessDetails;
   aadhar_number?: string;
   registration_type: SalesPartyRegistrationType;
+  /** Required when registration_type is retail. */
+  customer_type?: SalesPartyCustomerType | null;
   bank_details?: BankDetails;
   is_active?: boolean;
   is_verified?: boolean;
@@ -67,6 +74,7 @@ export interface UpdateSalesPartyDTO {
   business_details?: BusinessDetails;
   aadhar_number?: string;
   registration_type?: SalesPartyRegistrationType;
+  customer_type?: SalesPartyCustomerType | null;
   bank_details?: BankDetails;
   is_active?: boolean;
   is_verified?: boolean;
@@ -86,6 +94,7 @@ export interface SalesPartyResponse {
   business_details: BusinessDetails;
   aadhar_number: string | null;
   registration_type: SalesPartyRegistrationType;
+  customer_type: SalesPartyCustomerType | null;
   bank_details: BankDetails | null;
   is_active: boolean;
   is_verified: boolean;

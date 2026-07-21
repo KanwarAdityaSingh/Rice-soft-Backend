@@ -1,3 +1,4 @@
+import { PoolClient } from 'pg';
 import { db } from '../database/connection';
 import {
   SalesSaudaLine,
@@ -7,7 +8,10 @@ import {
 import { logger } from '../utils/logger';
 
 export class SalesSaudaLineDAO {
-  async findBySalesSaudaId(salesSaudaId: string): Promise<SalesSaudaLine[]> {
+  async findBySalesSaudaId(
+    salesSaudaId: string,
+    client?: PoolClient
+  ): Promise<SalesSaudaLine[]> {
     const query = `
       SELECT id, sales_sauda_id, product_id, packaging_id, packet_count, quantity, quantity_unit, rate,
              discount_value, discount_type, gst_percent, amount, discount_amount, gst_amount, final_amount, sort_order,
@@ -16,7 +20,9 @@ export class SalesSaudaLineDAO {
       WHERE sales_sauda_id = $1
       ORDER BY sort_order ASC, created_at ASC
     `;
-    const result = await db.query<SalesSaudaLine>(query, [salesSaudaId]);
+    const result = client
+      ? await client.query<SalesSaudaLine>(query, [salesSaudaId])
+      : await db.query<SalesSaudaLine>(query, [salesSaudaId]);
     return result.rows;
   }
 

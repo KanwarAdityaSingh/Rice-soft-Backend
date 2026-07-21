@@ -48,10 +48,13 @@ Finished goods inventory is **added** outside the sales module:
 
 **Location:** `src/services/invoice-dispatch.service.ts`.
 
-### 4.1 Create (No Inventory Change)
+### 4.1 Create (No Inventory Change; Reserves Sauda Qty)
 
-- Loads sales sauda (must be status `order`), loads customer vendor, copies party name/address/GST/PAN onto the dispatch.
-- Inserts `invoice_dispatches` and `invoice_dispatch_lines` from sales sauda lines.
+- Locks the sales sauda (`FOR UPDATE`), requires status `order`, loads sales party, copies party name/address/GST/PAN onto the dispatch.
+- Computes per-line remaining: `ordered − allocated(draft+confirmed) + returned(confirmed credit notes)`.
+- Optional `lines[]` (`sales_sauda_line_id` + `quantity` and/or `packet_count`); omit → full remaining per line. `packet_count` derives kg via sauda line packaging capacity. Rejects over-remaining / empty remaining.
+- Inserts `invoice_dispatches` and selected `invoice_dispatch_lines` (`amount = qty × rate`, optional `packet_count`). Draft holds reservation until delete or confirm.
+- Helper: `src/services/sales-sauda-fulfillment.ts`. Enriched on `GET /sales-saudas/:id` as `ordered` / `allocated` / `returned` / `remaining`.
 - **No** reads or writes to `finished_goods_inventory` or `inventory_ledger`.
 
 ### 4.2 Confirm – The Only Place Sales Deducts Inventory

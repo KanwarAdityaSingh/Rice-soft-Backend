@@ -16,7 +16,17 @@ export function parsePolicyDate(value: Date | string): Date {
   if (value instanceof Date) {
     return value;
   }
-  return new Date(`${value}T12:00:00.000Z`);
+  const raw = String(value).trim();
+  // Date-only YYYY-MM-DD → noon UTC (stable calendar day across timezones)
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    return new Date(`${raw}T12:00:00.000Z`);
+  }
+  // Full ISO / datetime — do not append another "T..." (that yields Invalid Date → NaN-NaN FY)
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error(`Invalid date for financial year: ${raw}`);
+  }
+  return parsed;
 }
 
 /** Indian FY start calendar year (Apr–Mar). e.g. 2026-03-15 → 2025; 2026-04-01 → 2026. */

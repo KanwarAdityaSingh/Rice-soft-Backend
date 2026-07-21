@@ -65,13 +65,58 @@ export function formatInternalInvoiceNumber(params: {
 
   // Legacy (pre 2026-27)
   if (stateAlpha === 'DL') {
-    // 2025-26/001
+    // 25-26/001
     return `${shortFy}/${String(sequence).padStart(3, '0')}`;
   }
   if (stateAlpha === 'HR') {
-    // AAPL/2025-26/1
+    // AAPL/25-26/1
     return `AAPL/${shortFy}/${sequence}`;
   }
 
   throw new Error(`No legacy invoice format for state ${stateAlpha}`);
+}
+
+export type ParsedInternalInvoiceNumber = {
+  stateAlpha: string;
+  sequence: number;
+};
+
+/**
+ * Parse sequence + state from a stored internal invoice number.
+ * Supports current and legacy formats used by formatInternalInvoiceNumber.
+ */
+export function parseInternalInvoiceNumber(
+  internalInvoiceNumber: string
+): ParsedInternalInvoiceNumber {
+  const raw = (internalInvoiceNumber || '').trim();
+
+  // A/HR/B/26-27/1
+  const modern = raw.match(/^A\/(HR|DL)\/B\/\d{2}-\d{2}\/(\d+)$/i);
+  if (modern) {
+    return { stateAlpha: modern[1].toUpperCase(), sequence: parseInt(modern[2], 10) };
+  }
+
+  // AAPL/25-26/1 (legacy Haryana)
+  const legacyHr = raw.match(/^AAPL\/\d{2}-\d{2}\/(\d+)$/i);
+  if (legacyHr) {
+    return { stateAlpha: 'HR', sequence: parseInt(legacyHr[1], 10) };
+  }
+
+  // 25-26/001 (legacy Delhi)
+  const legacyDl = raw.match(/^\d{2}-\d{2}\/(\d+)$/);
+  if (legacyDl) {
+    return { stateAlpha: 'DL', sequence: parseInt(legacyDl[1], 10) };
+  }
+
+  // Older seed variants: 2025-26/001 or AAPL/2025-26/1
+  const legacyDlLong = raw.match(/^\d{4}-\d{2}\/(\d+)$/);
+  if (legacyDlLong) {
+    return { stateAlpha: 'DL', sequence: parseInt(legacyDlLong[1], 10) };
+  }
+  const legacyHrLong = raw.match(/^AAPL\/\d{4}-\d{2}\/(\d+)$/i);
+  if (legacyHrLong) {
+    return { stateAlpha: 'HR', sequence: parseInt(legacyHrLong[1], 10) };
+  }
+
+  throw new Error(`Unrecognized internal invoice number format: ${internalInvoiceNumber}`);
 }

@@ -108,8 +108,7 @@ export const appConfig = {
       eWayBillUrl:
         process.env.MASTERS_INDIA_EWAY_BILL_URL || 'https://pro.mastersindia.co/ewayBillsGenerate',
       distanceUrl:
-        process.env.MASTERS_INDIA_DISTANCE_URL ||
-        'https://pro.mastersindia.co/ewayBillDistance',
+        process.env.MASTERS_INDIA_DISTANCE_URL || 'https://pro.mastersindia.co/distance',
       sellerGstin: (process.env.MASTERS_INDIA_SELLER_GSTIN || '').trim().toUpperCase(),
       defaultHsnCode: process.env.MASTERS_INDIA_DEFAULT_HSN_CODE || '100630',
       notificationEmail:
@@ -167,6 +166,7 @@ export const appConfig = {
       purchaseBillsFolder: process.env.AWS_S3_PURCHASE_BILLS_FOLDER || 'purchase-bills',
       transportationBillsFolder: process.env.AWS_S3_TRANSPORTATION_BILLS_FOLDER || 'transportation-bills',
       biltiFolder: process.env.AWS_S3_BILTI_FOLDER || 'bilti',
+      receivingDocFolder: process.env.AWS_S3_RECEIVING_DOC_FOLDER || 'receiving-docs',
       ewayBillsFolder: process.env.AWS_S3_EWAY_BILLS_FOLDER || 'eway-bills',
       paymentSlipsFolder: process.env.AWS_S3_PAYMENT_SLIPS_FOLDER || 'payment-slips',
       riceImagesFolder: process.env.AWS_S3_RICE_IMAGES_FOLDER || 'rice-images',
@@ -202,6 +202,20 @@ export const appConfig = {
     expiryCronMs: parseInt(process.env.COUPON_EXPIRY_CRON_MS || '86400000', 10),
     /** When false, skip Kaleyra SMS for public coupon OTP (OTP still stored in DB). */
     publicSmsEnabled: process.env.COUPON_PUBLIC_SMS_ENABLED !== 'false',
+    /**
+     * Fixed OTP for allowlisted tester phones (default 996806).
+     * Set COUPON_PUBLIC_FIXED_OTP= (empty) to disable. Dev: all phones if allowlist empty.
+     */
+    publicFixedOtp: (process.env.COUPON_PUBLIC_FIXED_OTP ?? '996806').trim(),
+    /**
+     * Phones that receive publicFixedOtp (defaults below).
+     * Set COUPON_PUBLIC_FIXED_OTP_PHONES= (empty) for all phones in non-prod.
+     * Production requires a non-empty allowlist when fixed OTP is enabled.
+     */
+    publicFixedOtpPhones: (process.env.COUPON_PUBLIC_FIXED_OTP_PHONES ?? '7050421216,8708190168')
+      .split(',')
+      .map((p) => p.replace(/\D/g, ''))
+      .filter((p) => p.length === 10),
   },
 
   razorpay: {
@@ -214,5 +228,23 @@ export const appConfig = {
 
 export const isDevelopment = appConfig.env === 'development';
 export const isProduction = appConfig.env === 'production';
+
+/** Fail fast if unsafe public OTP settings are used in production. */
+export function assertSafePublicOtpConfig(): void {
+  const { publicFixedOtp, publicFixedOtpPhones } = appConfig.coupons;
+  if (!publicFixedOtp) {
+    return;
+  }
+
+  if (!/^\d{6}$/.test(publicFixedOtp)) {
+    throw new Error('COUPON_PUBLIC_FIXED_OTP must be exactly 6 digits when set.');
+  }
+
+  if (isProduction && publicFixedOtpPhones.length === 0) {
+    throw new Error(
+      'COUPON_PUBLIC_FIXED_OTP is not allowed in production without COUPON_PUBLIC_FIXED_OTP_PHONES (comma-separated 10-digit tester numbers).'
+    );
+  }
+}
 
 

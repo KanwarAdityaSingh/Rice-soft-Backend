@@ -8,6 +8,9 @@ import {
   NON_BASMATI_VARIANT_VALUES,
   RICE_CATEGORY_VALUES,
 } from '../constants/rice-categories';
+import {
+  SALESMAN_COMMISSION_TYPES,
+} from '../constants/salesman-commission-types';
 import { normalizeDriverDobForSurepass } from './driver-license';
 
 export const validate = <T>(schema: Joi.Schema, data: any): T => {
@@ -75,21 +78,6 @@ export const updateUserSchema = Joi.object({
 
 // UUID validation
 export const uuidSchema = Joi.string().uuid();
-
-// Salesman validation schemas
-export const createSalesmanSchema = Joi.object({
-  name: Joi.string().required().min(2).max(255),
-  phone: Joi.string().required().max(20),
-  email: Joi.string().optional().allow(null, '').email(),
-  is_active: Joi.boolean().optional(),
-});
-
-export const updateSalesmanSchema = Joi.object({
-  name: Joi.string().optional().min(2).max(255),
-  phone: Joi.string().optional().max(20),
-  email: Joi.string().optional().email(),
-  is_active: Joi.boolean().optional(),
-}).min(1);
 
 // Address validation schema (reusable)
 export const addressSchema = Joi.object({
@@ -234,6 +222,98 @@ export const vehicleVerificationDetailsSchema = Joi.object({
   rc_challan: surepassVerificationSnapshotSchema.optional(),
 }).optional();
 
+// Salesman / Salesperson Master validation schemas
+const salesmanAadharSchema = Joi.string()
+  .optional()
+  .allow(null, '')
+  .length(12)
+  .pattern(/^[0-9]{12}$/);
+
+const salesmanPanSchema = Joi.string()
+  .optional()
+  .allow(null, '')
+  .length(10)
+  .uppercase()
+  .pattern(/^[A-Z]{5}[0-9]{4}[A-Z]$/);
+
+export const createSalesmanSchema = Joi.object({
+  name: Joi.string().required().min(2).max(255),
+  phone: Joi.string().required().max(20),
+  alternate_phone: Joi.string().optional().allow(null, '').max(20),
+  email: Joi.string().optional().allow(null, '').email(),
+  date_of_birth: Joi.string().optional().allow(null, '').isoDate(),
+  date_of_joining: Joi.string().optional().allow(null, '').isoDate(),
+  designation: Joi.string().optional().allow(null, '').max(100),
+  aadhar_number: salesmanAadharSchema,
+  pan_number: salesmanPanSchema,
+  address: addressSchema.optional(),
+  bank_details: Joi.when('verify_bank', {
+    is: true,
+    then: bankDetailsForVerifySchema.required(),
+    otherwise: bankDetailsSchema.optional(),
+  }),
+  verify_bank: Joi.boolean().optional(),
+  kyc_verification_details: kycVerificationDetailsSchema,
+  salary_type: Joi.string().optional().allow(null).valid('monthly'),
+  basic_salary: Joi.number().optional().allow(null).min(0),
+  salary_effective_from: Joi.string().optional().allow(null, '').isoDate(),
+  commission_types: Joi.array()
+    .items(Joi.string().valid(...SALESMAN_COMMISSION_TYPES))
+    .unique()
+    .optional(),
+  assigned_areas: Joi.array()
+    .items(
+      Joi.object({
+        state: Joi.string().optional().allow(null, '').max(100),
+        district: Joi.string().optional().allow(null, '').max(100),
+        city: Joi.string().optional().allow(null, '').max(100),
+        territory: Joi.string().optional().allow(null, '').max(150),
+      }).or('state', 'district', 'city', 'territory')
+    )
+    .optional(),
+  allocated_sales_party_ids: Joi.array().items(Joi.string().uuid()).unique().optional(),
+  is_active: Joi.boolean().optional(),
+});
+
+export const updateSalesmanSchema = Joi.object({
+  name: Joi.string().optional().min(2).max(255),
+  phone: Joi.string().optional().max(20),
+  alternate_phone: Joi.string().optional().allow(null, '').max(20),
+  email: Joi.string().optional().allow(null, '').email(),
+  date_of_birth: Joi.string().optional().allow(null, '').isoDate(),
+  date_of_joining: Joi.string().optional().allow(null, '').isoDate(),
+  designation: Joi.string().optional().allow(null, '').max(100),
+  aadhar_number: salesmanAadharSchema,
+  pan_number: salesmanPanSchema,
+  address: addressSchema.optional(),
+  bank_details: Joi.when('verify_bank', {
+    is: true,
+    then: bankDetailsForVerifySchema.required(),
+    otherwise: bankDetailsSchema.optional(),
+  }),
+  verify_bank: Joi.boolean().optional(),
+  kyc_verification_details: kycVerificationDetailsSchema,
+  salary_type: Joi.string().optional().allow(null).valid('monthly'),
+  basic_salary: Joi.number().optional().allow(null).min(0),
+  salary_effective_from: Joi.string().optional().allow(null, '').isoDate(),
+  commission_types: Joi.array()
+    .items(Joi.string().valid(...SALESMAN_COMMISSION_TYPES))
+    .unique()
+    .optional(),
+  assigned_areas: Joi.array()
+    .items(
+      Joi.object({
+        state: Joi.string().optional().allow(null, '').max(100),
+        district: Joi.string().optional().allow(null, '').max(100),
+        city: Joi.string().optional().allow(null, '').max(100),
+        territory: Joi.string().optional().allow(null, '').max(150),
+      }).or('state', 'district', 'city', 'territory')
+    )
+    .optional(),
+  allocated_sales_party_ids: Joi.array().items(Joi.string().uuid()).unique().optional(),
+  is_active: Joi.boolean().optional(),
+}).min(1);
+
 export const createVendorSchema = Joi.object({
   business_name: Joi.string().required().min(2).max(255),
   contact_persons: Joi.array().items(
@@ -295,9 +375,13 @@ export const updateVendorSchema = Joi.object({
 })
   .min(1);
 
+const salesPartyCustomerTypeSchema = Joi.string()
+  .valid('individual', 'small_retailer', 'cash_customer');
+
 function validateSalesPartyRegistrationFields(
   value: {
     registration_type?: string;
+    customer_type?: string | null;
     business_details?: { pan_number?: string; gst_number?: string };
     aadhar_number?: string;
   },
@@ -306,6 +390,15 @@ function validateSalesPartyRegistrationFields(
   const registrationType = value.registration_type;
   if (!registrationType) {
     return value;
+  }
+
+  // Retail: no GST/PAN/Aadhaar; customer_type required on create via Joi.when.
+  if (registrationType === 'retail') {
+    return value;
+  }
+
+  if (value.customer_type) {
+    return helpers.error('custom.salesPartyCustomerTypeNotAllowed');
   }
 
   const hasPan = Boolean(value.business_details?.pan_number?.trim());
@@ -323,6 +416,14 @@ function validateSalesPartyRegistrationFields(
   return value;
 }
 
+const salesPartyRegistrationMessages = {
+  'custom.salesPartyGstOrPanRequired':
+    'Registered sales parties require GST or PAN in business_details',
+  'custom.salesPartyAadharRequired': 'Unregistered sales parties require aadhar_number',
+  'custom.salesPartyCustomerTypeNotAllowed':
+    'customer_type is only allowed when registration_type is retail',
+};
+
 // Sales Party validation schemas (no type — sales parties are always buyers)
 export const createSalesPartySchema = Joi.object({
   business_name: Joi.string().required().min(2).max(255),
@@ -336,7 +437,12 @@ export const createSalesPartySchema = Joi.object({
   address: addressSchema.required(),
   business_details: businessDetailsSchema.required(),
   aadhar_number: vendorAadharSchema,
-  registration_type: Joi.string().required().valid('registered', 'unregistered'),
+  registration_type: Joi.string().required().valid('registered', 'unregistered', 'retail'),
+  customer_type: Joi.when('registration_type', {
+    is: 'retail',
+    then: salesPartyCustomerTypeSchema.required(),
+    otherwise: salesPartyCustomerTypeSchema.optional().allow(null),
+  }),
   bank_details: bankDetailsSchema.optional(),
   is_active: Joi.boolean().optional(),
   is_verified: Joi.boolean().optional(),
@@ -345,11 +451,7 @@ export const createSalesPartySchema = Joi.object({
   kyc_verification_details: kycVerificationDetailsSchema,
 })
   .custom(validateSalesPartyRegistrationFields)
-  .messages({
-    'custom.salesPartyGstOrPanRequired':
-      'Registered sales parties require GST or PAN in business_details',
-    'custom.salesPartyAadharRequired': 'Unregistered sales parties require aadhar_number',
-  });
+  .messages(salesPartyRegistrationMessages);
 
 export const updateSalesPartySchema = Joi.object({
   business_name: Joi.string().optional().min(2).max(255),
@@ -363,7 +465,8 @@ export const updateSalesPartySchema = Joi.object({
   address: addressSchema.optional(),
   business_details: businessDetailsSchema.optional(),
   aadhar_number: vendorAadharSchema,
-  registration_type: Joi.string().optional().valid('registered', 'unregistered'),
+  registration_type: Joi.string().optional().valid('registered', 'unregistered', 'retail'),
+  customer_type: salesPartyCustomerTypeSchema.optional().allow(null),
   bank_details: bankDetailsSchema.optional(),
   is_active: Joi.boolean().optional(),
   is_verified: Joi.boolean().optional(),
@@ -372,11 +475,7 @@ export const updateSalesPartySchema = Joi.object({
   kyc_verification_details: kycVerificationDetailsSchema,
 })
   .custom(validateSalesPartyRegistrationFields)
-  .messages({
-    'custom.salesPartyGstOrPanRequired':
-      'Registered sales parties require GST or PAN in business_details',
-    'custom.salesPartyAadharRequired': 'Unregistered sales parties require aadhar_number',
-  })
+  .messages(salesPartyRegistrationMessages)
   .min(1);
 
 // Broker details validation schema
@@ -758,11 +857,20 @@ const salesSaudaLineItemSchema = Joi.object({
 }).or('quantity', 'packet_count');
 
 export const createSalesSaudaSchema = Joi.object({
-  sales_party_id: Joi.string().required().uuid(),
+  /** Optional for godown_transfer — server resolves from to_godown_id */
+  sales_party_id: Joi.string().optional().uuid(),
   salesman_id: Joi.string().optional().uuid().allow(null),
+  salesman_commission_type: Joi.string()
+    .optional()
+    .allow(null)
+    .valid(...SALESMAN_COMMISSION_TYPES),
+  salesman_commission_config: Joi.object().optional().allow(null),
   sauda_type: Joi.string()
     .required()
     .valid(...SALES_SAUDA_TYPES),
+  movement_type: Joi.string().optional().valid('sale', 'godown_transfer').default('sale'),
+  from_godown_id: Joi.string().optional().uuid().allow(null),
+  to_godown_id: Joi.string().optional().uuid().allow(null),
   status: Joi.string().optional().valid('draft', 'order', 'cancelled').default('draft'),
   sauda_date: Joi.string().optional().allow(null, '').isoDate(),
   billing_address: addressSchema.optional().allow(null),
@@ -773,14 +881,54 @@ export const createSalesSaudaSchema = Joi.object({
   total_amount: Joi.any().forbidden(),
   lines: Joi.array().items(salesSaudaLineItemSchema).optional().min(0),
   created_by: Joi.string().optional().uuid(),
-});
+})
+  .and('salesman_commission_type', 'salesman_commission_config')
+  .custom((value, helpers) => {
+    const movement = value.movement_type ?? 'sale';
+    if (movement === 'sale') {
+      if (!value.sales_party_id) {
+        return helpers.error('any.custom', { message: 'sales_party_id is required for sale' });
+      }
+      if (value.from_godown_id || value.to_godown_id) {
+        return helpers.error('any.custom', {
+          message: 'from_godown_id and to_godown_id are only allowed for godown_transfer',
+        });
+      }
+    } else if (movement === 'godown_transfer') {
+      if (!value.from_godown_id || !value.to_godown_id) {
+        return helpers.error('any.custom', {
+          message: 'from_godown_id and to_godown_id are required for godown_transfer',
+        });
+      }
+      if (value.from_godown_id === value.to_godown_id) {
+        return helpers.error('any.custom', {
+          message: 'from_godown_id and to_godown_id must be different',
+        });
+      }
+      if (value.salesman_commission_type != null || value.salesman_commission_config != null) {
+        return helpers.error('any.custom', {
+          message: 'Commission is not allowed for godown_transfer',
+        });
+      }
+    }
+    return value;
+  })
+  .messages({ 'any.custom': '{{#message}}' });
 
 export const updateSalesSaudaSchema = Joi.object({
   sales_party_id: Joi.string().optional().uuid(),
   salesman_id: Joi.string().optional().uuid().allow(null),
+  salesman_commission_type: Joi.string()
+    .optional()
+    .allow(null)
+    .valid(...SALESMAN_COMMISSION_TYPES),
+  salesman_commission_config: Joi.object().optional().allow(null),
   sauda_type: Joi.string()
     .optional()
     .valid(...SALES_SAUDA_TYPES),
+  movement_type: Joi.string().optional().valid('sale', 'godown_transfer'),
+  from_godown_id: Joi.string().optional().uuid().allow(null),
+  to_godown_id: Joi.string().optional().uuid().allow(null),
   status: Joi.string().optional().valid('draft', 'order', 'cancelled'),
   sauda_date: Joi.string().optional().allow(null, '').isoDate(),
   billing_address: addressSchema.optional().allow(null),
@@ -791,12 +939,20 @@ export const updateSalesSaudaSchema = Joi.object({
   total_amount: Joi.any().forbidden(),
   lines: Joi.array().items(salesSaudaLineItemSchema).optional(),
   updated_by: Joi.string().optional().uuid(),
-}).min(1);
+})
+  .and('salesman_commission_type', 'salesman_commission_config')
+  .min(1);
 
 // Invoice Dispatch validation schemas
 export const createInvoiceDispatchSchema = Joi.object({
   sales_sauda_id: Joi.string().required().uuid(),
+  /** Fulfillment / from godown (for godown_transfer must match sauda.from_godown_id) */
   godown_id: Joi.string().required().uuid(),
+  /**
+   * Optional for godown_transfer; if sent must match sauda.to_godown_id.
+   * Server always sets destination from the sauda when movement_type is godown_transfer.
+   */
+  to_godown_id: Joi.string().optional().uuid().allow(null),
   /** Auto-generated from godown GST state + FY; clients must not send */
   internal_invoice_number: Joi.forbidden(),
   dispatch_date: Joi.string().optional().allow(null, '').isoDate(),
@@ -808,7 +964,38 @@ export const createInvoiceDispatchSchema = Joi.object({
   distance_km: Joi.number().optional().min(0).allow(null),
   route_description: Joi.string().optional().allow(null, '').max(1000),
   usp: Joi.string().optional().allow(null, '').max(2000),
+  /**
+   * Optional partial dispatch lines. Omit to dispatch full remaining qty per sauda line.
+   * Product/rate/packaging come from the sauda line.
+   * Send quantity (kg) and/or packet_count (bags); packet_count derives qty via packaging capacity.
+   */
+  lines: Joi.array()
+    .items(
+      Joi.object({
+        sales_sauda_line_id: Joi.string().required().uuid(),
+        quantity: Joi.number().positive().optional(),
+        packet_count: Joi.number().integer().positive().optional(),
+      }).or('quantity', 'packet_count')
+    )
+    .min(1)
+    .optional(),
 });
+
+/** Body for PUT /invoice-dispatches/:id — any status; sauda/godown/invoice number/status/lines locked */
+export const updateInvoiceDispatchSchema = Joi.object({
+  sales_sauda_id: Joi.forbidden(),
+  godown_id: Joi.forbidden(),
+  internal_invoice_number: Joi.forbidden(),
+  status: Joi.forbidden(),
+  dispatch_date: Joi.string().optional().allow(null, '').isoDate(),
+  transporter_id: Joi.string().optional().uuid().allow(null),
+  vehicle_id: Joi.string().optional().uuid().allow(null),
+  lr_number: Joi.string().optional().allow(null, '').trim().max(100),
+  transportation_cost: Joi.number().optional().min(0).precision(2).allow(null),
+  distance_km: Joi.number().optional().min(0).allow(null),
+  route_description: Joi.string().optional().allow(null, '').max(1000),
+  usp: Joi.string().optional().allow(null, '').max(2000),
+}).min(1);
 
 /** Body for POST /invoice-dispatches/:id/e-way-bill */
 export const generateEWayBillSchema = Joi.object({

@@ -3,20 +3,26 @@ import { salesSaudaService } from '../services/sales-sauda.service';
 import { ResponseHandler } from '../utils/response';
 import { validate, createSalesSaudaSchema, updateSalesSaudaSchema, uuidSchema } from '../utils/validators';
 import { AuthRequest } from '../middleware/auth.middleware';
-import { SalesSaudaStatus, SalesSaudaType } from '../models/sales-sauda.model';
+import { SalesSaudaStatus, SalesSaudaType, SalesMovementType } from '../models/sales-sauda.model';
 import type { Address } from '../models/vendor.model';
 import { formatSaudaDisplayId } from '../utils/sauda-display';
 import { SalesSaudaLine } from '../models/sales-sauda-line.model';
 import { SALES_SAUDA_TYPE_OPTIONS } from '../constants/sales-sauda-types';
 
-function formatLine(line: SalesSaudaLine) {
+function formatLine(line: SalesSaudaLine & {
+  ordered?: number;
+  allocated?: number;
+  returned?: number;
+  remaining?: number;
+}) {
+  const quantity = parseFloat(line.quantity.toString());
   return {
     id: line.id,
     sales_sauda_id: line.sales_sauda_id,
     product_id: line.product_id,
     packaging_id: line.packaging_id,
     packet_count: line.packet_count != null ? parseInt(line.packet_count.toString(), 10) : null,
-    quantity: parseFloat(line.quantity.toString()),
+    quantity,
     quantity_unit: line.quantity_unit,
     rate: parseFloat(line.rate.toString()),
     discount_value: parseFloat(line.discount_value.toString()),
@@ -27,6 +33,13 @@ function formatLine(line: SalesSaudaLine) {
     gst_amount: parseFloat(line.gst_amount.toString()),
     final_amount: parseFloat(line.final_amount.toString()),
     sort_order: line.sort_order,
+    ordered: line.ordered != null ? parseFloat(line.ordered.toString()) : quantity,
+    allocated: line.allocated != null ? parseFloat(line.allocated.toString()) : 0,
+    returned: line.returned != null ? parseFloat(line.returned.toString()) : 0,
+    remaining:
+      line.remaining != null
+        ? parseFloat(line.remaining.toString())
+        : quantity,
     created_at: line.created_at instanceof Date ? line.created_at.toISOString() : line.created_at,
     updated_at: line.updated_at instanceof Date ? line.updated_at.toISOString() : line.updated_at,
   };
@@ -39,7 +52,16 @@ function formatSauda(sauda: any) {
     sales_party_id: sauda.sales_party_id,
     salesman_id: sauda.salesman_id ?? null,
     salesman_name: sauda.salesman_name ?? null,
+    salesman_commission_type: sauda.salesman_commission_type ?? null,
+    salesman_commission_config: sauda.salesman_commission_config ?? null,
+    salesman_commission_preview:
+      sauda.salesman_commission_preview != null
+        ? Number(sauda.salesman_commission_preview)
+        : null,
     sauda_type: sauda.sauda_type ?? null,
+    movement_type: sauda.movement_type ?? 'sale',
+    from_godown_id: sauda.from_godown_id ?? null,
+    to_godown_id: sauda.to_godown_id ?? null,
     status: sauda.status,
     order_number: sauda.order_number,
     sauda_date: typeof sauda.sauda_date === 'string' ? sauda.sauda_date : (sauda.sauda_date?.toISOString?.()?.split('T')[0] ?? null),
@@ -69,7 +91,12 @@ export class SalesSaudaController {
       const salesPartyId = req.query.sales_party_id as string | undefined;
       const status = (req.query.status as string | undefined) as SalesSaudaStatus | undefined;
       const financialYear = req.query.financial_year as string | undefined;
-      const list = await salesSaudaService.list(salesPartyId, status, financialYear);
+      const movementRaw = req.query.movement_type as string | undefined;
+      let movementType: SalesMovementType | 'all' | undefined;
+      if (movementRaw === 'all' || movementRaw === 'sale' || movementRaw === 'godown_transfer') {
+        movementType = movementRaw;
+      }
+      const list = await salesSaudaService.list(salesPartyId, status, financialYear, movementType);
       const data = list.map((s) => formatSauda({ ...s, lines: [] }));
       return ResponseHandler.success(res, data);
     } catch (error) {
@@ -89,13 +116,45 @@ export class SalesSaudaController {
 
   async create(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const body = validate<{ sales_party_id: string; salesman_id?: string | null; sauda_type: SalesSaudaType; status?: string; sauda_date?: string; billing_address?: Address | null; delivery_address?: Address | null; notes?: string; payment_terms?: number | null; lines?: Array<{ product_id: string; packaging_id?: string; packet_count?: number; quantity?: number; quantity_unit?: string; rate: number; discount_value?: number; discount_type?: 'per_kg' | 'percentage'; gst_percent?: number; sort_order?: number }> }>(createSalesSaudaSchema, req.body);
+      const body = validate<{
+        sales_party_id?: string;
+        salesman_id?: string | null;
+        salesman_commission_type?: string | null;
+        salesman_commission_config?: Record<string, unknown> | null;
+        sauda_type: SalesSaudaType;
+        movement_type?: SalesMovementType;
+        from_godown_id?: string | null;
+        to_godown_id?: string | null;
+        status?: string;
+        sauda_date?: string;
+        billing_address?: Address | null;
+        delivery_address?: Address | null;
+        notes?: string;
+        payment_terms?: number | null;
+        lines?: Array<{
+          product_id: string;
+          packaging_id?: string;
+          packet_count?: number;
+          quantity?: number;
+          quantity_unit?: string;
+          rate: number;
+          discount_value?: number;
+          discount_type?: 'per_kg' | 'percentage';
+          gst_percent?: number;
+          sort_order?: number;
+        }>;
+      }>(createSalesSaudaSchema, req.body);
       const userId = req.user?.userId;
       const sauda = await salesSaudaService.create(
         {
           sales_party_id: body.sales_party_id,
           salesman_id: body.salesman_id,
+          salesman_commission_type: body.salesman_commission_type as any,
+          salesman_commission_config: body.salesman_commission_config as any,
           sauda_type: body.sauda_type,
+          movement_type: body.movement_type,
+          from_godown_id: body.from_godown_id,
+          to_godown_id: body.to_godown_id,
           status: body.status as SalesSaudaStatus | undefined,
           sauda_date: body.sauda_date,
           billing_address: body.billing_address,
@@ -115,14 +174,46 @@ export class SalesSaudaController {
   async update(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const id = validate<string>(uuidSchema, req.params.id);
-      const body = validate<{ sales_party_id?: string; salesman_id?: string | null; sauda_type?: SalesSaudaType; status?: string; sauda_date?: string; billing_address?: Address | null; delivery_address?: Address | null; notes?: string; payment_terms?: number | null; lines?: Array<{ product_id: string; packaging_id?: string; packet_count?: number; quantity?: number; quantity_unit?: string; rate: number; discount_value?: number; discount_type?: 'per_kg' | 'percentage'; gst_percent?: number; sort_order?: number }> }>(updateSalesSaudaSchema, req.body);
+      const body = validate<{
+        sales_party_id?: string;
+        salesman_id?: string | null;
+        salesman_commission_type?: string | null;
+        salesman_commission_config?: Record<string, unknown> | null;
+        sauda_type?: SalesSaudaType;
+        movement_type?: SalesMovementType;
+        from_godown_id?: string | null;
+        to_godown_id?: string | null;
+        status?: string;
+        sauda_date?: string;
+        billing_address?: Address | null;
+        delivery_address?: Address | null;
+        notes?: string;
+        payment_terms?: number | null;
+        lines?: Array<{
+          product_id: string;
+          packaging_id?: string;
+          packet_count?: number;
+          quantity?: number;
+          quantity_unit?: string;
+          rate: number;
+          discount_value?: number;
+          discount_type?: 'per_kg' | 'percentage';
+          gst_percent?: number;
+          sort_order?: number;
+        }>;
+      }>(updateSalesSaudaSchema, req.body);
       const userId = req.user?.userId;
       const sauda = await salesSaudaService.update(
         id,
         {
           sales_party_id: body.sales_party_id,
           salesman_id: body.salesman_id,
+          salesman_commission_type: body.salesman_commission_type as any,
+          salesman_commission_config: body.salesman_commission_config as any,
           sauda_type: body.sauda_type,
+          movement_type: body.movement_type,
+          from_godown_id: body.from_godown_id,
+          to_godown_id: body.to_godown_id,
           status: body.status as SalesSaudaStatus | undefined,
           sauda_date: body.sauda_date,
           billing_address: body.billing_address,

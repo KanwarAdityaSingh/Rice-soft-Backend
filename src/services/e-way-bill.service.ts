@@ -1,11 +1,48 @@
+import { resolveGstStateCode, resolveGstStateName } from '../constants/gst-state-codes';
 import { eWayBillDAO } from '../dao/e-way-bill.dao';
 import { invoiceDispatchDAO } from '../dao/invoice-dispatch.dao';
+import type { Address, ContactPerson } from '../models/vendor.model';
 import { BadRequestError, ConflictError, NotFoundError } from '../utils/errors';
 import { mastersIndiaApiService } from './masters-india-api.service';
 import {
   buildEWayBillPayload,
   loadSalesDocumentContext,
+  type SalesDocumentContext,
 } from './masters-india-sales-document.service';
+
+function primaryPhone(contacts: ContactPerson[] | null | undefined, fallback?: string | null): string | null {
+  const fromContacts = contacts?.[0]?.phones?.[0]?.replace(/\D/g, '').slice(-10);
+  if (fromContacts) return fromContacts;
+  const fromFallback = (fallback || '').replace(/\D/g, '').slice(-10);
+  return fromFallback || null;
+}
+
+function primaryEmail(contacts: ContactPerson[] | null | undefined, fallback?: string | null): string | null {
+  const fromContacts = contacts?.[0]?.emails?.[0]?.trim();
+  if (fromContacts) return fromContacts;
+  const fromFallback = (fallback || '').trim();
+  return fromFallback || null;
+}
+
+function mapPreviewAddress(addr: Address) {
+  return {
+    street: addr.street || '',
+    city: addr.city || '',
+    state: addr.state || '',
+    state_code: resolveGstStateCode(addr.state, null),
+    state_name: resolveGstStateName(addr.state, null),
+    pincode: (addr.pincode || '').replace(/\D/g, '').slice(0, 6),
+    country: addr.country || 'India',
+  };
+}
+
+type EWayBillGenerateInput = {
+  vehicle_number?: string;
+  distance_km?: number;
+  route?: string;
+  transporter_id?: string;
+  lr_number?: string | null;
+};
 
 type EWayBillPayload = {
   id: string;
@@ -19,6 +56,104 @@ type EWayBillPayload = {
   payload: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
+};
+
+export type EWayBillPreview = {
+  dispatch_id: string;
+  already_generated: boolean;
+  existing_eway_bill_number: string | null;
+  document_number: string;
+  document_type: string;
+  document_date: string;
+  vehicle_number: string;
+  distance_km: number | null;
+  distance_source: 'request' | 'dispatch' | 'masters_india' | 'unavailable';
+  /** Set when MastersIndia distance lookup failed during preview (preview still succeeds). */
+  distance_error: string | null;
+  route: string | null;
+  lr_number: string | null;
+  transporter: {
+    id: string | null;
+    name: string | null;
+    gst_number: string | null;
+  };
+  /** Ship-from (godown) */
+  consignor: {
+    id: string;
+    gstin: string;
+    name: string;
+    pincode: string;
+    place: string;
+    state: string;
+    state_code: string | null;
+    state_name: string;
+    address: {
+      street: string;
+      city: string;
+      state: string;
+      state_code: string | null;
+      state_name: string;
+      pincode: string;
+      country: string;
+    };
+    phone: string | null;
+    email: string | null;
+    contact_persons: ContactPerson[];
+    google_maps_link: string | null;
+  };
+  /** Ship-to (sales party / delivery) */
+  consignee: {
+    id: string;
+    gstin: string;
+    name: string;
+    pincode: string;
+    place: string;
+    state: string;
+    state_code: string | null;
+    state_name: string;
+    address: {
+      street: string;
+      city: string;
+      state: string;
+      state_code: string | null;
+      state_name: string;
+      pincode: string;
+      country: string;
+    };
+    /** Master / billing address when different from ship-to */
+    billing_address: {
+      street: string;
+      city: string;
+      state: string;
+      state_code: string | null;
+      state_name: string;
+      pincode: string;
+      country: string;
+    };
+    phone: string | null;
+    email: string | null;
+    pan_number: string | null;
+    registration_type: string;
+    contact_persons: ContactPerson[];
+    google_location_link: string | null;
+  };
+  totals: {
+    taxable: number;
+    cgst: number;
+    sgst: number;
+    igst: number;
+    invoice_value: number;
+  };
+  items: Array<{
+    product_name: string;
+    hsn_code: string;
+    quantity: number;
+    unit: string;
+    bags: number | null;
+    taxable_amount: number;
+  }>;
+  /** Exact JSON that POST .../e-way-bill will send to MastersIndia */
+  masters_india_payload: Record<string, unknown>;
 };
 
 function mapRow(row: Awaited<ReturnType<typeof eWayBillDAO.create>>): EWayBillPayload {
@@ -37,46 +172,203 @@ function mapRow(row: Awaited<ReturnType<typeof eWayBillDAO.create>>): EWayBillPa
   };
 }
 
+type PreparedEWayBill = {
+  dispatch: NonNullable<Awaited<ReturnType<typeof invoiceDispatchDAO.findById>>>;
+  ctx: SalesDocumentContext;
+  distanceKm: number | null;
+  distanceSource: 'request' | 'dispatch' | 'masters_india' | 'unavailable';
+  distanceError: string | null;
+  route: string | null;
+  lrNumber: string | null;
+  transporterId: string | null;
+  requestPayload: Record<string, unknown>;
+};
+
 export class EWayBillService {
   async getByInvoiceDispatchId(invoiceDispatchId: string): Promise<EWayBillPayload[]> {
     const rows = await eWayBillDAO.findByInvoiceDispatchId(invoiceDispatchId);
     return rows.map(mapRow);
   }
 
+  /**
+   * Build the MastersIndia e-way bill request for confirmation UI.
+   * Calls the distance API when distance is not provided; does not generate or persist.
+   * Distance API failures do not block preview — FE can enter distance manually.
+   */
+  async previewForDispatch(
+    invoiceDispatchId: string,
+    data: EWayBillGenerateInput
+  ): Promise<EWayBillPreview> {
+    const existingRows = await eWayBillDAO.findByInvoiceDispatchId(invoiceDispatchId);
+    const existing = existingRows[0] ?? null;
+
+    const prepared = await this.prepareForDispatch(invoiceDispatchId, data, {
+      persistLrOverride: false,
+      allowDistanceFailure: true,
+    });
+
+    const {
+      ctx,
+      distanceKm,
+      distanceSource,
+      distanceError,
+      route,
+      lrNumber,
+      transporterId,
+      requestPayload,
+    } = prepared;
+
+    const consignorAddress = mapPreviewAddress(ctx.shipFromAddress);
+    const consigneeAddress = mapPreviewAddress(ctx.shipToAddress);
+    const billingAddress = mapPreviewAddress(ctx.billToAddress);
+
+    return {
+      dispatch_id: invoiceDispatchId,
+      already_generated: existing != null,
+      existing_eway_bill_number: existing?.eway_bill_number ?? null,
+      document_number: ctx.documentNumber,
+      document_type: String(requestPayload.document_type ?? 'Bill of Supply'),
+      document_date: ctx.documentDate,
+      vehicle_number: ctx.vehicleNumber!,
+      distance_km: distanceKm,
+      distance_source: distanceSource,
+      distance_error: distanceError,
+      route,
+      lr_number: lrNumber,
+      transporter: {
+        id: transporterId,
+        name: ctx.transporter?.business_name ?? null,
+        gst_number: ctx.transporter?.gst_number ?? null,
+      },
+      consignor: {
+        id: ctx.godown.id,
+        gstin: ctx.sellerGstin,
+        name: ctx.godown.name,
+        pincode: consignorAddress.pincode,
+        place: consignorAddress.city,
+        state: consignorAddress.state,
+        state_code: consignorAddress.state_code,
+        state_name: consignorAddress.state_name,
+        address: consignorAddress,
+        phone: primaryPhone(ctx.godown.contact_persons),
+        email: primaryEmail(ctx.godown.contact_persons),
+        contact_persons: ctx.godown.contact_persons ?? [],
+        google_maps_link: ctx.godown.google_maps_link,
+      },
+      consignee: {
+        id: ctx.salesParty.id,
+        gstin: ctx.buyerGstin,
+        name: ctx.salesParty.business_name,
+        pincode: consigneeAddress.pincode,
+        place: consigneeAddress.city,
+        state: consigneeAddress.state,
+        state_code: consigneeAddress.state_code,
+        state_name: consigneeAddress.state_name,
+        address: consigneeAddress,
+        billing_address: billingAddress,
+        phone: primaryPhone(ctx.salesParty.contact_persons, ctx.salesParty.phone),
+        email: primaryEmail(ctx.salesParty.contact_persons, ctx.salesParty.email),
+        pan_number: ctx.salesParty.business_details?.pan_number ?? null,
+        registration_type: ctx.salesParty.registration_type,
+        contact_persons: ctx.salesParty.contact_persons ?? [],
+        google_location_link: ctx.salesParty.google_location_link,
+      },
+      totals: {
+        taxable: ctx.totals.taxable,
+        cgst: ctx.totals.cgst,
+        sgst: ctx.totals.sgst,
+        igst: ctx.totals.igst,
+        invoice_value: ctx.totals.invoiceValue,
+      },
+      items: ctx.itemRows.map((item) => ({
+        product_name: item.description,
+        hsn_code: item.hsn,
+        quantity: item.quantity,
+        unit: item.unit,
+        bags: item.bags,
+        taxable_amount: item.taxableAmount,
+      })),
+      masters_india_payload: requestPayload,
+    };
+  }
+
   async generateForDispatch(
     invoiceDispatchId: string,
-    data: {
-      vehicle_number?: string;
-      distance_km?: number;
-      route?: string;
-      transporter_id?: string;
-      lr_number?: string | null;
-    }
+    data: EWayBillGenerateInput
   ): Promise<EWayBillPayload> {
+    const existingRows = await eWayBillDAO.findByInvoiceDispatchId(invoiceDispatchId);
+    if (existingRows.length > 0) {
+      return mapRow(existingRows[0]);
+    }
+
+    const prepared = await this.prepareForDispatch(invoiceDispatchId, data, {
+      persistLrOverride: true,
+      allowDistanceFailure: false,
+    });
+
+    if (prepared.distanceKm == null) {
+      throw new BadRequestError(
+        'Transportation distance is required to generate e-way bill; provide distance_km'
+      );
+    }
+
+    const responseMessage = await mastersIndiaApiService.generateEWayBill(prepared.requestPayload);
+
+    const ewayBillNo = String(
+      responseMessage.ewayBillNo || responseMessage.EwbNo || responseMessage.ewbNo || ''
+    ).trim();
+    if (!ewayBillNo) {
+      throw new ConflictError('MastersIndia e-way bill response did not include e-way bill number');
+    }
+
+    const created = await eWayBillDAO.create({
+      invoice_dispatch_id: invoiceDispatchId,
+      eway_bill_number: ewayBillNo,
+      vehicle_number: prepared.ctx.vehicleNumber!,
+      distance_km: prepared.distanceKm,
+      route: prepared.route || undefined,
+      transporter_id: prepared.transporterId || undefined,
+      payload: {
+        request: prepared.requestPayload,
+        response: responseMessage,
+        printUrl: responseMessage.url ?? responseMessage.QRCodeUrl ?? null,
+      },
+    });
+
+    return mapRow(created);
+  }
+
+  /**
+   * Shared prep for preview + generate: context, distance (incl. MastersIndia), payload.
+   * When `allowDistanceFailure` is true (preview), MastersIndia distance errors
+   * return null distance instead of failing the whole request.
+   */
+  private async prepareForDispatch(
+    invoiceDispatchId: string,
+    data: EWayBillGenerateInput,
+    options: { persistLrOverride: boolean; allowDistanceFailure: boolean }
+  ): Promise<PreparedEWayBill> {
     const dispatch = await invoiceDispatchDAO.findById(invoiceDispatchId);
     if (!dispatch) throw new NotFoundError('Invoice dispatch not found');
     if (dispatch.status !== 'confirmed') {
       throw new ConflictError('Invoice dispatch must be confirmed before generating e-way bill');
     }
 
-    const existingRows = await eWayBillDAO.findByInvoiceDispatchId(invoiceDispatchId);
-    if (existingRows.length > 0) {
-      return mapRow(existingRows[0]);
-    }
-
+    const transporterId = data.transporter_id || dispatch.transporter_id || null;
     const ctx = await loadSalesDocumentContext(invoiceDispatchId, {
       vehicle_number: data.vehicle_number,
-      transporter_id: data.transporter_id || dispatch.transporter_id || undefined,
+      transporter_id: transporterId || undefined,
     });
 
-    // Optional override of LR on generate (also persists for audit on the dispatch)
     const lrOverride =
       data.lr_number != null && String(data.lr_number).trim() !== ''
         ? String(data.lr_number).trim()
         : null;
     if (lrOverride) {
       ctx.dispatch.lr_number = lrOverride;
-      await invoiceDispatchDAO.update(invoiceDispatchId, { lr_number: lrOverride });
+      if (options.persistLrOverride) {
+        await invoiceDispatchDAO.update(invoiceDispatchId, { lr_number: lrOverride });
+      }
     }
 
     if (!ctx.vehicleNumber) {
@@ -91,40 +383,51 @@ export class EWayBillService {
       );
     }
 
-    let distanceKm = data.distance_km ?? (dispatch.distance_km != null ? Number(dispatch.distance_km) : null);
-    if (distanceKm == null || Number.isNaN(distanceKm)) {
-      distanceKm = await mastersIndiaApiService.calculateDistanceKm({
-        fromPincode: sellerPin,
-        toPincode: shipToPin,
-        userGstin: ctx.sellerGstin,
-      });
+    let distanceKm: number | null = null;
+    let distanceSource: PreparedEWayBill['distanceSource'] = 'unavailable';
+    let distanceError: string | null = null;
+
+    if (data.distance_km != null && !Number.isNaN(Number(data.distance_km))) {
+      distanceKm = Number(data.distance_km);
+      distanceSource = 'request';
+    } else if (dispatch.distance_km != null && !Number.isNaN(Number(dispatch.distance_km))) {
+      distanceKm = Number(dispatch.distance_km);
+      distanceSource = 'dispatch';
+    } else {
+      try {
+        distanceKm = await mastersIndiaApiService.calculateDistanceKm({
+          fromPincode: sellerPin,
+          toPincode: shipToPin,
+          userGstin: ctx.sellerGstin,
+        });
+        distanceSource = 'masters_india';
+      } catch (err: unknown) {
+        const message =
+          err instanceof Error ? err.message : 'Failed to calculate transportation distance';
+        if (!options.allowDistanceFailure) {
+          throw err;
+        }
+        distanceKm = null;
+        distanceSource = 'unavailable';
+        distanceError = message;
+      }
     }
 
+    const route = data.route || dispatch.route_description || null;
+    const lrNumber = ctx.dispatch.lr_number?.trim() || null;
     const requestPayload = buildEWayBillPayload(ctx, distanceKm);
-    const responseMessage = await mastersIndiaApiService.generateEWayBill(requestPayload);
 
-    const ewayBillNo = String(
-      responseMessage.ewayBillNo || responseMessage.EwbNo || responseMessage.ewbNo || ''
-    ).trim();
-    if (!ewayBillNo) {
-      throw new ConflictError('MastersIndia e-way bill response did not include e-way bill number');
-    }
-
-    const created = await eWayBillDAO.create({
-      invoice_dispatch_id: invoiceDispatchId,
-      eway_bill_number: ewayBillNo,
-      vehicle_number: ctx.vehicleNumber,
-      distance_km: distanceKm,
-      route: data.route || dispatch.route_description || undefined,
-      transporter_id: data.transporter_id || dispatch.transporter_id || undefined,
-      payload: {
-        request: requestPayload,
-        response: responseMessage,
-        printUrl: responseMessage.url ?? responseMessage.QRCodeUrl ?? null,
-      },
-    });
-
-    return mapRow(created);
+    return {
+      dispatch,
+      ctx,
+      distanceKm,
+      distanceSource,
+      distanceError,
+      route,
+      lrNumber,
+      transporterId,
+      requestPayload,
+    };
   }
 }
 

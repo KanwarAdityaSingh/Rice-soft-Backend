@@ -161,8 +161,8 @@ export class InventoryService {
         packet_type: string;
         vendor: { id: string; name: string } | null;
         finished_goods: Array<{
-          batch_id: string;
-          batch_number: string;
+          batch_id: string | null;
+          batch_number: string | null;
           quantity: number;
           packets: number;
           weight: number;

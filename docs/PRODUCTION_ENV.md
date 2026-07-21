@@ -163,7 +163,7 @@ CORS_ORIGIN=https://your-redeem-site.com,https://riceops.adhraamrit.com
 
 - Set `COUPON_PUBLIC_SMS_ENABLED=true` for real OTP SMS (requires Kaleyra vars).
 - Razorpay vars only needed if `COUPON_PAYOUT_ENABLED=true`.
-- Remove any legacy `COUPON_PUBLIC_FIXED_OTP` / `COUPON_PUBLIC_FIXED_OTP_PHONES` keys (no longer supported).
+- Prefer no fixed OTP in production. If UAT needs it, set both `COUPON_PUBLIC_FIXED_OTP` (6 digits) and `COUPON_PUBLIC_FIXED_OTP_PHONES` (comma-separated 10-digit testers) — startup fails without the allowlist.
 
 Do **not** paste your whole local `.env` over this file.
 

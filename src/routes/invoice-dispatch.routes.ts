@@ -18,11 +18,29 @@ router.post(
   auditLog('CREATE', 'invoice_dispatches'),
   invoiceDispatchController.create.bind(invoiceDispatchController)
 );
+router.put(
+  '/:id',
+  authenticate,
+  auditLog('UPDATE', 'invoice_dispatches'),
+  invoiceDispatchController.update.bind(invoiceDispatchController)
+);
+router.delete(
+  '/:id',
+  authenticate,
+  auditLog('DELETE', 'invoice_dispatches'),
+  invoiceDispatchController.delete.bind(invoiceDispatchController)
+);
 router.post(
   '/:id/confirm',
   authenticate,
   auditLog('UPDATE', 'invoice_dispatches'),
   invoiceDispatchController.confirm.bind(invoiceDispatchController)
+);
+router.post(
+  '/:id/cancel',
+  authenticate,
+  auditLog('UPDATE', 'invoice_dispatches'),
+  invoiceDispatchController.cancel.bind(invoiceDispatchController)
 );
 router.post(
   '/:id/upload-bilti',
@@ -32,10 +50,22 @@ router.post(
   invoiceDispatchController.uploadBilti.bind(invoiceDispatchController)
 );
 router.post(
+  '/:id/upload-receiving-doc',
+  authenticate,
+  documentUpload.single('file'),
+  auditLog('UPDATE', 'invoice_dispatches'),
+  invoiceDispatchController.uploadReceivingDoc.bind(invoiceDispatchController)
+);
+router.post(
   '/:id/e-invoice',
   authenticate,
   auditLog('CREATE', 'e_invoices'),
   eInvoiceController.generate.bind(eInvoiceController)
+);
+router.post(
+  '/:id/e-way-bill/preview',
+  authenticate,
+  eWayBillController.preview.bind(eWayBillController)
 );
 router.post(
   '/:id/e-way-bill',

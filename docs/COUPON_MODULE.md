@@ -448,7 +448,7 @@ POST /verifyOtp { phone, otp }
   → Returns accessToken + refreshToken
 ```
 
-In development, if Kaleyra is not configured or `COUPON_PUBLIC_SMS_ENABLED=false`, OTP is stored in DB without SMS and logged to the server console — see `docs/COUPON_PUBLIC_UI_INTEGRATION.md`.
+In development, if Kaleyra is not configured or `COUPON_PUBLIC_SMS_ENABLED=false`, OTP is stored in DB without SMS. Set `COUPON_PUBLIC_FIXED_OTP=996806` (non-production only) for a predictable test code — see `docs/COUPON_PUBLIC_UI_INTEGRATION.md`.
 
 ### Tables (Phase 5)
 
@@ -719,7 +719,7 @@ Razorpay HTTP call runs **outside** the acquire-attempt transaction (network I/O
 | Access token | 15 minutes |
 | Refresh token | 7 days |
 
-Dev: `COUPON_PUBLIC_SMS_ENABLED=false` stores OTP in DB and logs it to the console.
+Dev: `COUPON_PUBLIC_SMS_ENABLED=false` + `COUPON_PUBLIC_FIXED_OTP=996806` stores a predictable OTP (blocked in production without a phone allowlist).
 
 ---
 
@@ -867,6 +867,8 @@ COUPON_PAYOUT_WORKER_INTERVAL_MS=300000
 ```env
 # Dev / staging public portal
 COUPON_PUBLIC_SMS_ENABLED=false
+COUPON_PUBLIC_FIXED_OTP=996806
+# COUPON_PUBLIC_FIXED_OTP_PHONES=          # required in production if fixed OTP set
 COUPON_PUBLIC_RATE_LIMIT_MAX=20         # raise in test scripts
 
 # Phase 3 — off by default

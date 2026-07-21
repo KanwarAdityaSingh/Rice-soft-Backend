@@ -1,8 +1,13 @@
 import type { Address } from './vendor.model';
 import type { SalesSaudaType } from '../constants/sales-sauda-types';
+import type { SalesMovementType } from '../constants/sales-movement-types';
+import type {
+  SalesmanCommissionConfig,
+  SalesmanCommissionType,
+} from '../constants/salesman-commission-types';
 
 export type SalesSaudaStatus = 'draft' | 'order' | 'cancelled';
-export type { SalesSaudaType };
+export type { SalesSaudaType, SalesMovementType };
 
 export interface SalesSauda {
   id: string;
@@ -10,7 +15,15 @@ export interface SalesSauda {
   salesman_id: string | null;
   /** Joined from salesmen when selected */
   salesman_name?: string | null;
+  /** Applied commission type snapshot (sale only). */
+  salesman_commission_type: SalesmanCommissionType | null;
+  /** Applied commission rate values snapshot. */
+  salesman_commission_config: SalesmanCommissionConfig | null;
   sauda_type: SalesSaudaType | null;
+  /** sale (default) or godown_transfer */
+  movement_type: SalesMovementType;
+  from_godown_id: string | null;
+  to_godown_id: string | null;
   status: SalesSaudaStatus;
   order_number: string | null;
   sauda_date: Date | string | null;
@@ -28,9 +41,15 @@ export interface SalesSauda {
 }
 
 export interface CreateSalesSaudaDTO {
-  sales_party_id: string;
+  /** Required for sale; optional for godown_transfer (auto from to_godown) */
+  sales_party_id?: string;
   salesman_id?: string | null;
+  salesman_commission_type?: SalesmanCommissionType | null;
+  salesman_commission_config?: SalesmanCommissionConfig | null;
   sauda_type: SalesSaudaType;
+  movement_type?: SalesMovementType;
+  from_godown_id?: string | null;
+  to_godown_id?: string | null;
   status?: SalesSaudaStatus;
   sauda_date?: string | Date;
   financial_year?: string;
@@ -45,7 +64,12 @@ export interface CreateSalesSaudaDTO {
 export interface UpdateSalesSaudaDTO {
   sales_party_id?: string;
   salesman_id?: string | null;
+  salesman_commission_type?: SalesmanCommissionType | null;
+  salesman_commission_config?: SalesmanCommissionConfig | null;
   sauda_type?: SalesSaudaType;
+  movement_type?: SalesMovementType;
+  from_godown_id?: string | null;
+  to_godown_id?: string | null;
   status?: SalesSaudaStatus;
   order_number?: string | null;
   sauda_date?: string | Date;
@@ -65,7 +89,14 @@ export interface SalesSaudaResponse {
   sales_party_id: string;
   salesman_id: string | null;
   salesman_name: string | null;
+  salesman_commission_type: SalesmanCommissionType | null;
+  salesman_commission_config: SalesmanCommissionConfig | null;
+  /** Preview only — not persisted. */
+  salesman_commission_preview?: number | null;
   sauda_type: SalesSaudaType | null;
+  movement_type: SalesMovementType;
+  from_godown_id: string | null;
+  to_godown_id: string | null;
   status: SalesSaudaStatus;
   order_number: string | null;
   sauda_date: string | null;
