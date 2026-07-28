@@ -116,7 +116,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"March-2026-1509\",\n  \"face_value_paise\": 5000,\n  \"total_count\": 100,\n  \"expires_at\": \"2027-03-31T00:00:00.000Z\",\n  \"redeem_base_url\": \"https://redeem.yoursite.com\"\n}"
+              "raw": "{\n  \"face_value_paise\": 5000,\n  \"total_count\": 100,\n  \"expires_at\": \"2027-03-31T00:00:00.000Z\",\n  \"redeem_base_url\": \"https://redeem.yoursite.com\"\n}"
             },
             "url": "{{baseUrl}}/coupons/admin/createCouponBatch"
           }

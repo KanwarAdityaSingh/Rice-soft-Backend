@@ -163,11 +163,26 @@ export function isRegistrationKycVerified(
   );
 }
 
-/** Registered → GST or PAN snapshot; unregistered → Aadhaar snapshot. */
+/**
+ * Transporter KYC gate for is_verified / is_active:
+ * - individual → no KYC required
+ * - unregistered → Aadhaar or PAN
+ * - registered → GST or PAN
+ */
 export function isTransporterKycVerified(
   transportType: TransportType,
   kyc: EntityKycVerificationDetails
 ): boolean {
+  if (transportType === 'individual') {
+    return true;
+  }
+  if (transportType === 'unregistered') {
+    return (
+      hasKycSnapshot(kyc, 'aadhaar') ||
+      hasKycSnapshot(kyc, 'pan_comprehensive') ||
+      hasKycSnapshot(kyc, 'pan')
+    );
+  }
   return isRegistrationKycVerified(transportType, kyc);
 }
 

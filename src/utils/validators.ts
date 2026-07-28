@@ -723,7 +723,7 @@ export const createTransporterSchema = Joi.object({
   gst_number: Joi.string().optional().allow(null, '').length(15),
   pan_number: Joi.string().optional().allow(null, '').length(10).uppercase(),
   aadhar_number: Joi.string().optional().allow(null, '').length(12).pattern(/^[0-9]{12}$/),
-  transport_type: Joi.string().required().valid('registered', 'unregistered'),
+  transport_type: Joi.string().required().valid('registered', 'unregistered', 'individual'),
   vehicle_numbers: Joi.array().items(Joi.string().max(50)).optional(),
   bank_details: Joi.when('verify_bank', {
     is: true,
@@ -751,7 +751,7 @@ export const updateTransporterSchema = Joi.object({
   gst_number: Joi.string().optional().allow(null, '').length(15),
   pan_number: Joi.string().optional().allow(null, '').length(10).uppercase(),
   aadhar_number: Joi.string().optional().allow(null, '').length(12).pattern(/^[0-9]{12}$/),
-  transport_type: Joi.string().optional().valid('registered', 'unregistered'),
+  transport_type: Joi.string().optional().valid('registered', 'unregistered', 'individual'),
   vehicle_numbers: Joi.array().items(Joi.string().max(50)).optional(),
   bank_details: Joi.when('verify_bank', {
     is: true,
@@ -876,7 +876,11 @@ export const createSalesSaudaSchema = Joi.object({
   billing_address: addressSchema.optional().allow(null),
   delivery_address: addressSchema.optional().allow(null),
   notes: Joi.string().optional().allow(null, '').max(2000),
-  payment_terms: Joi.number().optional().integer().min(0).allow(null),
+  payment_terms: Joi.string().optional().trim().max(100).allow(null, ''),
+  customer_po_url: Joi.string().optional().allow(null, '').uri(),
+  email_attachment_url: Joi.string().optional().allow(null, '').uri(),
+  agreement_url: Joi.string().optional().allow(null, '').uri(),
+  whatsapp_screenshot_url: Joi.string().optional().allow(null, '').uri(),
   amount: Joi.any().forbidden(),
   total_amount: Joi.any().forbidden(),
   lines: Joi.array().items(salesSaudaLineItemSchema).optional().min(0),
@@ -934,7 +938,11 @@ export const updateSalesSaudaSchema = Joi.object({
   billing_address: addressSchema.optional().allow(null),
   delivery_address: addressSchema.optional().allow(null),
   notes: Joi.string().optional().allow(null, '').max(2000),
-  payment_terms: Joi.number().optional().integer().min(0).allow(null),
+  payment_terms: Joi.string().optional().trim().max(100).allow(null, ''),
+  customer_po_url: Joi.string().optional().allow(null, '').uri(),
+  email_attachment_url: Joi.string().optional().allow(null, '').uri(),
+  agreement_url: Joi.string().optional().allow(null, '').uri(),
+  whatsapp_screenshot_url: Joi.string().optional().allow(null, '').uri(),
   amount: Joi.any().forbidden(),
   total_amount: Joi.any().forbidden(),
   lines: Joi.array().items(salesSaudaLineItemSchema).optional(),
@@ -945,7 +953,13 @@ export const updateSalesSaudaSchema = Joi.object({
 
 // Invoice Dispatch validation schemas
 export const createInvoiceDispatchSchema = Joi.object({
-  sales_sauda_id: Joi.string().required().uuid(),
+  /** Legacy single-sauda create. Prefer sales_sauda_ids for multi-sauda clubbing. */
+  sales_sauda_id: Joi.string().optional().uuid(),
+  /**
+   * One or more finalized sale saudas to attach.
+   * Multi-sauda requires same sales_party_id + same delivery_address; sale movement only.
+   */
+  sales_sauda_ids: Joi.array().items(Joi.string().uuid()).min(1).optional(),
   /** Fulfillment / from godown (for godown_transfer must match sauda.from_godown_id) */
   godown_id: Joi.string().required().uuid(),
   /**
@@ -958,6 +972,7 @@ export const createInvoiceDispatchSchema = Joi.object({
   dispatch_date: Joi.string().optional().allow(null, '').isoDate(),
   transporter_id: Joi.string().optional().uuid().allow(null),
   vehicle_id: Joi.string().optional().uuid().allow(null),
+  driver_id: Joi.string().optional().uuid().allow(null),
   /** Lorry Receipt / transporter document number */
   lr_number: Joi.string().optional().allow(null, '').trim().max(100),
   transportation_cost: Joi.number().optional().min(0).precision(2).allow(null),
@@ -968,6 +983,7 @@ export const createInvoiceDispatchSchema = Joi.object({
    * Optional partial dispatch lines. Omit to dispatch full remaining qty per sauda line.
    * Product/rate/packaging come from the sauda line.
    * Send quantity (kg) and/or packet_count (bags); packet_count derives qty via packaging capacity.
+   * Lines may span any of the linked saudas (keyed by sales_sauda_line_id).
    */
   lines: Joi.array()
     .items(
@@ -979,17 +995,31 @@ export const createInvoiceDispatchSchema = Joi.object({
     )
     .min(1)
     .optional(),
-});
+})
+  .or('sales_sauda_id', 'sales_sauda_ids')
+  .custom((value, helpers) => {
+    if (value.sales_sauda_id && value.sales_sauda_ids?.length) {
+      if (!value.sales_sauda_ids.includes(value.sales_sauda_id)) {
+        return helpers.error('any.custom', {
+          message: 'sales_sauda_id must be included in sales_sauda_ids when both are sent',
+        });
+      }
+    }
+    return value;
+  }, 'sales_sauda_id within sales_sauda_ids')
+  .messages({ 'any.custom': '{{#message}}' });
 
 /** Body for PUT /invoice-dispatches/:id — any status; sauda/godown/invoice number/status/lines locked */
 export const updateInvoiceDispatchSchema = Joi.object({
   sales_sauda_id: Joi.forbidden(),
+  sales_sauda_ids: Joi.forbidden(),
   godown_id: Joi.forbidden(),
   internal_invoice_number: Joi.forbidden(),
   status: Joi.forbidden(),
   dispatch_date: Joi.string().optional().allow(null, '').isoDate(),
   transporter_id: Joi.string().optional().uuid().allow(null),
   vehicle_id: Joi.string().optional().uuid().allow(null),
+  driver_id: Joi.string().optional().uuid().allow(null),
   lr_number: Joi.string().optional().allow(null, '').trim().max(100),
   transportation_cost: Joi.number().optional().min(0).precision(2).allow(null),
   distance_km: Joi.number().optional().min(0).allow(null),
@@ -1004,6 +1034,11 @@ export const generateEWayBillSchema = Joi.object({
   route: Joi.string().optional().allow(null, '').max(1000),
   transporter_id: Joi.string().optional().uuid().allow(null),
   lr_number: Joi.string().optional().allow(null, '').trim().max(100),
+});
+
+/** Body for POST /invoice-dispatches/:id/cancel */
+export const cancelInvoiceDispatchSchema = Joi.object({
+  reason: Joi.string().required().trim().min(1).max(2000),
 });
 
 // Credit Note validation schemas

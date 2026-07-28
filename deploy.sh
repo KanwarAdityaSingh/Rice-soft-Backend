@@ -47,9 +47,11 @@ echo_info "Using SSH key: $KEY_PATH"
 echo_info "Step 1/6: Uploading code to server..."
 TAR_EXCLUDES=(--exclude='./node_modules' --exclude='./logs' --exclude='./.git' --exclude='./.DS_Store' --exclude='./.cursor' --exclude='./dist')
 
+# Wipe remote src/dist before extract. Plain `tar x` does not delete files removed locally
+# (e.g. razorpay-*.ts), so stale sources kept breaking `tsc` while Docker still "succeeded".
 # macOS: omit AppleDouble/xattrs from the stream so Linux tar/npm do not spam LIBARCHIVE.xattr warnings
 COPYFILE_DISABLE=1 tar -czf - "${TAR_EXCLUDES[@]}" . | ssh -o StrictHostKeyChecking=no -i "$KEY_PATH" "$REMOTE_HOST" \
-    "set -euo pipefail; mkdir -p $REMOTE_DIR && cd $REMOTE_DIR && tar xzf -"
+    "set -euo pipefail; mkdir -p $REMOTE_DIR && cd $REMOTE_DIR && rm -rf src dist && tar xzf -"
 
 if [ $? -eq 0 ]; then
     echo_info "Code uploaded successfully"

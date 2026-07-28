@@ -43,7 +43,7 @@ export interface OutstandingReportRow {
   invoice_number: string;
   invoice_date: string | null;
   due_date: string | null;
-  payment_terms: number | null;
+  payment_terms: string | null;
   outstanding_amount: number;
   ageing_days: number;
   ageing_bucket: string;
@@ -179,6 +179,314 @@ export class SalesmanReportService {
         quantity: Number(r.quantity),
         sale_amount: Number(r.sale_amount),
       })),
+    };
+  }
+
+  /**
+   * Drill-down for monthly KPIs. Same filters/grain as monthly summary.
+   * view: lines | orders | customers | new_customers
+   */
+  async monthlyDetails(filters: {
+    salesmanId?: string;
+    from?: string;
+    to?: string;
+    view?: 'lines' | 'orders' | 'customers' | 'new_customers';
+    riceType?: string;
+  }): Promise<{
+    salesman_id: string;
+    salesman_name: string;
+    from: string | null;
+    to: string | null;
+    view: 'lines' | 'orders' | 'customers' | 'new_customers';
+    rice_type: string | null;
+    summary: {
+      row_count: number;
+      total_bags: number;
+      total_quantity: number;
+      total_sale_amount: number;
+    };
+    rows: unknown[];
+  }> {
+    const salesmanId = requireSalesmanId(filters.salesmanId);
+    const salesman = await salesmanDAO.findById(salesmanId);
+    if (!salesman) throw new NotFoundError('Salesman not found');
+
+    const view = filters.view ?? 'lines';
+    const riceType = filters.riceType?.trim() || null;
+
+    if (riceType && view !== 'lines') {
+      throw new ValidationError('rice_type filter is only supported with view=lines');
+    }
+
+    const baseParams: unknown[] = [salesmanId];
+    let dateFilter = '';
+    let p = 2;
+    if (filters.from) {
+      dateFilter += ` AND COALESCE(d.dispatch_date, d.created_at::date) >= $${p++}::date`;
+      baseParams.push(filters.from);
+    }
+    if (filters.to) {
+      dateFilter += ` AND COALESCE(d.dispatch_date, d.created_at::date) <= $${p++}::date`;
+      baseParams.push(filters.to);
+    }
+
+    const baseWhere = `
+      d.status = 'confirmed'
+      AND ss.salesman_id = $1
+      AND ss.movement_type = 'sale'
+      ${dateFilter}
+    `;
+
+    if (view === 'lines') {
+      const params = [...baseParams];
+      let riceFilter = '';
+      if (riceType) {
+        riceFilter = ` AND p.rice_type = $${params.length + 1}`;
+        params.push(riceType);
+      }
+
+      const result = await db.query<{
+        invoice_dispatch_id: string;
+        invoice_dispatch_line_id: string;
+        invoice_number: string;
+        dispatch_date: string | null;
+        sales_sauda_id: string;
+        order_number: string | null;
+        sales_party_id: string;
+        party_name: string | null;
+        product_id: string;
+        product_name: string | null;
+        rice_type: string | null;
+        packaging_id: string | null;
+        bags: string | null;
+        quantity: string;
+        rate: string;
+        sale_amount: string;
+      }>(
+        `SELECT
+           d.id AS invoice_dispatch_id,
+           dl.id AS invoice_dispatch_line_id,
+           d.internal_invoice_number AS invoice_number,
+           TO_CHAR(COALESCE(d.dispatch_date, d.created_at::date), 'YYYY-MM-DD') AS dispatch_date,
+           ss.id AS sales_sauda_id,
+           ss.order_number,
+           ss.sales_party_id,
+           COALESCE(d.party_name, sp.business_name) AS party_name,
+           dl.product_id,
+           p.name AS product_name,
+           p.rice_type,
+           dl.packaging_id,
+           dl.packet_count::text AS bags,
+           dl.quantity::text AS quantity,
+           dl.rate::text AS rate,
+           dl.amount::text AS sale_amount
+         FROM invoice_dispatches d
+         JOIN sales_saudas ss ON ss.id = d.sales_sauda_id
+         JOIN invoice_dispatch_lines dl ON dl.invoice_dispatch_id = d.id
+         JOIN products p ON p.id = dl.product_id
+         LEFT JOIN sales_parties sp ON sp.id = ss.sales_party_id
+         WHERE ${baseWhere}
+           ${riceFilter}
+         ORDER BY COALESCE(d.dispatch_date, d.created_at::date) DESC,
+                  d.internal_invoice_number,
+                  dl.id`,
+        params
+      );
+
+      const rows = result.rows.map((r) => ({
+        invoice_dispatch_id: r.invoice_dispatch_id,
+        invoice_dispatch_line_id: r.invoice_dispatch_line_id,
+        invoice_number: r.invoice_number,
+        dispatch_date: r.dispatch_date,
+        sales_sauda_id: r.sales_sauda_id,
+        order_number: r.order_number,
+        sales_party_id: r.sales_party_id,
+        party_name: r.party_name,
+        product_id: r.product_id,
+        product_name: r.product_name,
+        rice_type: r.rice_type,
+        packaging_id: r.packaging_id,
+        bags: r.bags != null ? Number(r.bags) : 0,
+        quantity: Number(r.quantity),
+        rate: Number(r.rate),
+        sale_amount: Number(r.sale_amount),
+      }));
+
+      return {
+        salesman_id: salesmanId,
+        salesman_name: salesman.name,
+        from: filters.from ?? null,
+        to: filters.to ?? null,
+        view,
+        rice_type: riceType,
+        summary: {
+          row_count: rows.length,
+          total_bags: rows.reduce((s, r) => s + r.bags, 0),
+          total_quantity: rows.reduce((s, r) => s + r.quantity, 0),
+          total_sale_amount: Number(
+            rows.reduce((s, r) => s + r.sale_amount, 0).toFixed(2)
+          ),
+        },
+        rows,
+      };
+    }
+
+    if (view === 'orders') {
+      const result = await db.query<{
+        sales_sauda_id: string;
+        order_number: string | null;
+        sales_party_id: string;
+        party_name: string | null;
+        first_dispatch_date: string | null;
+        invoice_count: string;
+        bags: string;
+        quantity: string;
+        sale_amount: string;
+      }>(
+        `SELECT
+           ss.id AS sales_sauda_id,
+           ss.order_number,
+           ss.sales_party_id,
+           COALESCE(MAX(d.party_name), MAX(sp.business_name)) AS party_name,
+           TO_CHAR(MIN(COALESCE(d.dispatch_date, d.created_at::date)), 'YYYY-MM-DD') AS first_dispatch_date,
+           COUNT(DISTINCT d.id)::text AS invoice_count,
+           COALESCE(SUM(dl.packet_count), 0)::text AS bags,
+           COALESCE(SUM(dl.quantity), 0)::text AS quantity,
+           COALESCE(SUM(dl.amount), 0)::text AS sale_amount
+         FROM invoice_dispatches d
+         JOIN sales_saudas ss ON ss.id = d.sales_sauda_id
+         JOIN invoice_dispatch_lines dl ON dl.invoice_dispatch_id = d.id
+         LEFT JOIN sales_parties sp ON sp.id = ss.sales_party_id
+         WHERE ${baseWhere}
+         GROUP BY ss.id, ss.order_number, ss.sales_party_id
+         ORDER BY MIN(COALESCE(d.dispatch_date, d.created_at::date)) DESC,
+                  ss.order_number NULLS LAST`,
+        baseParams
+      );
+
+      const rows = result.rows.map((r) => ({
+        sales_sauda_id: r.sales_sauda_id,
+        order_number: r.order_number,
+        sales_party_id: r.sales_party_id,
+        party_name: r.party_name,
+        first_dispatch_date: r.first_dispatch_date,
+        invoice_count: Number(r.invoice_count),
+        bags: Number(r.bags),
+        quantity: Number(r.quantity),
+        sale_amount: Number(r.sale_amount),
+      }));
+
+      return {
+        salesman_id: salesmanId,
+        salesman_name: salesman.name,
+        from: filters.from ?? null,
+        to: filters.to ?? null,
+        view,
+        rice_type: null,
+        summary: {
+          row_count: rows.length,
+          total_bags: rows.reduce((s, r) => s + r.bags, 0),
+          total_quantity: rows.reduce((s, r) => s + r.quantity, 0),
+          total_sale_amount: Number(
+            rows.reduce((s, r) => s + r.sale_amount, 0).toFixed(2)
+          ),
+        },
+        rows,
+      };
+    }
+
+    // customers | new_customers
+    const result = await db.query<{
+      sales_party_id: string;
+      party_name: string | null;
+      first_sale_date: string | null;
+      last_sale_date: string | null;
+      order_count: string;
+      invoice_count: string;
+      bags: string;
+      quantity: string;
+      sale_amount: string;
+    }>(
+      `SELECT
+         ss.sales_party_id,
+         COALESCE(MAX(d.party_name), MAX(sp.business_name)) AS party_name,
+         TO_CHAR(MIN(COALESCE(d.dispatch_date, d.created_at::date)), 'YYYY-MM-DD') AS first_sale_date,
+         TO_CHAR(MAX(COALESCE(d.dispatch_date, d.created_at::date)), 'YYYY-MM-DD') AS last_sale_date,
+         COUNT(DISTINCT ss.id)::text AS order_count,
+         COUNT(DISTINCT d.id)::text AS invoice_count,
+         COALESCE(SUM(dl.packet_count), 0)::text AS bags,
+         COALESCE(SUM(dl.quantity), 0)::text AS quantity,
+         COALESCE(SUM(dl.amount), 0)::text AS sale_amount
+       FROM invoice_dispatches d
+       JOIN sales_saudas ss ON ss.id = d.sales_sauda_id
+       JOIN invoice_dispatch_lines dl ON dl.invoice_dispatch_id = d.id
+       LEFT JOIN sales_parties sp ON sp.id = ss.sales_party_id
+       WHERE ${baseWhere}
+       GROUP BY ss.sales_party_id
+       ORDER BY MAX(COALESCE(d.dispatch_date, d.created_at::date)) DESC,
+                COALESCE(MAX(d.party_name), MAX(sp.business_name))`,
+      baseParams
+    );
+
+    let rows = result.rows.map((r) => ({
+      sales_party_id: r.sales_party_id,
+      party_name: r.party_name,
+      first_sale_date: r.first_sale_date,
+      last_sale_date: r.last_sale_date,
+      order_count: Number(r.order_count),
+      invoice_count: Number(r.invoice_count),
+      bags: Number(r.bags),
+      quantity: Number(r.quantity),
+      sale_amount: Number(r.sale_amount),
+    }));
+
+    if (view === 'new_customers') {
+      // Lifetime first sale for salesman must fall in [from, to] (same as monthly KPI)
+      const lifetime = await db.query<{
+        sales_party_id: string;
+        first_sale: string;
+      }>(
+        `SELECT
+           ss.sales_party_id,
+           TO_CHAR(MIN(COALESCE(d.dispatch_date, d.created_at::date)), 'YYYY-MM-DD') AS first_sale
+         FROM invoice_dispatches d
+         JOIN sales_saudas ss ON ss.id = d.sales_sauda_id
+         WHERE d.status = 'confirmed'
+           AND ss.salesman_id = $1
+           AND ss.movement_type = 'sale'
+         GROUP BY ss.sales_party_id`,
+        [salesmanId]
+      );
+      const firstByParty = new Map(
+        lifetime.rows.map((r) => [r.sales_party_id, r.first_sale])
+      );
+      rows = rows.filter((r) => {
+        const first = firstByParty.get(r.sales_party_id);
+        if (!first) return false;
+        if (filters.from && first < filters.from) return false;
+        if (filters.to && first > filters.to) return false;
+        // If no from/to, "new" in an unbounded period = all parties that ever had a first sale
+        // (same as monthly when no dates: all parties count as having a first sale sometime)
+        return true;
+      });
+    }
+
+    return {
+      salesman_id: salesmanId,
+      salesman_name: salesman.name,
+      from: filters.from ?? null,
+      to: filters.to ?? null,
+      view,
+      rice_type: null,
+      summary: {
+        row_count: rows.length,
+        total_bags: rows.reduce((s, r) => s + r.bags, 0),
+        total_quantity: rows.reduce((s, r) => s + r.quantity, 0),
+        total_sale_amount: Number(
+          rows.reduce((s, r) => s + r.sale_amount, 0).toFixed(2)
+        ),
+      },
+      rows,
     };
   }
 
@@ -330,16 +638,26 @@ export class SalesmanReportService {
          TO_CHAR(COALESCE(d.dispatch_date, d.created_at::date), 'YYYY-MM-DD') AS invoice_date,
          TO_CHAR(
            COALESCE(d.dispatch_date, d.created_at::date)
-             + (COALESCE(ss.payment_terms, 0) || ' days')::interval,
+             + (
+               COALESCE(
+                 NULLIF(substring(ss.payment_terms from '([0-9]+)'), ''),
+                 '0'
+               ) || ' days'
+             )::interval,
            'YYYY-MM-DD'
          ) AS due_date,
-         ss.payment_terms::text AS payment_terms,
+         ss.payment_terms AS payment_terms,
          COALESCE(SUM(dl.amount), 0)::text AS outstanding_amount,
          (
            CURRENT_DATE
            - (
              COALESCE(d.dispatch_date, d.created_at::date)
-               + (COALESCE(ss.payment_terms, 0) || ' days')::interval
+               + (
+                 COALESCE(
+                   NULLIF(substring(ss.payment_terms from '([0-9]+)'), ''),
+                   '0'
+                 ) || ' days'
+               )::interval
            )::date
          )::text AS ageing_days
        FROM invoice_dispatches d
@@ -366,7 +684,7 @@ export class SalesmanReportService {
         invoice_number: r.invoice_number,
         invoice_date: r.invoice_date,
         due_date: r.due_date,
-        payment_terms: r.payment_terms != null ? Number(r.payment_terms) : null,
+        payment_terms: r.payment_terms,
         outstanding_amount: Number(r.outstanding_amount),
         ageing_days: ageingDays,
         ageing_bucket: ageingBucket(ageingDays),

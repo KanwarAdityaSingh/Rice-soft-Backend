@@ -1,3 +1,4 @@
+import { db } from '../database/connection';
 import { salesSaudaDAO } from '../dao/sales-sauda.dao';
 import { salesSaudaLineDAO } from '../dao/sales-sauda-line.dao';
 import { salesPartyDAO } from '../dao/sales-party.dao';
@@ -28,6 +29,7 @@ import {
   parseSalesmanCommissionConfig,
 } from './salesman-commission';
 import { NotFoundError, ValidationError, ConflictError } from '../utils/errors';
+import { calculateSalesLineFinancials } from '../utils/sales-line-financials';
 
 export class SalesSaudaService {
   private round2(value: number): number {
@@ -36,36 +38,6 @@ export class SalesSaudaService {
 
   private round3(value: number): number {
     return Number(value.toFixed(3));
-  }
-
-  private calculateLineFinancials(input: {
-    quantity: number;
-    rate: number;
-    discountValue: number;
-    discountType: SalesSaudaDiscountType;
-    gstPercent: number;
-    isTaxable: boolean;
-  }): {
-    amount: number;
-    discount_amount: number;
-    gst_amount: number;
-    final_amount: number;
-  } {
-    const baseAmount = this.round2(input.quantity * input.rate);
-    const discountAmountRaw =
-      input.discountType === 'per_kg'
-        ? input.discountValue * input.quantity
-        : (baseAmount * input.discountValue) / 100;
-    const discountAmount = this.round2(discountAmountRaw);
-    const taxableAfterDiscount = Math.max(0, this.round2(baseAmount - discountAmount));
-    const gstAmount = input.isTaxable ? this.round2((taxableAfterDiscount * input.gstPercent) / 100) : 0;
-    const finalAmount = this.round2(taxableAfterDiscount + gstAmount);
-    return {
-      amount: baseAmount,
-      discount_amount: discountAmount,
-      gst_amount: gstAmount,
-      final_amount: finalAmount,
-    };
   }
 
   private async normalizeLineForPersistence(line: CreateSalesSaudaLineDTO): Promise<CreateSalesSaudaLineDTO> {
@@ -127,7 +99,7 @@ export class SalesSaudaService {
     }
 
     const isTaxable = packagingCapacity !== null ? packagingCapacity <= 25 : false;
-    const financials = this.calculateLineFinancials({
+    const financials = calculateSalesLineFinancials({
       quantity,
       rate: Number(line.rate),
       discountValue,
@@ -143,7 +115,7 @@ export class SalesSaudaService {
       discount_value: discountValue,
       discount_type: discountType,
       gst_percent: isTaxable ? gstPercent : 0,
-      amount: financials.amount,
+      amount: financials.gross,
       discount_amount: financials.discount_amount,
       gst_amount: financials.gst_amount,
       final_amount: financials.final_amount,
@@ -438,6 +410,10 @@ export class SalesSaudaService {
       delivery_address: ctx.delivery_address,
       notes: data.notes,
       payment_terms: data.payment_terms,
+      customer_po_url: data.customer_po_url,
+      email_attachment_url: data.email_attachment_url,
+      agreement_url: data.agreement_url,
+      whatsapp_screenshot_url: data.whatsapp_screenshot_url,
       amount: 0,
       created_by: userId,
     };
@@ -526,6 +502,10 @@ export class SalesSaudaService {
       sauda_date: data.sauda_date,
       notes: data.notes,
       payment_terms: data.payment_terms,
+      customer_po_url: data.customer_po_url,
+      email_attachment_url: data.email_attachment_url,
+      agreement_url: data.agreement_url,
+      whatsapp_screenshot_url: data.whatsapp_screenshot_url,
       updated_by: userId,
     };
     if (ctx) {
@@ -596,12 +576,58 @@ export class SalesSaudaService {
     return this.getById(id);
   }
 
+  /**
+   * Delete draft or finalized (order) sales sauda.
+   * Blocked while invoice dispatches, credit notes, or commission ledger rows exist.
+   */
   async delete(id: string): Promise<void> {
     const existing = await salesSaudaDAO.findById(id);
     if (!existing) throw new NotFoundError('Sales sauda not found');
-    if (existing.status !== 'draft') throw new ConflictError('Only draft sales sauda can be deleted');
+
+    if (existing.status !== 'draft' && existing.status !== 'order' && existing.status !== 'cancelled') {
+      throw new ConflictError(`Cannot delete sales sauda in status '${existing.status}'`);
+    }
+
+    await this.assertSaudaHardDeletable(id);
+
     const deleted = await salesSaudaDAO.delete(id);
     if (!deleted) throw new NotFoundError('Sales sauda not found');
+  }
+
+  /** Downstream docs use ON DELETE RESTRICT — require them gone first. */
+  private async assertSaudaHardDeletable(id: string): Promise<void> {
+    const dispatchCount = await db.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM invoice_dispatches WHERE sales_sauda_id = $1`,
+      [id]
+    );
+    const dispatches = Number(dispatchCount.rows[0]?.count ?? 0);
+    if (dispatches > 0) {
+      throw new ConflictError(
+        `Cannot delete sales sauda that has ${dispatches} invoice dispatch(es); delete them first`
+      );
+    }
+
+    const creditNoteCount = await db.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM credit_notes WHERE sales_sauda_id = $1`,
+      [id]
+    );
+    const creditNotes = Number(creditNoteCount.rows[0]?.count ?? 0);
+    if (creditNotes > 0) {
+      throw new ConflictError(
+        `Cannot delete sales sauda that has ${creditNotes} credit note(s); remove them first`
+      );
+    }
+
+    const commissionCount = await db.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM salesman_commission_entries WHERE sales_sauda_id = $1`,
+      [id]
+    );
+    const commissions = Number(commissionCount.rows[0]?.count ?? 0);
+    if (commissions > 0) {
+      throw new ConflictError(
+        `Cannot delete sales sauda that has ${commissions} salesman commission entr(y/ies); remove linked dispatches/credit notes first`
+      );
+    }
   }
 }
 

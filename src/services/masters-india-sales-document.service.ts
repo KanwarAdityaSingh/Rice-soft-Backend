@@ -8,14 +8,18 @@ import {
 import { godownDAO } from '../dao/godown.dao';
 import { invoiceDispatchDAO } from '../dao/invoice-dispatch.dao';
 import { invoiceDispatchLineDAO } from '../dao/invoice-dispatch-line.dao';
+import { invoiceDispatchSaudaDAO } from '../dao/invoice-dispatch-sauda.dao';
 import { productDAO } from '../dao/product.dao';
+import { packagingDAO } from '../dao/packaging.dao';
 import { salesPartyDAO } from '../dao/sales-party.dao';
 import { salesSaudaDAO } from '../dao/sales-sauda.dao';
 import { salesSaudaLineDAO } from '../dao/sales-sauda-line.dao';
 import { transporterDAO } from '../dao/transporter.dao';
 import { vehicleDAO } from '../dao/vehicle.dao';
 import type { Address } from '../models/vendor.model';
+import type { SalesSaudaDiscountType } from '../models/sales-sauda-line.model';
 import { BadRequestError, NotFoundError } from '../utils/errors';
+import { calculateSalesLineFinancials } from '../utils/sales-line-financials';
 
 export interface SalesDocumentContext {
   dispatch: NonNullable<Awaited<ReturnType<typeof invoiceDispatchDAO.findById>>>;
@@ -39,24 +43,35 @@ export interface SalesDocumentContext {
     cgst: number;
     sgst: number;
     igst: number;
+    /** taxable + tax (no round-off) */
     invoiceValue: number;
-    roundOff: number;
   };
   itemRows: Array<{
     description: string;
+    /** Product brand from master (via sauda line product) */
+    brand: string | null;
+    /** Packaging capacity label, e.g. "25 Kg" */
+    bagWeight: string | null;
     hsn: string;
     /** Primary quantity (kg or packets as stored on the line) */
     quantity: number;
     /** GST UQC for primary quantity: KGS or PCS */
     unit: string;
-    /** Sales-sauda bag/packet count when present */
+    /** Dispatch bag/packet count when present */
     bags: number | null;
     unitPrice: number;
+    /** Effective ₹/unit after discount (for display) */
+    discountedRate: number;
+    /** qty × rate (pre-discount) */
+    grossAmount: number;
+    discountAmount: number;
+    /** gross − discount */
     taxableAmount: number;
     gstPercent: number;
     cgstAmount: number;
     sgstAmount: number;
     igstAmount: number;
+    /** taxable + line GST */
     totalItemValue: number;
   }>;
   transporter: Awaited<ReturnType<typeof transporterDAO.findById>> | null;
@@ -126,8 +141,23 @@ export async function loadSalesDocumentContext(
   const lines = await invoiceDispatchLineDAO.findByInvoiceDispatchId(invoiceDispatchId);
   if (lines.length === 0) throw new BadRequestError('Invoice dispatch has no lines');
 
-  const saudaLines = await salesSaudaLineDAO.findBySalesSaudaId(dispatch.sales_sauda_id);
-  const saudaLineById = new Map(saudaLines.map((l) => [l.id, l]));
+  // Load GST/discount from all linked saudas (multi-sauda invoices)
+  let linkedSaudaIds = await invoiceDispatchSaudaDAO.getLinkedSaudaIds(invoiceDispatchId);
+  if (linkedSaudaIds.length === 0) {
+    linkedSaudaIds = [dispatch.sales_sauda_id];
+  }
+  const saudaLines: Awaited<ReturnType<typeof salesSaudaLineDAO.findBySalesSaudaId>> = [];
+  const saudaLineById = new Map<
+    string,
+    Awaited<ReturnType<typeof salesSaudaLineDAO.findBySalesSaudaId>>[number]
+  >();
+  for (const saudaId of linkedSaudaIds) {
+    const rows = await salesSaudaLineDAO.findBySalesSaudaId(saudaId);
+    for (const sl of rows) {
+      saudaLines.push(sl);
+      saudaLineById.set(sl.id, sl);
+    }
+  }
 
   const sellerGstin =
     (godown.gst_number || appConfig.apis.mastersIndia.sellerGstin || '').trim().toUpperCase();
@@ -150,17 +180,36 @@ export async function loadSalesDocumentContext(
   let igst = 0;
   let invoiceValue = 0;
 
+  const interState = isInterStateSupply(sellerGstin, buyerGstin);
+
   for (const line of lines) {
     const saudaLine = line.sales_sauda_line_id ? saudaLineById.get(line.sales_sauda_line_id) : null;
     const product = await productDAO.findById(line.product_id);
-    const lineTaxable = round2(parseFloat(String(line.amount)));
-    const gstPercent = saudaLine ? parseFloat(String(saudaLine.gst_percent)) : 0;
-    const lineGst = saudaLine ? round2(parseFloat(String(saudaLine.gst_amount))) : 0;
-    const lineTotal = saudaLine
-      ? round2(parseFloat(String(saudaLine.final_amount)))
-      : round2(lineTaxable + lineGst);
 
-    const interState = isInterStateSupply(sellerGstin, buyerGstin);
+    const packagingId = line.packaging_id || saudaLine?.packaging_id || null;
+    const packaging = packagingId ? await packagingDAO.findById(packagingId) : null;
+    const bagWeight =
+      packaging?.holding_capacity != null ? `${Number(packaging.holding_capacity)} Kg` : null;
+
+    const quantity = parseFloat(String(line.quantity));
+    const rate = parseFloat(String(line.rate));
+    // Sauda gst_percent is already 0 when packaging is non-taxable (>25kg).
+    const gstPercent = saudaLine ? parseFloat(String(saudaLine.gst_percent)) : 0;
+    const discountValue = saudaLine ? parseFloat(String(saudaLine.discount_value ?? 0)) : 0;
+    const discountType: SalesSaudaDiscountType =
+      saudaLine?.discount_type === 'percentage' ? 'percentage' : 'per_kg';
+
+    // Recompute for dispatched qty — never reuse full-sauda gst_amount / final_amount.
+    const financials = calculateSalesLineFinancials({
+      quantity,
+      rate,
+      discountValue,
+      discountType,
+      gstPercent,
+      isTaxable: gstPercent > 0,
+    });
+
+    const lineGst = financials.gst_amount;
     let cgstAmount = 0;
     let sgstAmount = 0;
     let igstAmount = 0;
@@ -179,33 +228,37 @@ export async function loadSalesDocumentContext(
       );
     }
 
-    const quantity = parseFloat(String(line.quantity));
     const unit = line.quantity_unit === 'packets' ? 'PCS' : 'KGS';
     const bags =
-      saudaLine?.packet_count != null && Number(saudaLine.packet_count) > 0
-        ? Number(saudaLine.packet_count)
+      line.packet_count != null && Number(line.packet_count) > 0
+        ? Number(line.packet_count)
         : null;
 
     itemRows.push({
       description: product?.name || 'Rice product',
+      brand: product?.brand ?? null,
+      bagWeight,
       hsn,
       quantity,
       unit,
       bags,
-      unitPrice: parseFloat(String(line.rate)),
-      taxableAmount: lineTaxable,
+      unitPrice: rate,
+      discountedRate: financials.discounted_rate,
+      grossAmount: financials.gross,
+      discountAmount: financials.discount_amount,
+      taxableAmount: financials.taxable_amount,
       gstPercent,
       cgstAmount,
       sgstAmount,
       igstAmount,
-      totalItemValue: lineTotal,
+      totalItemValue: financials.final_amount,
     });
 
-    taxable += lineTaxable;
+    taxable += financials.taxable_amount;
     cgst += cgstAmount;
     sgst += sgstAmount;
     igst += igstAmount;
-    invoiceValue += lineTotal;
+    invoiceValue += financials.final_amount;
   }
 
   const transporterId = overrides?.transporter_id || dispatch.transporter_id || null;
@@ -259,7 +312,6 @@ export async function loadSalesDocumentContext(
       sgst: round2(sgst),
       igst: round2(igst),
       invoiceValue: round2(invoiceValue),
-      roundOff: 0,
     },
     itemRows,
     transporter,
@@ -308,7 +360,7 @@ export function buildEInvoicePayload(ctx: SalesDocumentContext): Record<string, 
       total_cgst_value: ctx.totals.cgst,
       total_sgst_value: ctx.totals.sgst,
       total_igst_value: ctx.totals.igst,
-      round_off_amount: ctx.totals.roundOff,
+      round_off_amount: 0,
       total_invoice_value: ctx.totals.invoiceValue,
     },
     item_list: ctx.itemRows.map((item, index) => ({
@@ -319,7 +371,8 @@ export function buildEInvoicePayload(ctx: SalesDocumentContext): Record<string, 
       quantity: item.quantity,
       unit: item.unit,
       unit_price: item.unitPrice,
-      total_amount: item.taxableAmount,
+      total_amount: item.grossAmount,
+      discount: item.discountAmount,
       assessable_value: item.taxableAmount,
       gst_rate: item.gstPercent,
       cgst_amount: item.cgstAmount,

@@ -82,7 +82,7 @@ async function createReadyBatch(
   const { json } = await api('/coupons/admin/createCouponBatch', 'POST', {
     token,
     body: {
-      name: `FraudTest-${ts}-${randomUUID().slice(0, 8)}`,
+      description: `FraudTest-${ts}-${randomUUID().slice(0, 8)}`,
       face_value_paise: 5000,
       total_count: totalCount,
       expires_at: expiresAt,
@@ -277,7 +277,7 @@ async function runTests(token: string, ts: number): Promise<TestCase[]> {
       const expiresAt = new Date(Date.now() + 86400000 * 365).toISOString();
       const { json } = await api('/coupons/admin/createCouponBatch', 'POST', {
         token,
-        body: { name: `Bypass-${ts}`, face_value_paise: 1000, total_count: 1, expires_at: expiresAt },
+        body: { description: `Bypass-${ts}`, face_value_paise: 1000, total_count: 1, expires_at: expiresAt },
       });
       const batchId = (json.data as { coupon_batch_id: string }).coupon_batch_id;
       await api(`/coupons/admin/generateBatchCodes/${batchId}`, 'POST', { token });
@@ -358,7 +358,7 @@ async function runTests(token: string, ts: number): Promise<TestCase[]> {
       const endpoints: Array<{ path: string; method: 'GET' | 'POST'; body?: Record<string, unknown> }> = [
         { path: '/coupons/admin/getAllCouponBatches', method: 'GET' },
         { path: '/coupons/admin/getPendingPayouts', method: 'GET' },
-        { path: '/coupons/admin/createCouponBatch', method: 'POST', body: { name: 'x', face_value_paise: 1, total_count: 1, expires_at: new Date().toISOString() } },
+        { path: '/coupons/admin/createCouponBatch', method: 'POST', body: { face_value_paise: 1, total_count: 1, expires_at: new Date().toISOString() } },
         { path: `/coupons/admin/markRedemptionPaid/${randomUUID()}`, method: 'POST', body: { payment_reference: 'FAKE' } },
         { path: '/coupons/analytics/getFraudSignals', method: 'GET' },
       ];
@@ -426,10 +426,10 @@ async function runTests(token: string, ts: number): Promise<TestCase[]> {
   // ─── Webhook fraud ─────────────────────────────────────────────────
   tests.push({
     group: 'webhook',
-    name: 'razorpay webhook rejected without signature',
+    name: 'cashfree webhook rejected without signature',
     run: async () => {
-      const { status } = await api('/coupons/admin/webhooks/razorpay', 'POST', {
-        body: { event: 'payout.processed', payload: { payout: { entity: { id: 'fake' } } } },
+      const { status } = await api('/coupons/admin/webhooks/cashfree', 'POST', {
+        body: { type: 'TRANSFER_SUCCESS', data: { transfer_id: 'fake' } },
       });
       assert(status === 400 || status === 401, `expected 400/401, got ${status}`);
     },
@@ -437,12 +437,15 @@ async function runTests(token: string, ts: number): Promise<TestCase[]> {
 
   tests.push({
     group: 'webhook',
-    name: 'razorpay webhook rejected with forged signature',
+    name: 'cashfree webhook rejected with forged signature',
     run: async () => {
-      const body = { event: 'payout.processed', payload: { payout: { entity: { id: 'fake_payout_id' } } } };
-      const { status } = await api('/coupons/admin/webhooks/razorpay', 'POST', {
+      const body = { type: 'TRANSFER_SUCCESS', data: { transfer_id: 'fake_transfer_id' } };
+      const { status } = await api('/coupons/admin/webhooks/cashfree', 'POST', {
         body,
-        headers: { 'x-razorpay-signature': 'deadbeef'.repeat(8) },
+        headers: {
+          'x-webhook-signature': 'not-a-valid-signature',
+          'x-webhook-timestamp': String(Math.floor(Date.now() / 1000)),
+        },
       });
       assert(status === 400, `expected 400, got ${status}`);
     },

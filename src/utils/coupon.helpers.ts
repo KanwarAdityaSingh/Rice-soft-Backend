@@ -1,4 +1,85 @@
 import { appConfig } from '../config/app.config';
+import {
+  COUPON_BATCH_SERIES_PAD,
+  COUPON_SERIAL_SEQ_PAD,
+} from '../constants/coupon-status';
+
+const IST = 'Asia/Kolkata';
+const MONTH_ABBR = [
+  'JAN',
+  'FEB',
+  'MAR',
+  'APR',
+  'MAY',
+  'JUN',
+  'JUL',
+  'AUG',
+  'SEP',
+  'OCT',
+  'NOV',
+  'DEC',
+] as const;
+
+export interface IndiaCalendarParts {
+  /** YYYY-MM-DD in Asia/Kolkata */
+  seriesDate: string;
+  mon: string;
+  yyyy: string;
+  ddmm: string;
+}
+
+/** Calendar parts for coupon batch codes (IST). */
+export function getIndiaCalendarParts(date: Date = new Date()): IndiaCalendarParts {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: IST,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+
+  const year = parts.find((p) => p.type === 'year')?.value ?? '';
+  const month = parts.find((p) => p.type === 'month')?.value ?? '';
+  const day = parts.find((p) => p.type === 'day')?.value ?? '';
+  const monthIndex = parseInt(month, 10) - 1;
+
+  return {
+    seriesDate: `${year}-${month}-${day}`,
+    mon: MONTH_ABBR[monthIndex] ?? 'JAN',
+    yyyy: year,
+    ddmm: `${day}${month}`,
+  };
+}
+
+/** Format batch code: JUL-2026-2307-001 */
+export function formatCouponBatchCode(
+  parts: Pick<IndiaCalendarParts, 'mon' | 'yyyy' | 'ddmm'>,
+  series: number
+): string {
+  return `${parts.mon}-${parts.yyyy}-${parts.ddmm}-${String(series).padStart(COUPON_BATCH_SERIES_PAD, '0')}`;
+}
+
+/** Format coupon serial: JUL-2026-2307-001-000001 */
+export function formatCouponSerial(batchCode: string, sequence: number): string {
+  return `${batchCode}-${String(sequence).padStart(COUPON_SERIAL_SEQ_PAD, '0')}`;
+}
+
+/**
+ * Parse `{batch_code}-{NNNNNN}` → sequence number.
+ * Returns null if serial does not belong to batchCode or seq is invalid.
+ */
+export function parseCouponSerialSequence(
+  serial: string,
+  batchCode: string
+): number | null {
+  const trimmed = serial.trim().toUpperCase();
+  const prefix = `${batchCode.toUpperCase()}-`;
+  if (!trimmed.startsWith(prefix)) return null;
+  const seqPart = trimmed.slice(prefix.length);
+  if (!/^\d+$/.test(seqPart)) return null;
+  const seq = parseInt(seqPart, 10);
+  if (!Number.isFinite(seq) || seq < 1) return null;
+  return seq;
+}
 
 /** Normalize Indian phone to 10-digit local form */
 export function normalizePhone(phone: string): string {

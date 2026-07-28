@@ -85,7 +85,7 @@ export class CouponAnalyticsService {
       `
       SELECT
         cb.coupon_batch_id,
-        cb.name,
+        cb.batch_code,
         cb.face_value_paise,
         cb.total_count,
         COUNT(c.coupon_id)::int AS generated,
@@ -97,7 +97,7 @@ export class CouponAnalyticsService {
       LEFT JOIN coupons c ON c.coupon_batch_id = cb.coupon_batch_id
       LEFT JOIN redemptions r ON r.coupon_batch_id = cb.coupon_batch_id
       ${filter}
-      GROUP BY cb.coupon_batch_id, cb.name, cb.face_value_paise, cb.total_count
+      GROUP BY cb.coupon_batch_id, cb.batch_code, cb.face_value_paise, cb.total_count
       ORDER BY cb.created_at DESC
       LIMIT $${i} OFFSET $${i + 1}
     `,
@@ -111,7 +111,7 @@ export class CouponAnalyticsService {
         const inMarket = allotted + redeemed;
         return {
           batchId: row.coupon_batch_id,
-          name: row.name,
+          batchCode: row.batch_code,
           faceValuePaise: Number(row.face_value_paise),
           totalCount: Number(row.total_count),
           generated: Number(row.generated),
@@ -162,8 +162,8 @@ export class CouponAnalyticsService {
         COALESCE(SUM(total_amount_paise) FILTER (WHERE payout_status = 'pending'), 0)::bigint AS pending_amount_paise,
         COUNT(*) FILTER (WHERE payout_status = 'paid' AND paid_via = 'manual')::int AS paid_manual_count,
         COALESCE(SUM(total_amount_paise) FILTER (WHERE payout_status = 'paid' AND paid_via = 'manual'), 0)::bigint AS paid_manual_amount_paise,
-        COUNT(*) FILTER (WHERE payout_status = 'paid' AND paid_via = 'razorpay')::int AS paid_razorpay_count,
-        COALESCE(SUM(total_amount_paise) FILTER (WHERE payout_status = 'paid' AND paid_via = 'razorpay'), 0)::bigint AS paid_razorpay_amount_paise
+        COUNT(*) FILTER (WHERE payout_status = 'paid' AND paid_via = 'cashfree')::int AS paid_cashfree_count,
+        COALESCE(SUM(total_amount_paise) FILTER (WHERE payout_status = 'paid' AND paid_via = 'cashfree'), 0)::bigint AS paid_cashfree_amount_paise
       FROM redemptions
     `);
 
@@ -181,11 +181,11 @@ export class CouponAnalyticsService {
         count: Number(row.paid_manual_count),
         amountPaise: Number(row.paid_manual_amount_paise),
       },
-      paidRazorpay: {
-        count: Number(row.paid_razorpay_count),
-        amountPaise: Number(row.paid_razorpay_amount_paise),
+      paidCashfree: {
+        count: Number(row.paid_cashfree_count),
+        amountPaise: Number(row.paid_cashfree_amount_paise),
       },
-      razorpayFailedAttempts: Number(failedAttempts.rows[0].count),
+      cashfreeFailedAttempts: Number(failedAttempts.rows[0].count),
     };
   }
 

@@ -153,15 +153,31 @@ export class CouponPublicController {
       }
 
       const result = await couponAdminService.getRedeemerByPhone(req.publicUser.phone);
-      
+      const r = result.redeemer;
+      const hasBank =
+        Boolean(r.account_holder_name?.trim()) ||
+        Boolean(r.account_number?.trim()) ||
+        Boolean(r.ifsc?.trim()) ||
+        Boolean(r.bank_name?.trim());
+
       return ResponseHandler.success(res, {
-        phone: result.redeemer.phone,
-        name: result.redeemer.name,
-        upiVpa: result.redeemer.upi_vpa,
-        totalRedemptions: result.redeemer.total_redemptions,
-        lifetimeEarnedPaise: result.redeemer.lifetime_earned_paise,
-        firstRedeemedAt: result.redeemer.first_redeemed_at,
-        lastRedeemedAt: result.redeemer.last_redeemed_at,
+        phone: r.phone,
+        name: r.name,
+        upiVpa: r.upi_vpa,
+        bankDetails: hasBank
+          ? {
+              accountHolderName: r.account_holder_name,
+              accountNumber: r.account_number,
+              ifsc: r.ifsc,
+              bankName: r.bank_name,
+              verified: Boolean(r.bank_details_verified_at),
+              verifiedAt: r.bank_details_verified_at,
+            }
+          : null,
+        totalRedemptions: r.total_redemptions,
+        lifetimeEarnedPaise: r.lifetime_earned_paise,
+        firstRedeemedAt: r.first_redeemed_at,
+        lastRedeemedAt: r.last_redeemed_at,
       });
     } catch (error) {
       next(error);

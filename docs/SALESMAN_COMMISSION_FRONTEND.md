@@ -334,32 +334,56 @@ GET /api/v1/salesmen/reports/monthly?salesman_id={uuid}&from=2026-04-01&to=2026-
 
 `salesman_id` required. `from` / `to` optional ISO dates.
 
-Response shape:
+Response shape: KPI cards + `by_rice_quality` (see existing).
+
+#### Monthly details (drill-down)
+
+```
+GET /api/v1/salesmen/reports/monthly/details?salesman_id={uuid}&from=&to=&view=lines&rice_type=
+```
+
+| Query | Required | Notes |
+|-------|----------|-------|
+| `salesman_id` | Yes | |
+| `from` / `to` | No | Same dispatch-date window as monthly |
+| `view` | No | `lines` (default) \| `orders` \| `customers` \| `new_customers` |
+| `rice_type` | No | Only with `view=lines` (e.g. click Steam Basmati row) |
+
+**UI mapping**
+
+| Card / row click | `view` |
+|------------------|--------|
+| Bags / Qty / Sale amount | `lines` |
+| Rice quality row | `lines` + `rice_type` |
+| Orders | `orders` |
+| Customers | `customers` |
+| New customers | `new_customers` |
+
+Response always includes `summary` (`row_count`, `total_bags`, `total_quantity`, `total_sale_amount`) plus `rows`.
+
+Example (`view=lines`):
 
 ```json
 {
-  "salesman_id": "...",
-  "salesman_name": "Ravi Kumar",
-  "from": "2026-04-01",
-  "to": "2026-04-30",
-  "customer_count": 12,
-  "order_count": 20,
-  "total_bags": 500,
-  "total_quantity": 25000,
-  "total_sale_amount": 1250000,
-  "new_customers_added": 3,
-  "by_rice_quality": [
+  "view": "lines",
+  "summary": { "row_count": 2, "total_bags": 0, "total_quantity": 11, "total_sale_amount": 840 },
+  "rows": [
     {
-      "rice_type": "basmati",
-      "bags": 100,
-      "quantity": 5000,
-      "sale_amount": 400000
+      "invoice_dispatch_id": "...",
+      "invoice_number": "A/HR/B/26-27/10",
+      "dispatch_date": "2026-07-21",
+      "order_number": "SO-011",
+      "party_name": "A K Traders",
+      "product_name": "...",
+      "rice_type": "steam_basmati",
+      "bags": 0,
+      "quantity": 10,
+      "rate": 80,
+      "sale_amount": 800
     }
   ]
 }
 ```
-
-UI: KPI cards + rice-quality breakdown table. Based on **confirmed dispatches** only.
 
 ### 6.2 Sales return report
 

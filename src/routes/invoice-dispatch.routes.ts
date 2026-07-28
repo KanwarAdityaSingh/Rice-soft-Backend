@@ -50,6 +50,13 @@ router.post(
   invoiceDispatchController.uploadBilti.bind(invoiceDispatchController)
 );
 router.post(
+  '/:id/upload-lr',
+  authenticate,
+  documentUpload.single('file'),
+  auditLog('UPDATE', 'invoice_dispatches'),
+  invoiceDispatchController.uploadLr.bind(invoiceDispatchController)
+);
+router.post(
   '/:id/upload-receiving-doc',
   authenticate,
   documentUpload.single('file'),

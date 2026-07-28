@@ -1,14 +1,35 @@
 import { Response, NextFunction } from 'express';
 import { salesSaudaService } from '../services/sales-sauda.service';
+import { salesSaudaDAO } from '../dao/sales-sauda.dao';
 import { ResponseHandler } from '../utils/response';
 import { validate, createSalesSaudaSchema, updateSalesSaudaSchema, uuidSchema } from '../utils/validators';
 import { AuthRequest } from '../middleware/auth.middleware';
-import { SalesSaudaStatus, SalesSaudaType, SalesMovementType } from '../models/sales-sauda.model';
+import { SalesSaudaStatus, SalesSaudaType, SalesMovementType, UpdateSalesSaudaDTO } from '../models/sales-sauda.model';
 import type { Address } from '../models/vendor.model';
 import { formatSaudaDisplayId } from '../utils/sauda-display';
 import { SalesSaudaLine } from '../models/sales-sauda-line.model';
 import { SALES_SAUDA_TYPE_OPTIONS } from '../constants/sales-sauda-types';
+import {
+  uploadToS3,
+  validateFileSize,
+  validateFileType,
+} from '../utils/s3-upload';
+import { appConfig } from '../config/app.config';
+import {
+  InternalServerError,
+  NotFoundError,
+  ValidationError,
+} from '../utils/errors';
 
+/** Path param → sales_saudas column for multipart attachment uploads */
+const SAUDA_ATTACHMENT_TYPES = {
+  'customer-po': 'customer_po_url',
+  email: 'email_attachment_url',
+  agreement: 'agreement_url',
+  'whatsapp-screenshot': 'whatsapp_screenshot_url',
+} as const;
+
+type SaudaAttachmentType = keyof typeof SAUDA_ATTACHMENT_TYPES;
 function formatLine(line: SalesSaudaLine & {
   ordered?: number;
   allocated?: number;
@@ -69,7 +90,11 @@ function formatSauda(sauda: any) {
     billing_address: sauda.billing_address ?? null,
     delivery_address: sauda.delivery_address ?? null,
     notes: sauda.notes,
-    payment_terms: sauda.payment_terms != null ? parseInt(sauda.payment_terms.toString(), 10) : null,
+    payment_terms: sauda.payment_terms != null ? String(sauda.payment_terms) : null,
+    customer_po_url: sauda.customer_po_url ?? null,
+    email_attachment_url: sauda.email_attachment_url ?? null,
+    agreement_url: sauda.agreement_url ?? null,
+    whatsapp_screenshot_url: sauda.whatsapp_screenshot_url ?? null,
     amount: sauda.amount != null ? parseFloat(sauda.amount.toString()) : 0,
     created_at: sauda.created_at instanceof Date ? sauda.created_at.toISOString() : sauda.created_at,
     updated_at: sauda.updated_at instanceof Date ? sauda.updated_at.toISOString() : sauda.updated_at,
@@ -130,7 +155,11 @@ export class SalesSaudaController {
         billing_address?: Address | null;
         delivery_address?: Address | null;
         notes?: string;
-        payment_terms?: number | null;
+        payment_terms?: string | null;
+        customer_po_url?: string | null;
+        email_attachment_url?: string | null;
+        agreement_url?: string | null;
+        whatsapp_screenshot_url?: string | null;
         lines?: Array<{
           product_id: string;
           packaging_id?: string;
@@ -161,6 +190,10 @@ export class SalesSaudaController {
           delivery_address: body.delivery_address,
           notes: body.notes,
           payment_terms: body.payment_terms,
+          customer_po_url: body.customer_po_url,
+          email_attachment_url: body.email_attachment_url,
+          agreement_url: body.agreement_url,
+          whatsapp_screenshot_url: body.whatsapp_screenshot_url,
           lines: body.lines,
         },
         userId
@@ -188,7 +221,11 @@ export class SalesSaudaController {
         billing_address?: Address | null;
         delivery_address?: Address | null;
         notes?: string;
-        payment_terms?: number | null;
+        payment_terms?: string | null;
+        customer_po_url?: string | null;
+        email_attachment_url?: string | null;
+        agreement_url?: string | null;
+        whatsapp_screenshot_url?: string | null;
         lines?: Array<{
           product_id: string;
           packaging_id?: string;
@@ -220,6 +257,10 @@ export class SalesSaudaController {
           delivery_address: body.delivery_address,
           notes: body.notes,
           payment_terms: body.payment_terms,
+          customer_po_url: body.customer_po_url,
+          email_attachment_url: body.email_attachment_url,
+          agreement_url: body.agreement_url,
+          whatsapp_screenshot_url: body.whatsapp_screenshot_url,
           lines: body.lines,
           updated_by: userId,
         },
@@ -237,6 +278,78 @@ export class SalesSaudaController {
       const userId = req.user?.userId;
       const sauda = await salesSaudaService.finalize(id, userId);
       return ResponseHandler.success(res, formatSauda(sauda), 'Sales sauda finalized successfully');
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /sales-saudas/:id/upload-attachment/:type
+   * multipart field: file (image or PDF)
+   * type: customer-po | email | agreement | whatsapp-screenshot
+   */
+  async uploadAttachment(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const id = validate<string>(uuidSchema, req.params.id);
+      const type = req.params.type as SaudaAttachmentType;
+      const field = SAUDA_ATTACHMENT_TYPES[type];
+      if (!field) {
+        throw new ValidationError(
+          'Invalid attachment type. Use customer-po, email, agreement, or whatsapp-screenshot'
+        );
+      }
+
+      const existing = await salesSaudaDAO.findById(id);
+      if (!existing) {
+        throw new NotFoundError('Sales sauda not found');
+      }
+
+      if (!req.file) {
+        throw new ValidationError('File is required');
+      }
+
+      validateFileSize(req.file.size, 10);
+      validateFileType(req.file.mimetype, [
+        'image/jpeg',
+        'image/jpg',
+        'image/png',
+        'image/gif',
+        'application/pdf',
+      ]);
+
+      let uploadResult;
+      try {
+        uploadResult = await uploadToS3(
+          req.file.buffer,
+          req.file.originalname,
+          appConfig.aws.s3.salesSaudaAttachmentsFolder
+        );
+      } catch {
+        throw new InternalServerError('Failed to upload attachment. Please try again.');
+      }
+
+      const updateData: UpdateSalesSaudaDTO = {
+        [field]: uploadResult.url,
+        updated_by: req.user?.userId,
+      };
+      const sauda = await salesSaudaDAO.update(id, updateData);
+      if (!sauda) {
+        throw new NotFoundError('Sales sauda not found');
+      }
+
+      return ResponseHandler.success(
+        res,
+        {
+          url: uploadResult.url,
+          type,
+          field,
+          customer_po_url: sauda.customer_po_url ?? null,
+          email_attachment_url: sauda.email_attachment_url ?? null,
+          agreement_url: sauda.agreement_url ?? null,
+          whatsapp_screenshot_url: sauda.whatsapp_screenshot_url ?? null,
+        },
+        'Attachment uploaded successfully'
+      );
     } catch (error) {
       next(error);
     }

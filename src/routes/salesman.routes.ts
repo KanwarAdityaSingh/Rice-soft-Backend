@@ -28,6 +28,16 @@ router.get(
 );
 
 /**
+ * @route   GET /api/v1/salesmen/reports/monthly/details
+ * @desc    Drill-down for monthly KPIs (lines | orders | customers | new_customers)
+ */
+router.get(
+  '/reports/monthly/details',
+  authenticate,
+  salesmanCommissionReportController.monthlyDetailsReport.bind(salesmanCommissionReportController)
+);
+
+/**
  * @route   GET /api/v1/salesmen/reports/returns
  * @desc    Sales return report for a salesman
  */

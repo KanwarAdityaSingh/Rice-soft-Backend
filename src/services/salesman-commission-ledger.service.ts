@@ -2,6 +2,8 @@ import { PoolClient } from 'pg';
 import { salesSaudaDAO } from '../dao/sales-sauda.dao';
 import { invoiceDispatchDAO } from '../dao/invoice-dispatch.dao';
 import { invoiceDispatchLineDAO } from '../dao/invoice-dispatch-line.dao';
+import { invoiceDispatchSaudaDAO } from '../dao/invoice-dispatch-sauda.dao';
+import { salesSaudaLineDAO } from '../dao/sales-sauda-line.dao';
 import { creditNoteDAO } from '../dao/credit-note.dao';
 import { creditNoteLineDAO } from '../dao/credit-note-line.dao';
 import { productDAO } from '../dao/product.dao';
@@ -29,104 +31,146 @@ function round3(value: number): number {
  */
 export class SalesmanCommissionLedgerService {
   /**
-   * Create accrual on dispatch confirm.
-   * Skips: godown_transfer, no salesman, no commission snapshot, already accrued.
+   * Create accrual(s) on dispatch confirm — one entry per linked sauda that has commission.
+   * Skips: godown_transfer, no salesman, no commission snapshot, already accrued for that sauda.
    * fixed_per_transaction: only on the first accrual for that sauda.
    */
   async accrueOnDispatchConfirm(
     invoiceDispatchId: string,
     userId?: string,
     client?: PoolClient
-  ): Promise<SalesmanCommissionEntry | null> {
-    const existing = await salesmanCommissionEntryDAO.findAccrualByDispatchId(
-      invoiceDispatchId,
-      client
-    );
-    if (existing) return existing;
-
+  ): Promise<SalesmanCommissionEntry[]> {
     const dispatch = await invoiceDispatchDAO.findById(invoiceDispatchId);
     if (!dispatch) throw new NotFoundError('Invoice dispatch not found');
 
-    const sauda = await salesSaudaDAO.findById(dispatch.sales_sauda_id);
-    if (!sauda) throw new NotFoundError('Sales sauda not found');
-
-    if (sauda.movement_type === 'godown_transfer') return null;
-    if (!sauda.salesman_id || !sauda.salesman_commission_type || !sauda.salesman_commission_config) {
-      return null;
+    let saudaIds = await invoiceDispatchSaudaDAO.getLinkedSaudaIds(invoiceDispatchId, client);
+    if (saudaIds.length === 0) {
+      saudaIds = [dispatch.sales_sauda_id];
     }
 
-    const lines = await invoiceDispatchLineDAO.findByInvoiceDispatchId(invoiceDispatchId);
-    if (lines.length === 0) return null;
+    const dispatchLines = await invoiceDispatchLineDAO.findByInvoiceDispatchId(invoiceDispatchId);
+    if (dispatchLines.length === 0) return [];
 
-    const basisLines = [];
-    let quantityKg = 0;
-    let saleAmount = 0;
-    for (const line of lines) {
-      const qty = Number(line.quantity) || 0;
-      const amount = Number(line.amount) || 0;
-      quantityKg += qty;
-      saleAmount += amount;
-      const product = await productDAO.findById(line.product_id);
-      basisLines.push({
-        rice_type: product?.rice_type ?? null,
-        quantity_kg: qty,
-        sale_amount: amount,
-      });
+    // Map dispatch line → owning sauda via sales_sauda_line_id
+    const lineToSauda = new Map<string, string>();
+    for (const saudaId of saudaIds) {
+      const saudaLines = await salesSaudaLineDAO.findBySalesSaudaId(saudaId, client);
+      for (const sl of saudaLines) {
+        lineToSauda.set(sl.id, saudaId);
+      }
     }
-    quantityKg = round3(quantityKg);
-    saleAmount = round2(saleAmount);
 
-    let commissionAmount = 0;
-    if (sauda.salesman_commission_type === 'fixed_per_transaction') {
-      const alreadyAccrued = await salesmanCommissionEntryDAO.hasAccrualForSauda(
-        sauda.id,
+    const linesBySauda = new Map<string, typeof dispatchLines>();
+    for (const line of dispatchLines) {
+      const saudaId = line.sales_sauda_line_id
+        ? lineToSauda.get(line.sales_sauda_line_id)
+        : undefined;
+      const owner = saudaId ?? dispatch.sales_sauda_id;
+      const list = linesBySauda.get(owner) ?? [];
+      list.push(line);
+      linesBySauda.set(owner, list);
+    }
+
+    const created: SalesmanCommissionEntry[] = [];
+
+    for (const saudaId of saudaIds) {
+      const existing = await salesmanCommissionEntryDAO.findAccrualByDispatchAndSauda(
+        invoiceDispatchId,
+        saudaId,
         client
       );
-      if (alreadyAccrued) {
-        logger.info('Skipping fixed_per_transaction commission; sauda already accrued', {
-          salesSaudaId: sauda.id,
-          invoiceDispatchId,
-        });
-        return null;
+      if (existing) {
+        created.push(existing);
+        continue;
       }
-      commissionAmount = computeSalesmanCommission({
-        type: 'fixed_per_transaction',
-        config: sauda.salesman_commission_config,
-        quantity_kg: quantityKg,
-        sale_amount: saleAmount,
-      });
-    } else {
-      commissionAmount = computeSalesmanCommission({
-        type: sauda.salesman_commission_type,
-        config: sauda.salesman_commission_config,
-        quantity_kg: quantityKg,
-        sale_amount: saleAmount,
-        lines: basisLines,
-      });
+
+      const sauda = await salesSaudaDAO.findById(saudaId);
+      if (!sauda) throw new NotFoundError(`Sales sauda not found: ${saudaId}`);
+
+      if (sauda.movement_type === 'godown_transfer') continue;
+      if (!sauda.salesman_id || !sauda.salesman_commission_type || !sauda.salesman_commission_config) {
+        continue;
+      }
+
+      const lines = linesBySauda.get(saudaId) ?? [];
+      if (lines.length === 0) continue;
+
+      const basisLines = [];
+      let quantityKg = 0;
+      let saleAmount = 0;
+      for (const line of lines) {
+        const qty = Number(line.quantity) || 0;
+        const amount = Number(line.amount) || 0;
+        quantityKg += qty;
+        saleAmount += amount;
+        const product = await productDAO.findById(line.product_id);
+        basisLines.push({
+          rice_type: product?.rice_type ?? null,
+          quantity_kg: qty,
+          sale_amount: amount,
+        });
+      }
+      quantityKg = round3(quantityKg);
+      saleAmount = round2(saleAmount);
+
+      let commissionAmount = 0;
+      if (sauda.salesman_commission_type === 'fixed_per_transaction') {
+        const alreadyAccrued = await salesmanCommissionEntryDAO.hasAccrualForSauda(
+          sauda.id,
+          client
+        );
+        if (alreadyAccrued) {
+          logger.info('Skipping fixed_per_transaction commission; sauda already accrued', {
+            salesSaudaId: sauda.id,
+            invoiceDispatchId,
+          });
+          continue;
+        }
+        commissionAmount = computeSalesmanCommission({
+          type: 'fixed_per_transaction',
+          config: sauda.salesman_commission_config,
+          quantity_kg: quantityKg,
+          sale_amount: saleAmount,
+        });
+      } else {
+        commissionAmount = computeSalesmanCommission({
+          type: sauda.salesman_commission_type,
+          config: sauda.salesman_commission_config,
+          quantity_kg: quantityKg,
+          sale_amount: saleAmount,
+          lines: basisLines,
+        });
+      }
+
+      if (commissionAmount === 0) {
+        logger.info('Commission accrual amount is 0; skipping entry', {
+          invoiceDispatchId,
+          salesSaudaId: sauda.id,
+        });
+        continue;
+      }
+
+      const entry = await salesmanCommissionEntryDAO.create(
+        {
+          salesman_id: sauda.salesman_id,
+          sales_sauda_id: sauda.id,
+          invoice_dispatch_id: invoiceDispatchId,
+          credit_note_id: null,
+          entry_type: 'accrual',
+          commission_type: sauda.salesman_commission_type,
+          commission_config: sauda.salesman_commission_config as SalesmanCommissionConfig,
+          basis_quantity: quantityKg,
+          basis_sale_amount: saleAmount,
+          commission_amount: commissionAmount,
+          status: 'pending',
+          created_by: userId ?? null,
+        },
+        client
+      );
+      created.push(entry);
     }
 
-    if (commissionAmount === 0) {
-      logger.info('Commission accrual amount is 0; skipping entry', { invoiceDispatchId });
-      return null;
-    }
-
-    return salesmanCommissionEntryDAO.create(
-      {
-        salesman_id: sauda.salesman_id,
-        sales_sauda_id: sauda.id,
-        invoice_dispatch_id: invoiceDispatchId,
-        credit_note_id: null,
-        entry_type: 'accrual',
-        commission_type: sauda.salesman_commission_type,
-        commission_config: sauda.salesman_commission_config as SalesmanCommissionConfig,
-        basis_quantity: quantityKg,
-        basis_sale_amount: saleAmount,
-        commission_amount: commissionAmount,
-        status: 'pending',
-        created_by: userId ?? null,
-      },
-      client
-    );
+    return created;
   }
 
   /**
@@ -155,13 +199,14 @@ export class SalesmanCommissionLedgerService {
       return null;
     }
 
-    const accrual = await salesmanCommissionEntryDAO.findAccrualByDispatchId(
+    const accrual = await salesmanCommissionEntryDAO.findAccrualByDispatchAndSauda(
       cn.invoice_dispatch_id,
+      cn.sales_sauda_id,
       client
     );
     // If never accrued (e.g. no commission on sauda), nothing to reverse
     if (!accrual && sauda.salesman_commission_type === 'fixed_per_transaction') {
-      // Fixed was possibly on another dispatch of same sauda — still reverse proportional? 
+      // Fixed was possibly on another dispatch of same sauda — still reverse proportional?
       // For fixed, reverse is 0 unless we choose to claw back — skip if no dispatch accrual.
       return null;
     }

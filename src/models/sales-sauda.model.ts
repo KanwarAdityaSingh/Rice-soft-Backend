@@ -32,7 +32,12 @@ export interface SalesSauda {
   billing_address: Address | null;
   delivery_address: Address | null;
   notes: string | null;
-  payment_terms: number | null;
+  payment_terms: string | null;
+  /** Optional supporting docs (S3 URLs) */
+  customer_po_url: string | null;
+  email_attachment_url: string | null;
+  agreement_url: string | null;
+  whatsapp_screenshot_url: string | null;
   amount: number;
   created_at: Date;
   updated_at: Date;
@@ -56,7 +61,11 @@ export interface CreateSalesSaudaDTO {
   billing_address?: Address | null;
   delivery_address?: Address | null;
   notes?: string;
-  payment_terms?: number | null;
+  payment_terms?: string | null;
+  customer_po_url?: string | null;
+  email_attachment_url?: string | null;
+  agreement_url?: string | null;
+  whatsapp_screenshot_url?: string | null;
   amount?: number;
   created_by?: string;
 }
@@ -77,7 +86,11 @@ export interface UpdateSalesSaudaDTO {
   billing_address?: Address | null;
   delivery_address?: Address | null;
   notes?: string;
-  payment_terms?: number | null;
+  payment_terms?: string | null;
+  customer_po_url?: string | null;
+  email_attachment_url?: string | null;
+  agreement_url?: string | null;
+  whatsapp_screenshot_url?: string | null;
   amount?: number;
   updated_by?: string;
 }
@@ -104,7 +117,11 @@ export interface SalesSaudaResponse {
   billing_address: Address | null;
   delivery_address: Address | null;
   notes: string | null;
-  payment_terms: number | null;
+  payment_terms: string | null;
+  customer_po_url: string | null;
+  email_attachment_url: string | null;
+  agreement_url: string | null;
+  whatsapp_screenshot_url: string | null;
   amount: number;
   created_at: string;
   updated_at: string;

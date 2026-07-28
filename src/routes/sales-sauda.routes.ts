@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { salesSaudaController } from '../controllers/sales-sauda.controller';
 import { authenticate } from '../middleware/auth.middleware';
 import { auditLog } from '../middleware/audit.middleware';
+import { documentUpload } from '../middleware/upload.middleware';
 
 const router = Router();
 
@@ -25,6 +26,13 @@ router.post(
   authenticate,
   auditLog('UPDATE', 'sales_saudas'),
   salesSaudaController.finalize.bind(salesSaudaController)
+);
+router.post(
+  '/:id/upload-attachment/:type',
+  authenticate,
+  auditLog('UPDATE', 'sales_saudas'),
+  documentUpload.single('file'),
+  salesSaudaController.uploadAttachment.bind(salesSaudaController)
 );
 router.delete(
   '/:id',

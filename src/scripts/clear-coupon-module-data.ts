@@ -17,7 +17,7 @@ async function clearCouponModuleData() {
 
     // Child tables first (FK order), then parents
     const tables = [
-      'razorpay_webhook_events',
+      'cashfree_webhook_events',
       'payout_attempts',
       'rule_applications',
       'redemptions',
@@ -25,6 +25,7 @@ async function clearCouponModuleData() {
       'coupon_status_history',
       'coupons',
       'coupon_batches',
+      'coupon_batch_day_series',
       'redeemers',
       'promotion_rules',
       'public_otp_verifications',

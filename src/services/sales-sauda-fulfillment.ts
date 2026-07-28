@@ -52,7 +52,8 @@ export async function getAllocatedBySaudaLineId(
              COALESCE(SUM(idl.quantity), 0) AS allocated
       FROM invoice_dispatch_lines idl
       INNER JOIN invoice_dispatches id ON id.id = idl.invoice_dispatch_id
-      WHERE id.sales_sauda_id = $1
+      INNER JOIN sales_sauda_lines ssl ON ssl.id = idl.sales_sauda_line_id
+      WHERE ssl.sales_sauda_id = $1
         AND id.status IN ('draft', 'confirmed')
         AND idl.sales_sauda_line_id IS NOT NULL
       GROUP BY idl.sales_sauda_line_id
@@ -63,8 +64,8 @@ export async function getAllocatedBySaudaLineId(
       FROM credit_note_lines cnl
       INNER JOIN credit_notes cn ON cn.id = cnl.credit_note_id
       INNER JOIN invoice_dispatch_lines idl ON idl.id = cnl.invoice_dispatch_line_id
-      INNER JOIN invoice_dispatches id ON id.id = idl.invoice_dispatch_id
-      WHERE id.sales_sauda_id = $1
+      INNER JOIN sales_sauda_lines ssl ON ssl.id = idl.sales_sauda_line_id
+      WHERE ssl.sales_sauda_id = $1
         AND cn.status = 'confirmed'
         AND idl.sales_sauda_line_id IS NOT NULL
       GROUP BY idl.sales_sauda_line_id

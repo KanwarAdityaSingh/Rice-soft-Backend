@@ -5,8 +5,8 @@ import { couponAdminController } from '../controllers/coupon-admin.controller';
 const router = Router();
 
 router.post(
-  '/webhooks/razorpay',
-  couponAdminController.razorpayWebhook.bind(couponAdminController)
+  '/webhooks/cashfree',
+  couponAdminController.cashfreeWebhook.bind(couponAdminController)
 );
 
 router.use(authenticate);
@@ -21,6 +21,8 @@ router.post('/markBatchAllotted/:batchId', couponAdminController.markBatchAllott
 router.post('/archiveCouponBatch/:batchId', couponAdminController.archiveCouponBatch.bind(couponAdminController));
 router.post('/voidCouponBatch/:batchId', couponAdminController.voidCouponBatch.bind(couponAdminController));
 router.post('/deleteCouponBatch/:batchId', couponAdminController.deleteCouponBatch.bind(couponAdminController));
+router.post('/lockCouponBatch/:batchId', couponAdminController.lockCouponBatch.bind(couponAdminController));
+router.post('/unlockCouponBatch/:batchId', couponAdminController.unlockCouponBatch.bind(couponAdminController));
 
 router.get('/getAllCoupons', couponAdminController.getAllCoupons.bind(couponAdminController));
 router.get('/getCouponByCode/:code', couponAdminController.getCouponByCode.bind(couponAdminController));
@@ -50,6 +52,10 @@ router.post('/previewPromotionRuleStack', couponAdminController.previewPromotion
 router.get('/getPromotionRuleStats/:id', couponAdminController.getPromotionRuleStats.bind(couponAdminController));
 
 router.post('/retryPayout/:redemptionId', couponAdminController.retryPayout.bind(couponAdminController));
+router.post(
+  '/initiateCashfreePayout/:redemptionId',
+  couponAdminController.initiateCashfreePayout.bind(couponAdminController)
+);
 router.get('/getPayoutAttempts/:redemptionId', couponAdminController.getPayoutAttempts.bind(couponAdminController));
 
 export default router;

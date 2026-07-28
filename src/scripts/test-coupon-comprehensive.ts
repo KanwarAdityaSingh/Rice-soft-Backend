@@ -71,7 +71,7 @@ async function createReadyBatch(
 ): Promise<{ batchId: string; codes: string[] }> {
   const expiresAt = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
   const { json } = await api('/coupons/admin/createCouponBatch', 'POST', token, {
-    name: `CompTest-${ts}-${randomUUID().slice(0, 8)}`,
+    description: `CompTest-${ts}-${randomUUID().slice(0, 8)}`,
     face_value_paise: 5000,
     total_count: totalCount,
     expires_at: expiresAt,
@@ -382,7 +382,6 @@ async function runTests(token: string, ts: number) {
     name: 'rejects create batch with invalid face_value',
     run: async () => {
       const { status } = await api('/coupons/admin/createCouponBatch', 'POST', token, {
-        name: 'Bad batch',
         face_value_paise: 0,
         total_count: 10,
         expires_at: new Date(Date.now() + 86400000).toISOString(),
@@ -877,7 +876,7 @@ async function runTests(token: string, ts: number) {
 
   tests.push({
     group: 'payout',
-    name: 'retry payout on pending redemption when Razorpay disabled is no-op success',
+    name: 'retry payout on pending redemption when Cashfree disabled is no-op success',
     run: async () => {
       const { codes } = await createReadyBatch(token, ts, 1, { markAllotted: true });
       const phone = defaultPhone;
@@ -898,7 +897,7 @@ async function runTests(token: string, ts: number) {
         `SELECT payout_status FROM redemptions WHERE redemption_id = $1`,
         [redemptionId]
       );
-      assert(row.rows[0]?.payout_status === 'pending', 'should stay pending without Razorpay');
+      assert(row.rows[0]?.payout_status === 'pending', 'should stay pending without Cashfree');
     },
   });
 

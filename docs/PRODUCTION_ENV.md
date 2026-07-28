@@ -66,7 +66,7 @@ Coupon / payout related only:
 
 ```bash
 sudo kubectl -n rice exec deploy/backend -- env | sort | \
-  grep -E '^(COUPON_|RAZORPAY_|CORS_|JWT_|KALEYRA_|SUREPASS_|NODE_ENV|DB_)'
+  grep -E '^(COUPON_|CASHFREE_|CORS_|JWT_|KALEYRA_|SUREPASS_|NODE_ENV|DB_)'
 ```
 
 One variable:
@@ -154,15 +154,20 @@ Add or change only the lines you need. Example coupon additions:
 ```env
 COUPON_PUBLIC_SMS_ENABLED=true
 COUPON_PAYOUT_ENABLED=false
+COUPON_PAYOUT_AUTO=false
 COUPON_EXPIRY_CRON_ENABLED=true
 COUPON_PAYOUT_WORKER_INTERVAL_MS=300000
+# CASHFREE_CLIENT_ID=
+# CASHFREE_CLIENT_SECRET=
+# CASHFREE_ENV=production
+# CASHFREE_FUNDSOURCE_ID=
 CORS_ORIGIN=https://your-redeem-site.com,https://riceops.adhraamrit.com
 ```
 
 **Production rules:**
 
 - Set `COUPON_PUBLIC_SMS_ENABLED=true` for real OTP SMS (requires Kaleyra vars).
-- Razorpay vars only needed if `COUPON_PAYOUT_ENABLED=true`.
+- Cashfree vars only needed if `COUPON_PAYOUT_ENABLED=true`.
 - Prefer no fixed OTP in production. If UAT needs it, set both `COUPON_PUBLIC_FIXED_OTP` (6 digits) and `COUPON_PUBLIC_FIXED_OTP_PHONES` (comma-separated 10-digit testers) — startup fails without the allowlist.
 
 Do **not** paste your whole local `.env` over this file.
@@ -242,10 +247,11 @@ See [`env.template`](../env.template) and [`COUPON_MODULE.md`](./COUPON_MODULE.m
 | `COUPON_PUBLIC_SMS_ENABLED` | `true` for real OTP |
 | `KALEYRA_*` | Required when public SMS enabled |
 | `SUREPASS_API_TOKEN` | Required for bank KYC at redeem |
-| `COUPON_PAYOUT_ENABLED` | `false` until Razorpay is configured |
-| `RAZORPAY_*` | Required when payout enabled |
+| `COUPON_PAYOUT_ENABLED` | `false` until Cashfree is configured |
+| `COUPON_PAYOUT_AUTO` | `false` = CMS initiate only; `true` = enqueue on redeem + worker |
+| `CASHFREE_*` | Required when payout enabled (`CLIENT_ID`, `CLIENT_SECRET`, `ENV`) |
 | `COUPON_EXPIRY_CRON_ENABLED` | Optional background expiry job |
-| `COUPON_PAYOUT_WORKER_INTERVAL_MS` | Payout worker poll interval |
+| `COUPON_PAYOUT_WORKER_INTERVAL_MS` | Payout worker poll interval (AUTO mode only) |
 
 ---
 

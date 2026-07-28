@@ -7,10 +7,11 @@ import { couponExportService } from '../services/coupon-export.service';
 import { couponAdminService } from '../services/coupon-admin.service';
 import { couponPayoutService } from '../services/coupon-payout.service';
 import { promotionRuleService } from '../services/promotion-rule.service';
-import { razorpayPayoutService } from '../services/razorpay-payout.service';
+import { cashfreePayoutService } from '../services/cashfree-payout.service';
 import { PayoutAttemptDAO } from '../dao/payout-attempt.dao';
 import {
   createCouponBatchSchema,
+  markBatchAllottedSchema,
   markRedemptionPaidSchema,
   createPromotionRuleSchema,
   updatePromotionRuleSchema,
@@ -26,8 +27,9 @@ import {
 import { CreateCouponBatchDTO, CreatePromotionRuleDTO, UpdatePromotionRuleDTO } from '../models/coupon.model';
 import type { CouponStatus } from '../constants/coupon-status';
 import { appConfig } from '../config/app.config';
-import { createHmac, timingSafeEqual } from 'crypto';
 import { BadRequestError } from '../utils/errors';
+import { logger } from '../utils/logger';
+import type { MarkBatchAllottedSelection } from '../services/coupon-batch.service';
 
 export class CouponAdminController {
   async createCouponBatch(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
@@ -77,9 +79,12 @@ export class CouponAdminController {
   async exportBatchCodes(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const batchId = validate<string>(uuidSchema, req.params.batchId);
-      const csv = await couponExportService.exportBatchCsv(batchId);
+      const { csv, batchCode } = await couponExportService.exportBatchCsv(batchId);
       res.setHeader('Content-Type', 'text/csv');
-      res.setHeader('Content-Disposition', `attachment; filename="coupon-batch-${batchId}.csv"`);
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="coupon-batch-${batchCode}.csv"`
+      );
       return res.status(200).send(csv);
     } catch (error) {
       next(error);
@@ -99,7 +104,15 @@ export class CouponAdminController {
   async markBatchAllotted(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const batchId = validate<string>(uuidSchema, req.params.batchId);
-      const result = await couponBatchService.markBatchAllotted(batchId, req.user?.userId);
+      const selection = validate<MarkBatchAllottedSelection>(
+        markBatchAllottedSchema,
+        req.body ?? {}
+      );
+      const result = await couponBatchService.markBatchAllotted(
+        batchId,
+        req.user?.userId,
+        selection
+      );
       return ResponseHandler.success(res, result, 'Batch marked allotted');
     } catch (error) {
       next(error);
@@ -136,11 +149,32 @@ export class CouponAdminController {
     }
   }
 
+  async lockCouponBatch(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const batchId = validate<string>(uuidSchema, req.params.batchId);
+      const batch = await couponBatchService.lockBatch(batchId, req.user?.userId);
+      return ResponseHandler.success(res, batch, 'Batch locked');
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async unlockCouponBatch(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const batchId = validate<string>(uuidSchema, req.params.batchId);
+      const batch = await couponBatchService.unlockBatch(batchId);
+      return ResponseHandler.success(res, batch, 'Batch unlocked');
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async getAllCoupons(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const query = validate<{
         batchId?: string;
         status?: CouponStatus;
+        excludeVoid?: boolean;
         code?: string;
         page?: number;
         limit?: number;
@@ -414,8 +448,22 @@ export class CouponAdminController {
   async retryPayout(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const redemptionId = validate<string>(uuidSchema, req.params.redemptionId);
-      await razorpayPayoutService.retryPayout(redemptionId);
-      return ResponseHandler.success(res, { redemptionId }, 'Payout retry queued');
+      const result = await cashfreePayoutService.retryPayout(redemptionId);
+      return ResponseHandler.success(res, result, result.message);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async initiateCashfreePayout(
+    req: AuthRequest,
+    res: Response,
+    next: NextFunction
+  ): Promise<Response | void> {
+    try {
+      const redemptionId = validate<string>(uuidSchema, req.params.redemptionId);
+      const result = await cashfreePayoutService.initiatePayout(redemptionId);
+      return ResponseHandler.success(res, result, result.message);
     } catch (error) {
       next(error);
     }
@@ -432,30 +480,70 @@ export class CouponAdminController {
     }
   }
 
-  async razorpayWebhook(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+  async cashfreeWebhook(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const signature = req.headers['x-razorpay-signature'];
-      if (!signature || typeof signature !== 'string') {
-        throw new BadRequestError('Missing Razorpay signature');
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      const eventType = String(body.type ?? body.event ?? body.event_type ?? '').toUpperCase();
+
+      /**
+       * Cashfree "Test & Add Webhook" sends LOW_BALANCE_ALERT.
+       * Signature/timestamp are often in the body, not x-webhook-* headers.
+       * Dashboard requires HTTP 200 to save the URL — do not 400 this event.
+       */
+      if (eventType === 'LOW_BALANCE_ALERT') {
+        if (appConfig.cashfree.clientSecret) {
+          try {
+            await cashfreePayoutService.handleWebhook(body);
+          } catch (error) {
+            logger.warn('Cashfree LOW_BALANCE_ALERT handled with non-fatal error', {
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        }
+        return ResponseHandler.success(res, { received: true });
       }
 
-      const secret = appConfig.razorpay.webhookSecret;
-      if (!secret) {
-        throw new BadRequestError('Razorpay webhook not configured');
+      if (!appConfig.cashfree.clientId || !appConfig.cashfree.clientSecret) {
+        throw new BadRequestError('Cashfree webhook not configured');
       }
 
-      const body = JSON.stringify(req.body);
-      const expected = createHmac('sha256', secret).update(body).digest('hex');
-      const valid =
-        expected.length === signature.length &&
-        timingSafeEqual(Buffer.from(expected), Buffer.from(signature));
+      const headerValue = (value: string | string[] | undefined): string | null => {
+        if (typeof value === 'string' && value.length > 0) return value;
+        if (Array.isArray(value) && typeof value[0] === 'string' && value[0].length > 0) {
+          return value[0];
+        }
+        return null;
+      };
 
-      if (!valid) {
-        throw new BadRequestError('Invalid Razorpay signature');
+      const signatureHeader = headerValue(req.headers['x-webhook-signature']);
+      const timestampHeader = headerValue(req.headers['x-webhook-timestamp']);
+      const signature =
+        signatureHeader ??
+        (typeof body.signature === 'string' ? body.signature : null);
+      const timestamp =
+        timestampHeader ??
+        (typeof body.event_time === 'string' ? body.event_time : null) ??
+        (typeof body.eventTime === 'string' ? body.eventTime : null) ??
+        (typeof body.alertTime === 'string' ? body.alertTime : null);
+
+      const rawBody =
+        (req as AuthRequest & { rawBody?: string }).rawBody ?? JSON.stringify(body);
+
+      // V2 header-signed webhooks: verify HMAC(timestamp + rawBody).
+      // Some Cashfree payout events only include body.signature (no timestamp headers).
+      if (signatureHeader && timestamp) {
+        if (!cashfreePayoutService.verifyWebhookSignature(rawBody, signatureHeader, timestamp)) {
+          throw new BadRequestError('Invalid Cashfree webhook signature');
+        }
+      } else if (signatureHeader && !timestamp) {
+        logger.warn('Cashfree webhook missing timestamp; processing without HMAC verify', {
+          eventType,
+        });
+      } else if (!signature && !signatureHeader) {
+        throw new BadRequestError('Missing Cashfree webhook signature');
       }
 
-      const event = String(req.body?.event ?? '');
-      await razorpayPayoutService.handleWebhook(event, req.body);
+      await cashfreePayoutService.handleWebhook(body);
       return ResponseHandler.success(res, { received: true });
     } catch (error) {
       next(error);

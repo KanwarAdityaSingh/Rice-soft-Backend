@@ -10,6 +10,8 @@ export class CouponDAO {
       coupon_batch_id: string;
       face_value_paise: number;
       expires_at: Date | string | null;
+      batch_sequence: number;
+      serial_number: string;
     }>,
     client?: PoolClient
   ): Promise<{ insertedCount: number; couponIds: string[] }> {
@@ -20,12 +22,24 @@ export class CouponDAO {
     let i = 1;
 
     for (const row of rows) {
-      placeholders.push(`($${i++}, $${i++}, $${i++}, $${i++}, 'created')`);
-      values.push(row.code, row.coupon_batch_id, row.face_value_paise, row.expires_at);
+      placeholders.push(
+        `($${i++}, $${i++}, $${i++}, $${i++}, 'created', $${i++}, $${i++})`
+      );
+      values.push(
+        row.code,
+        row.coupon_batch_id,
+        row.face_value_paise,
+        row.expires_at,
+        row.batch_sequence,
+        row.serial_number
+      );
     }
 
     const query = `
-      INSERT INTO coupons (code, coupon_batch_id, face_value_paise, expires_at, status)
+      INSERT INTO coupons (
+        code, coupon_batch_id, face_value_paise, expires_at, status,
+        batch_sequence, serial_number
+      )
       VALUES ${placeholders.join(', ')}
       ON CONFLICT (code) DO NOTHING
       RETURNING coupon_id
@@ -45,6 +59,31 @@ export class CouponDAO {
       ? await client.query<{ count: string }>(query, [batchId])
       : await db.query<{ count: string }>(query, [batchId]);
     return parseInt(result.rows[0]?.count ?? '0', 10);
+  }
+
+  /** Count coupons that have left the pre-print `created` state. */
+  async countNonCreatedByBatchId(batchId: string, client?: PoolClient): Promise<number> {
+    const query = `
+      SELECT COUNT(*)::text AS count
+      FROM coupons
+      WHERE coupon_batch_id = $1 AND status <> 'created'
+    `;
+    const result = client
+      ? await client.query<{ count: string }>(query, [batchId])
+      : await db.query<{ count: string }>(query, [batchId]);
+    return parseInt(result.rows[0]?.count ?? '0', 10);
+  }
+
+  async maxBatchSequence(batchId: string, client?: PoolClient): Promise<number> {
+    const query = `
+      SELECT COALESCE(MAX(batch_sequence), 0)::int AS max_seq
+      FROM coupons
+      WHERE coupon_batch_id = $1
+    `;
+    const result = client
+      ? await client.query<{ max_seq: number }>(query, [batchId])
+      : await db.query<{ max_seq: number }>(query, [batchId]);
+    return result.rows[0]?.max_seq ?? 0;
   }
 
   async findByCode(code: string, client?: PoolClient): Promise<Coupon | null> {
@@ -145,6 +184,7 @@ export class CouponDAO {
   async findAll(filters: {
     batchId?: string;
     status?: CouponStatus;
+    excludeVoid?: boolean;
     code?: string;
     page?: number;
     limit?: number;
@@ -163,6 +203,8 @@ export class CouponDAO {
     if (filters.status) {
       conditions.push(`status = $${i++}`);
       values.push(filters.status);
+    } else if (filters.excludeVoid) {
+      conditions.push(`status <> 'void'`);
     }
     if (filters.code) {
       conditions.push(`code ILIKE $${i++}`);
@@ -178,7 +220,9 @@ export class CouponDAO {
 
     values.push(limit, offset);
     const result = await db.query<Coupon>(
-      `SELECT * FROM coupons WHERE ${where} ORDER BY created_at DESC LIMIT $${i++} OFFSET $${i}`,
+      `SELECT * FROM coupons WHERE ${where}
+       ORDER BY batch_sequence ASC NULLS LAST, created_at DESC
+       LIMIT $${i++} OFFSET $${i}`,
       values
     );
     return { rows: result.rows, total };

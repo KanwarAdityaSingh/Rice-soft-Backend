@@ -166,6 +166,7 @@ export const appConfig = {
       purchaseBillsFolder: process.env.AWS_S3_PURCHASE_BILLS_FOLDER || 'purchase-bills',
       transportationBillsFolder: process.env.AWS_S3_TRANSPORTATION_BILLS_FOLDER || 'transportation-bills',
       biltiFolder: process.env.AWS_S3_BILTI_FOLDER || 'bilti',
+      lrFolder: process.env.AWS_S3_LR_FOLDER || 'lr-docs',
       receivingDocFolder: process.env.AWS_S3_RECEIVING_DOC_FOLDER || 'receiving-docs',
       ewayBillsFolder: process.env.AWS_S3_EWAY_BILLS_FOLDER || 'eway-bills',
       paymentSlipsFolder: process.env.AWS_S3_PAYMENT_SLIPS_FOLDER || 'payment-slips',
@@ -173,6 +174,8 @@ export const appConfig = {
       inwardSlipBillsFolder: process.env.AWS_S3_INWARD_SLIP_BILLS_FOLDER || 'inward-slip-bills',
       kaantaParchisFolder: process.env.AWS_S3_KAANTA_PARCHIS_FOLDER || 'kaanta-parchis',
       packagingBillsFolder: process.env.AWS_S3_PACKAGING_BILLS_FOLDER || 'packaging-bills',
+      salesSaudaAttachmentsFolder:
+        process.env.AWS_S3_SALES_SAUDA_ATTACHMENTS_FOLDER || 'sales-sauda-attachments',
     },
     ses: {
       fromEmail: process.env.AWS_SES_FROM_EMAIL || 'info@santkripaequipment.com',
@@ -197,6 +200,11 @@ export const appConfig = {
      */
     redeemBaseUrl: (process.env.COUPON_REDEEM_BASE_URL || '').trim(),
     payoutEnabled: process.env.COUPON_PAYOUT_ENABLED === 'true',
+    /**
+     * When true (and payoutEnabled): enqueue after redeem + run payout worker poll.
+     * When false: CMS must call initiateCashfreePayout / retryPayout.
+     */
+    payoutAuto: process.env.COUPON_PAYOUT_AUTO === 'true',
     payoutWorkerIntervalMs: parseInt(process.env.COUPON_PAYOUT_WORKER_INTERVAL_MS || '300000', 10),
     expiryCronEnabled: process.env.COUPON_EXPIRY_CRON_ENABLED === 'true',
     expiryCronMs: parseInt(process.env.COUPON_EXPIRY_CRON_MS || '86400000', 10),
@@ -218,13 +226,23 @@ export const appConfig = {
       .filter((p) => p.length === 10),
   },
 
-  razorpay: {
-    keyId: process.env.RAZORPAY_KEY_ID || '',
-    keySecret: process.env.RAZORPAY_KEY_SECRET || '',
-    webhookSecret: process.env.RAZORPAY_WEBHOOK_SECRET || '',
-    accountNumber: process.env.RAZORPAY_PAYOUT_ACCOUNT_NUMBER || '',
+  cashfree: {
+    clientId: process.env.CASHFREE_CLIENT_ID || '',
+    clientSecret: process.env.CASHFREE_CLIENT_SECRET || '',
+    /** sandbox | production */
+    env: (process.env.CASHFREE_ENV || 'sandbox').toLowerCase(),
+    apiVersion: process.env.CASHFREE_API_VERSION || '2024-01-01',
+    /** Optional connected bank / wallet fund source id */
+    fundsourceId: process.env.CASHFREE_FUNDSOURCE_ID || '',
   },
 };
+
+/** Cashfree Payouts V2 base URL */
+export function cashfreePayoutBaseUrl(): string {
+  return appConfig.cashfree.env === 'production'
+    ? 'https://api.cashfree.com/payout'
+    : 'https://sandbox.cashfree.com/payout';
+}
 
 export const isDevelopment = appConfig.env === 'development';
 export const isProduction = appConfig.env === 'production';

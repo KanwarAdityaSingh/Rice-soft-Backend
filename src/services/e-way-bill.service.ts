@@ -1,6 +1,7 @@
 import { resolveGstStateCode, resolveGstStateName } from '../constants/gst-state-codes';
 import { eWayBillDAO } from '../dao/e-way-bill.dao';
 import { invoiceDispatchDAO } from '../dao/invoice-dispatch.dao';
+import { driverDAO } from '../dao/driver.dao';
 import type { Address, ContactPerson } from '../models/vendor.model';
 import { BadRequestError, ConflictError, NotFoundError } from '../utils/errors';
 import { mastersIndiaApiService } from './masters-india-api.service';
@@ -22,6 +23,32 @@ function primaryEmail(contacts: ContactPerson[] | null | undefined, fallback?: s
   if (fromContacts) return fromContacts;
   const fromFallback = (fallback || '').trim();
   return fromFallback || null;
+}
+
+function formatDispatchDate(value: Date | string | null | undefined): string | null {
+  if (value == null) return null;
+  if (typeof value === 'string') return value.slice(0, 10);
+  return value.toISOString().slice(0, 10);
+}
+
+/** Prefer dispatch_date + time from created_at; fall back to created_at ISO. */
+function formatDispatchDateTime(
+  dispatchDate: Date | string | null | undefined,
+  createdAt: Date | string | null | undefined
+): string | null {
+  const datePart = formatDispatchDate(dispatchDate);
+  const createdIso =
+    createdAt instanceof Date
+      ? createdAt.toISOString()
+      : typeof createdAt === 'string'
+        ? createdAt
+        : null;
+  if (datePart && createdIso) {
+    const timePart = createdIso.includes('T') ? createdIso.slice(10) : 'T00:00:00.000Z';
+    return `${datePart}${timePart.startsWith('T') ? timePart : `T${timePart}`}`;
+  }
+  if (datePart) return `${datePart}T00:00:00.000Z`;
+  return createdIso;
 }
 
 function mapPreviewAddress(addr: Address) {
@@ -65,18 +92,33 @@ export type EWayBillPreview = {
   document_number: string;
   document_type: string;
   document_date: string;
-  vehicle_number: string;
+  /**
+   * Transport / dispatch header for confirmation UI.
+   * Mirrors: Dispatch Date & Time, Transporter, Vehicle, Driver, LR Number.
+   */
+  dispatch_date: string | null;
+  dispatch_datetime: string | null;
+  transporter_name: string | null;
+  vehicle_number: string | null;
+  driver_name: string | null;
+  driver_mobile_number: string | null;
+  lr_number: string | null;
   distance_km: number | null;
   distance_source: 'request' | 'dispatch' | 'masters_india' | 'unavailable';
   /** Set when MastersIndia distance lookup failed during preview (preview still succeeds). */
   distance_error: string | null;
   route: string | null;
-  lr_number: string | null;
   transporter: {
     id: string | null;
     name: string | null;
     gst_number: string | null;
   };
+  driver: {
+    id: string;
+    name: string | null;
+    phone: string;
+    license_number: string;
+  } | null;
   /** Ship-from (godown) */
   consignor: {
     id: string;
@@ -146,10 +188,22 @@ export type EWayBillPreview = {
   };
   items: Array<{
     product_name: string;
+    /** From product master via sauda line */
+    brand: string | null;
+    /** From packaging on sauda/dispatch line, e.g. "25 Kg" */
+    bag_weight: string | null;
     hsn_code: string;
     quantity: number;
     unit: string;
     bags: number | null;
+    /** Original ₹/unit (pre-discount) */
+    rate: number;
+    /** Effective ₹/unit after discount */
+    discounted_rate: number;
+    /** qty × rate */
+    gross: number;
+    discount_amount: number;
+    /** gross − discount */
     taxable_amount: number;
   }>;
   /** Exact JSON that POST .../e-way-bill will send to MastersIndia */
@@ -205,9 +259,11 @@ export class EWayBillService {
     const prepared = await this.prepareForDispatch(invoiceDispatchId, data, {
       persistLrOverride: false,
       allowDistanceFailure: true,
+      requireVehicleNumber: false,
     });
 
     const {
+      dispatch,
       ctx,
       distanceKm,
       distanceSource,
@@ -222,6 +278,29 @@ export class EWayBillService {
     const consigneeAddress = mapPreviewAddress(ctx.shipToAddress);
     const billingAddress = mapPreviewAddress(ctx.billToAddress);
 
+    const transporterName = ctx.transporter?.business_name ?? null;
+    const vehicleNumber = ctx.vehicleNumber;
+
+    let driverSummary: EWayBillPreview['driver'] = null;
+    let driverName: string | null = null;
+    let driverMobile: string | null = null;
+    if (dispatch.driver_id) {
+      const driver = await driverDAO.findById(dispatch.driver_id);
+      if (driver) {
+        driverSummary = {
+          id: driver.id,
+          name: driver.name,
+          phone: driver.phone,
+          license_number: driver.license_number,
+        };
+        driverName = driver.name;
+        driverMobile = driver.phone;
+      }
+    }
+
+    const dispatchDate = formatDispatchDate(dispatch.dispatch_date);
+    const dispatchDateTime = formatDispatchDateTime(dispatch.dispatch_date, dispatch.created_at);
+
     return {
       dispatch_id: invoiceDispatchId,
       already_generated: existing != null,
@@ -229,17 +308,23 @@ export class EWayBillService {
       document_number: ctx.documentNumber,
       document_type: String(requestPayload.document_type ?? 'Bill of Supply'),
       document_date: ctx.documentDate,
-      vehicle_number: ctx.vehicleNumber!,
+      dispatch_date: dispatchDate,
+      dispatch_datetime: dispatchDateTime,
+      transporter_name: transporterName,
+      vehicle_number: vehicleNumber,
+      driver_name: driverName,
+      driver_mobile_number: driverMobile,
+      lr_number: lrNumber,
       distance_km: distanceKm,
       distance_source: distanceSource,
       distance_error: distanceError,
       route,
-      lr_number: lrNumber,
       transporter: {
         id: transporterId,
-        name: ctx.transporter?.business_name ?? null,
+        name: transporterName,
         gst_number: ctx.transporter?.gst_number ?? null,
       },
+      driver: driverSummary,
       consignor: {
         id: ctx.godown.id,
         gstin: ctx.sellerGstin,
@@ -282,10 +367,16 @@ export class EWayBillService {
       },
       items: ctx.itemRows.map((item) => ({
         product_name: item.description,
+        brand: item.brand,
+        bag_weight: item.bagWeight,
         hsn_code: item.hsn,
         quantity: item.quantity,
         unit: item.unit,
         bags: item.bags,
+        rate: item.unitPrice,
+        discounted_rate: item.discountedRate,
+        gross: item.grossAmount,
+        discount_amount: item.discountAmount,
         taxable_amount: item.taxableAmount,
       })),
       masters_india_payload: requestPayload,
@@ -304,6 +395,7 @@ export class EWayBillService {
     const prepared = await this.prepareForDispatch(invoiceDispatchId, data, {
       persistLrOverride: true,
       allowDistanceFailure: false,
+      requireVehicleNumber: true,
     });
 
     if (prepared.distanceKm == null) {
@@ -346,7 +438,11 @@ export class EWayBillService {
   private async prepareForDispatch(
     invoiceDispatchId: string,
     data: EWayBillGenerateInput,
-    options: { persistLrOverride: boolean; allowDistanceFailure: boolean }
+    options: {
+      persistLrOverride: boolean;
+      allowDistanceFailure: boolean;
+      requireVehicleNumber: boolean;
+    }
   ): Promise<PreparedEWayBill> {
     const dispatch = await invoiceDispatchDAO.findById(invoiceDispatchId);
     if (!dispatch) throw new NotFoundError('Invoice dispatch not found');
@@ -371,7 +467,7 @@ export class EWayBillService {
       }
     }
 
-    if (!ctx.vehicleNumber) {
+    if (options.requireVehicleNumber && !ctx.vehicleNumber) {
       throw new BadRequestError('Vehicle number is required for e-way bill generation');
     }
 

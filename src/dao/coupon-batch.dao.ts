@@ -2,19 +2,54 @@ import { PoolClient } from 'pg';
 import { db } from '../database/connection';
 import { CouponBatch, CreateCouponBatchDTO, CouponBatchStats } from '../models/coupon.model';
 import type { CouponBatchStatus } from '../constants/coupon-status';
+import { COUPON_BATCH_MAX_SERIES_PER_DAY } from '../constants/coupon-status';
+import {
+  formatCouponBatchCode,
+  getIndiaCalendarParts,
+} from '../utils/coupon.helpers';
+import { BadRequestError } from '../utils/errors';
 
 export class CouponBatchDAO {
-  async create(data: CreateCouponBatchDTO, client?: PoolClient): Promise<CouponBatch> {
+  /**
+   * Allocate next day-series (IST) and return the formatted batch_code.
+   * Counter never decreases — deleting a batch does not free its series.
+   */
+  async allocateBatchCode(client: PoolClient, at: Date = new Date()): Promise<string> {
+    const parts = getIndiaCalendarParts(at);
+    const result = await client.query<{ last_series: number }>(
+      `
+      INSERT INTO coupon_batch_day_series (series_date, last_series)
+      VALUES ($1::date, 1)
+      ON CONFLICT (series_date) DO UPDATE
+        SET last_series = coupon_batch_day_series.last_series + 1,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE coupon_batch_day_series.last_series < $2
+      RETURNING last_series
+      `,
+      [parts.seriesDate, COUPON_BATCH_MAX_SERIES_PER_DAY]
+    );
+
+    const series = result.rows[0]?.last_series;
+    if (series == null) {
+      throw new BadRequestError(
+        `Daily coupon batch series limit (${COUPON_BATCH_MAX_SERIES_PER_DAY}) reached for ${parts.seriesDate}`
+      );
+    }
+
+    return formatCouponBatchCode(parts, series);
+  }
+
+  async create(data: CreateCouponBatchDTO & { batch_code: string }, client?: PoolClient): Promise<CouponBatch> {
     const query = `
       INSERT INTO coupon_batches (
-        name, description, face_value_paise, total_count, expires_at,
+        batch_code, description, face_value_paise, total_count, expires_at,
         redeem_base_url, created_by, status
       )
       VALUES ($1, $2, $3, $4, $5, $6, $7, 'draft')
       RETURNING *
     `;
     const values = [
-      data.name,
+      data.batch_code,
       data.description ?? null,
       data.face_value_paise,
       data.total_count,
@@ -69,6 +104,32 @@ export class CouponBatchDAO {
         : `UPDATE coupon_batches SET status = $2 WHERE coupon_batch_id = $1 RETURNING *`;
     const values =
       generatedCount !== undefined ? [id, status, generatedCount] : [id, status];
+    const result = client
+      ? await client.query<CouponBatch>(query, values)
+      : await db.query<CouponBatch>(query, values);
+    return result.rows[0] || null;
+  }
+
+  async setLocked(
+    id: string,
+    locked: boolean,
+    lockedBy?: string | null,
+    client?: PoolClient
+  ): Promise<CouponBatch | null> {
+    const query = locked
+      ? `UPDATE coupon_batches
+         SET is_locked = true,
+             locked_at = CURRENT_TIMESTAMP,
+             locked_by = $2
+         WHERE coupon_batch_id = $1
+         RETURNING *`
+      : `UPDATE coupon_batches
+         SET is_locked = false,
+             locked_at = NULL,
+             locked_by = NULL
+         WHERE coupon_batch_id = $1
+         RETURNING *`;
+    const values = locked ? [id, lockedBy ?? null] : [id];
     const result = client
       ? await client.query<CouponBatch>(query, values)
       : await db.query<CouponBatch>(query, values);

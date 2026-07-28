@@ -1,10 +1,10 @@
-import type { CouponBatchStatus, CouponStatus, PayoutAttemptStatus, PromotionRuleType, RazorpayWebhookStatus, RedemptionPaidVia, RedemptionPayoutStatus } from '../constants/coupon-status';
+import type { CouponBatchStatus, CouponStatus, PayoutAttemptStatus, PayoutWebhookStatus, PromotionRuleType, RedemptionPaidVia, RedemptionPayoutStatus } from '../constants/coupon-status';
 import type { PromotionRuleRewardInput } from '../constants/promotion-rewards';
 import type { EntityKycVerificationDetails } from './kyc-verification.model';
 
 export interface CouponBatch {
   coupon_batch_id: string;
-  name: string;
+  batch_code: string;
   description: string | null;
   face_value_paise: number;
   total_count: number;
@@ -12,6 +12,10 @@ export interface CouponBatch {
   expires_at: Date | null;
   status: CouponBatchStatus;
   redeem_base_url: string | null;
+  /** When true, mutation ops (export/print/allot/void/delete) are blocked */
+  is_locked: boolean;
+  locked_at: Date | null;
+  locked_by: string | null;
   created_by: string | null;
   created_at: Date;
   updated_at: Date;
@@ -21,6 +25,8 @@ export interface Coupon {
   coupon_id: string;
   code: string;
   coupon_batch_id: string;
+  batch_sequence: number;
+  serial_number: string;
   face_value_paise: number;
   status: CouponStatus;
   expires_at: Date | null;
@@ -126,43 +132,47 @@ export interface PayoutAttempt {
   redemption_id: string;
   amount_paise: number;
   status: PayoutAttemptStatus;
-  razorpay_payout_id: string | null;
+  transfer_id: string | null;
+  provider_transfer_id: string | null;
   failure_reason: string | null;
   created_at: Date;
   completed_at: Date | null;
 }
 
-export interface RazorpayWebhookEvent {
+export interface CashfreeWebhookEvent {
   webhook_event_id: string;
-  razorpay_event_id: string;
+  cashfree_event_id: string;
   event_type: string;
-  razorpay_payout_id: string | null;
+  transfer_id: string | null;
+  provider_transfer_id: string | null;
   payout_attempt_id: string | null;
   redemption_id: string | null;
   payload: Record<string, unknown>;
-  status: RazorpayWebhookStatus;
+  status: PayoutWebhookStatus;
   error_message: string | null;
   received_at: Date;
   processed_at: Date | null;
 }
 
-export interface CreateRazorpayWebhookEventDTO {
-  razorpay_event_id: string;
+export interface CreateCashfreeWebhookEventDTO {
+  cashfree_event_id: string;
   event_type: string;
-  razorpay_payout_id?: string | null;
+  transfer_id?: string | null;
+  provider_transfer_id?: string | null;
   payout_attempt_id?: string | null;
   redemption_id?: string | null;
   payload: Record<string, unknown>;
 }
 
 export interface CreateCouponBatchDTO {
-  name: string;
   description?: string;
   face_value_paise: number;
   total_count: number;
   expires_at?: Date | string | null;
   redeem_base_url?: string;
   created_by?: string;
+  /** Set by service — not accepted from clients */
+  batch_code?: string;
 }
 
 export interface RedeemCouponDTO {

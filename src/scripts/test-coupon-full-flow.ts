@@ -103,7 +103,7 @@ async function main() {
     'POST',
     token,
     {
-      name: `SmokeTest-${ts}`,
+      description: `SmokeTest-${ts}`,
       face_value_paise: 5000,
       total_count: 5,
       expires_at: expiresAt,

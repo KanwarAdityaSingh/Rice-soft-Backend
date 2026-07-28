@@ -168,17 +168,17 @@ Authorization: Bearer <token>
 
 | Field | Type | Required | Notes |
 |---|---|---|---|
-| `name` | string | yes | max 255, e.g. `"March-2026-1509"` |
-| `description` | string | no | |
+| `description` | string | no | Optional human note |
 | `face_value_paise` | integer | yes | e.g. `5000` = ₹50 |
 | `total_count` | integer | yes | 1–500,000 |
 | `expires_at` | ISO date string | no | e.g. `"2027-03-31T00:00:00.000Z"` (null = never expires) |
 | `redeem_base_url` | URL string | no | Public redeem page base URL — **required for QR on printed coupons** (see §5a). Used in CSV export and frontend PDF QR generation. |
 
+`batch_code` is **auto-generated** on create (not sent by client): `MON-YYYY-DDMM-SSS` in Asia/Kolkata, e.g. `JUL-2026-2307-001`. Day series is 3 digits (001–999) and is never reused after delete.
+
 **Example:**
 ```json
 {
-  "name": "March-2026-1509",
   "face_value_paise": 5000,
   "total_count": 10000,
   "expires_at": "2027-03-31T00:00:00.000Z",
@@ -189,7 +189,7 @@ Authorization: Bearer <token>
 **Example (never expires):**
 ```json
 {
-  "name": "Lifetime Rewards",
+  "description": "Lifetime Rewards",
   "face_value_paise": 5000,
   "total_count": 1000,
   "expires_at": null,
@@ -197,7 +197,7 @@ Authorization: Bearer <token>
 }
 ```
 
-**Response:** `201` — `data` = batch row (`coupon_batch_id`, `status: "draft"`, …)
+**Response:** `201` — `data` = batch row (`coupon_batch_id`, `batch_code`, `status: "draft"`, …)
 
 **UI:** Batch create form → on success navigate to batch detail.
 
@@ -268,13 +268,13 @@ GET /coupons/admin/getAllCouponBatches?page=1&limit=50
 ```json
 {
   "data": {
-    "rows": [ { "coupon_batch_id", "name", "face_value_paise", "total_count", "generated_count", "status", "expires_at", "created_at", ... } ],
+    "rows": [ { "coupon_batch_id", "batch_code", "face_value_paise", "total_count", "generated_count", "status", "expires_at", "created_at", ... } ],
     "total": 12
   }
 }
 ```
 
-**UI:** Paginated table. Columns: name, face value (₹), count, generated, status, expiry, created.
+**UI:** Paginated table. Columns: batch code, face value (₹), count, generated, status, expiry, created.
 
 ---
 
@@ -324,9 +324,11 @@ GET /coupons/admin/exportBatchCodes/:batchId
 
 **CSV columns:**
 ```
-code,redeem_url,face_value_paise,face_value_rupees
-AB12CD34,https://redeem.yoursite.com?code=AB12CD34,5000,50
+serial_number,batch_sequence,code,redeem_url,face_value_paise,face_value_rupees
+JUL-2026-2307-001-000001,1,AB12CD34,https://redeem.yoursite.com?code=AB12CD34,5000,50
 ```
+
+Ordered by `batch_sequence`.
 
 **UI:** Download button. Use `redeem_url` for QR code generation on print side.
 
@@ -345,8 +347,9 @@ Admin must be able to print coupons in a **proper branded format**, not raw CSV 
 | **Company logo** | Yes | Static asset in admin app (not from API) |
 | **QR code** | Yes | Encode `redeem_url` from CSV export, or build `{batch.redeem_base_url}?code={code}` |
 | **Coupon code** | Yes | Human-readable 8-char code (large, monospace) — `coupons.code` |
+| **Serial number** | Recommended | `coupons.serial_number` (e.g. `JUL-2026-2307-001-000001`) |
 | **Face value** | Yes | e.g. `₹50` from `face_value_paise / 100` |
-| **Batch / campaign name** | Recommended | `coupon_batches.name` from batch detail |
+| **Batch code** | Recommended | `coupon_batches.batch_code` from batch detail (e.g. `JUL-2026-2307-001`) |
 | **Expiry date** | If set | `expires_at` on coupon/batch — omit or show “No expiry” when null |
 | **Redeem instructions** | Recommended | Short line, e.g. “Scan QR or visit link to redeem” |
 | **Redeem URL (text)** | Optional | Small print under QR for manual entry |
@@ -355,7 +358,7 @@ Admin must be able to print coupons in a **proper branded format**, not raw CSV 
 
 ```
 ┌──────────────────────────────┐
-│  [Logo]          Batch name  │
+│  [Logo]          Batch code  │
 │                              │
 │       ┌──────────┐           │
 │       │ QR code  │  AB12CD34  │
@@ -449,7 +452,13 @@ Voids all coupons not in `redeemed`, `void`, or `expired`.
 
 ### 10. Delete batch (permanent)
 
-Hard-deletes a batch and all its coupons. **Only allowed when the batch has zero redemptions.**
+Hard-deletes the batch and all its coupons when inventory is still pre-print. Day series / `batch_code` numbers are **not** reused.
+
+**Allowed when:**
+- No coupons yet, **or**
+- Every coupon is still `created` (generated but never printed / allotted / redeemed / expired)
+
+**Blocked (`400`) when:** any coupon is `printed`, `allotted`, `redeemed`, `expired`, or `void`, or the batch has redemptions → use **archive** instead.
 
 ```http
 POST /coupons/admin/deleteCouponBatch/:batchId
@@ -457,14 +466,14 @@ POST /coupons/admin/deleteCouponBatch/:batchId
 
 **Response:** `200`
 ```json
-{ "data": { "coupon_batch_id": "...", "deleted": true }, "message": "Batch deleted permanently" }
+{ "data": { "coupon_batch_id": "...", "batch_code": "JUL-2026-2307-001", "deleted": true }, "message": "Batch deleted permanently" }
 ```
 
 **Errors:**
-- `400` — batch has one or more redemptions (use archive/void instead)
+- `400` — coupons have left `created`, or batch has redemptions
 - `404` — batch not found
 
-**UI:** Destructive confirm — *"This permanently removes the batch and all coupon codes. Cannot be undone."* Hide unless batch has no redemptions.
+**UI:** Show delete when all coupons for the batch are `created` (or `generated_count === 0`). Hide/disable after mark printed.
 
 ---
 
@@ -473,13 +482,14 @@ POST /coupons/admin/deleteCouponBatch/:batchId
 ### 11. List / search coupons
 
 ```http
-GET /coupons/admin/getAllCoupons?batchId=<uuid>&status=allotted&code=AB12&page=1&limit=50
+GET /coupons/admin/getAllCoupons?batchId=<uuid>&excludeVoid=true&code=AB12&page=1&limit=50
 ```
 
 | Query param | Type | Notes |
 |---|---|---|
 | `batchId` | UUID | Filter by batch |
-| `status` | enum | `created`, `printed`, `allotted`, `redeemed`, `expired`, `void` |
+| `status` | enum | `created`, `printed`, `allotted`, `redeemed`, `expired`, `void` — exact match |
+| `excludeVoid` | boolean | When `true`, omit void coupons. Ignored if `status` is set |
 | `code` | string | Prefix search (case-insensitive) |
 | `page` | int | default 1 |
 | `limit` | int | 1–200, default 50 |
@@ -1198,7 +1208,7 @@ Per-batch: allotted, redeemed, redemption rate, pending/paid amounts.
     "rows": [
       {
         "batchId": "...",
-        "name": "March-2026-500",
+        "batchCode": "JUL-2026-2307-001",
         "faceValuePaise": 5000,
         "totalCount": 500,
         "generated": 500,
@@ -1406,11 +1416,11 @@ Pending row with last_payout_error
 | Batch status | Generate | Export CSV | Print PDF | Mark printed | Mark allotted | Void | Delete |
 |---|---|---|---|---|---|---|---|
 | `draft` | ✓ | ✗ | ✗ | ✗ | ✗ | ✓ | ✓* |
-| `generating` | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| `generating` | Resume* | ✗ | ✗ | ✗ | ✗ | ✗ | ✓* |
 | `ready` | ✗* | ✓ | ✓ | ✓ | ✗ | ✓ | ✓* |
-| `archived` | ✗ | ✓ | ✓ | ✗ | ✗ | ✗ | ✓* |
+| `archived` | ✗ | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ |
 
-*Delete only when batch has **zero redemptions**
+*Delete only when every coupon is still `created` (or none) and there are **zero redemptions**. After mark printed → delete disabled.
 
 *Generate again only if `generated_count < total_count`
 

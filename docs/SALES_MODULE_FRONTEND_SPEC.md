@@ -107,18 +107,18 @@ Only allowed when status is `draft`.
 
 ### 3.2 Invoice Dispatch
 
-**Purpose:** An outbound invoice/dispatch against a finalized sales sauda. Holds party details (name, address, GST, PAN) copied from the sales party, and optional transport (transporter, vehicle, distance, route). Supports **partial / multi-dispatch**: one sauda can have many dispatches; each create reserves remaining qty (draft + confirmed count against remaining). Inventory is deducted only when the dispatch is confirmed; when a line has `packaging_id`, deduction is from that product+packaging only (FIFO by batch within that bag).
+**Purpose:** An outbound invoice/dispatch against one or more finalized sales saudas. Holds party details (name, address, GST, PAN) snapshotted at create, and optional transport (transporter, vehicle, distance, route). Supports **partial / multi-dispatch**: one sauda can have many dispatches; each create reserves remaining qty (draft + confirmed count against remaining). Also supports **multi-sauda clubbing**: user can attach multiple sale saudas on one invoice when they share the same sales party and delivery address. Inventory is deducted only when the dispatch is confirmed; when a line has `packaging_id`, deduction is from that product+packaging only (FIFO by batch within that bag).
 
 **Status:** `draft` | `confirmed`.
 
 **List:** `GET /invoice-dispatches?sales_sauda_id=<uuid>&status=draft|confirmed`  
-Response `data`: array of invoice dispatches (without `lines` in list).
+Response `data`: array of invoice dispatches (without `lines` in list). Filter matches primary or any linked sauda via `invoice_dispatch_saudas`.
 
 **Get by id:** `GET /invoice-dispatches/:id`  
-Response `data`: single object with `lines` array.
+Response `data`: single object with `lines` array and `sales_sauda_ids`.
 
 **Create:** `POST /invoice-dispatches`  
-Body:
+Body (single sauda — legacy):
 ```json
 {
   "sales_sauda_id": "uuid",
@@ -134,22 +134,38 @@ Body:
   ]
 }
 ```
-- `sales_sauda_id` and `godown_id` required. `internal_invoice_number` is server-generated (do not send).
-- Sales sauda must be finalized (status `order`). Backend resolves party details and sets `party_name`, `party_address`, `party_gst_number`, `party_pan_number`.
+
+Body (multi-sauda clubbing — user selects which saudas):
+```json
+{
+  "sales_sauda_ids": ["uuid-a", "uuid-b"],
+  "godown_id": "uuid",
+  "dispatch_date": "YYYY-MM-DD",
+  "lines": [
+    { "sales_sauda_line_id": "uuid-from-a", "quantity": 100 },
+    { "sales_sauda_line_id": "uuid-from-b", "packet_count": 20 }
+  ]
+}
+```
+- Provide **`sales_sauda_id`** and/or **`sales_sauda_ids`** (at least one). `godown_id` required. `internal_invoice_number` is server-generated (do not send).
+- If both are sent, `sales_sauda_id` must be included in `sales_sauda_ids`; it becomes the primary (`sales_sauda_id` on the response). Otherwise the first id in `sales_sauda_ids` is primary.
+- Each sauda must be finalized (status `order`).
+- **Clubbing rules** (enforced when 2+ saudas): same `sales_party_id`, same `delivery_address`, and all must be `movement_type = sale` (godown transfers stay single-sauda). UI should offer only matching candidates; backend re-validates.
+- Party snapshot: `party_name` / GST / PAN from sales party; `party_address` from the shared sauda `delivery_address` (fallback to party address if null).
 - **`lines` optional:**
-  - **Omit `lines`** → dispatch **full remaining** qty for every sauda line that still has remaining > 0.
-  - **Send `lines`** → partial dispatch: each entry must reference a line of that sauda. Provide **`packet_count`** (bags) and/or **`quantity`** (kg). At least one required.
+  - **Omit `lines`** → dispatch **full remaining** qty for every line on every linked sauda that still has remaining > 0.
+  - **Send `lines`** → partial dispatch: each entry must reference a line belonging to one of the linked saudas. Provide **`packet_count`** (bags) and/or **`quantity`** (kg). At least one required.
     - With `packet_count`: sauda line must have `packaging_id`; backend sets `quantity = packet_count × packaging.holding_capacity` (same as sales sauda). If both sent, they must match.
     - Derived/sent `quantity` must be > 0 and ≤ that line’s `remaining`.
   - Product/packaging/rate come from the sauda line; `amount = quantity × rate`. Response lines include `packet_count` when set via bags.
-- Draft create **reserves** qty (counts toward remaining). Delete a draft to release. Confirmed credit-note returns free remaining again.
+- Draft create **reserves** qty (counts toward remaining on each owning sauda). Delete a draft to release. Confirmed credit-note returns free remaining again.
 - Rejected if nothing remains to dispatch, or if requested qty exceeds remaining.
 
 **Confirm:** `POST /invoice-dispatches/:id/confirm`  
-No body. Allocates finished goods inventory (FIFO), deducts stock, and writes inventory ledger entries. Only allowed when dispatch is `draft`.
+No body. Allocates finished goods inventory (FIFO), deducts stock, and writes inventory ledger entries. Only allowed when dispatch is `draft`. Salesman commission accrues **per linked sauda** from that sauda’s lines on the invoice.
 
 **Response shape (single/list item):**
-- `id`, `sales_sauda_id`, `internal_invoice_number`, `dispatch_date`, `party_name`, `party_address`, `party_gst_number`, `party_pan_number`, `transporter_id`, `vehicle_id`, `distance_km`, `route_description`, `status`, `created_at`, `updated_at`
+- `id`, `sales_sauda_id` (primary), `sales_sauda_ids` (all linked), `internal_invoice_number`, `dispatch_date`, `party_name`, `party_address`, `party_gst_number`, `party_pan_number`, `transporter_id`, `vehicle_id`, `distance_km`, `route_description`, `status`, `created_at`, `updated_at`
 - When `lines` present: array of `{ id, invoice_dispatch_id, sales_sauda_line_id, product_id, packaging_id, quantity, quantity_unit, rate, amount, created_at, updated_at }`
 
 ---
@@ -260,9 +276,9 @@ The following describes the order of operations and constraints so the frontend 
 
 ### 4.2 Invoice Dispatch
 
-1. **Create** an invoice dispatch only for a sales sauda that is finalized (status `order`). Provide `sales_sauda_id`, `godown_id`, and optionally dispatch date, transporter, vehicle, distance, route, and/or partial `lines`. Backend fills party details and creates dispatch lines from remaining sauda qty (full remaining if `lines` omitted). Use `GET /sales-saudas/:id` line `remaining` fields to drive the UI.
+1. **Create** an invoice dispatch only for finalized sales sauda(s) (status `order`). Provide `sales_sauda_id` and/or `sales_sauda_ids`, `godown_id`, and optionally dispatch date, transporter, vehicle, distance, route, and/or partial `lines`. Backend fills party details and creates dispatch lines from remaining sauda qty (full remaining if `lines` omitted). Use `GET /sales-saudas/:id` line `remaining` fields to drive the UI. To club multiple saudas on one invoice, send `sales_sauda_ids` for saudas that share the same sales party and delivery address (sale only; user-driven selection).
 2. Multiple dispatches per sauda are allowed until remaining is exhausted. Drafts reserve qty; delete draft to free it.
-3. **Confirm** the dispatch when ready to commit the sale. Confirm allocates FGI (FIFO), deducts stock, and writes inventory ledger entries. Confirm is allowed only when status is `draft`. After confirm, status is `confirmed` and inventory is reduced.
+3. **Confirm** the dispatch when ready to commit the sale. Confirm allocates FGI (FIFO), deducts stock, and writes inventory ledger entries. Confirm is allowed only when status is `draft`. After confirm, status is `confirmed` and inventory is reduced. Commission accrues per linked sauda.
 
 ### 4.3 E-Invoice and E-Way Bill
 

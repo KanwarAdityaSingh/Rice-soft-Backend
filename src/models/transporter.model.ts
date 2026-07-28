@@ -17,7 +17,7 @@ export interface BankDetails {
   branch?: string;
 }
 
-export type TransportType = 'registered' | 'unregistered';
+export type TransportType = 'registered' | 'unregistered' | 'individual';
 
 export interface Transporter {
   id: string;

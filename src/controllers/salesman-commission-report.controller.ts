@@ -54,6 +54,17 @@ const reportQuerySchema = Joi.object({
   to: Joi.string().optional().isoDate(),
 });
 
+const monthlyDetailsQuerySchema = Joi.object({
+  salesman_id: Joi.string().uuid().required(),
+  from: Joi.string().optional().isoDate(),
+  to: Joi.string().optional().isoDate(),
+  view: Joi.string()
+    .optional()
+    .valid('lines', 'orders', 'customers', 'new_customers')
+    .default('lines'),
+  rice_type: Joi.string().optional().trim().max(50),
+});
+
 const commissionReportQuerySchema = Joi.object({
   salesman_id: Joi.string().optional().uuid(),
   status: Joi.string().optional().valid('pending', 'approved', 'paid'),
@@ -80,6 +91,32 @@ export class SalesmanCommissionReportController {
         salesmanId: query.salesman_id,
         from: query.from,
         to: query.to,
+      });
+      return ResponseHandler.success(res, data);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async monthlyDetailsReport(
+    req: AuthRequest,
+    res: Response,
+    next: NextFunction
+  ): Promise<Response | void> {
+    try {
+      const query = validate<{
+        salesman_id: string;
+        from?: string;
+        to?: string;
+        view?: 'lines' | 'orders' | 'customers' | 'new_customers';
+        rice_type?: string;
+      }>(monthlyDetailsQuerySchema, req.query);
+      const data = await salesmanReportService.monthlyDetails({
+        salesmanId: query.salesman_id,
+        from: query.from,
+        to: query.to,
+        view: query.view,
+        riceType: query.rice_type,
       });
       return ResponseHandler.success(res, data);
     } catch (error) {

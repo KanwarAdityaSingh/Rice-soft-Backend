@@ -50,9 +50,11 @@ async function initializeServer() {
         logger.info('Coupon expiry cron started');
       }
 
-      if (appConfig.coupons.payoutEnabled) {
+      if (appConfig.coupons.payoutEnabled && appConfig.coupons.payoutAuto) {
         couponPayoutWorker.start();
-        logger.info('Coupon payout worker started');
+        logger.info('Coupon payout worker started (AUTO mode)');
+      } else if (appConfig.coupons.payoutEnabled) {
+        logger.info('Coupon payout AUTO disabled — CMS must initiate Cashfree payouts');
       }
     });
 

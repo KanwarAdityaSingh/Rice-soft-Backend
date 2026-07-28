@@ -1,6 +1,8 @@
-import { razorpayPayoutService } from '../services/razorpay-payout.service';
+import { cashfreePayoutService } from '../services/cashfree-payout.service';
+import { PayoutAttemptDAO } from '../dao/payout-attempt.dao';
 import { RedemptionDAO } from '../dao/redemption.dao';
 import { appConfig } from '../config/app.config';
+import { logger } from '../utils/logger';
 
 class CouponPayoutWorker {
   private queue = new Set<string>();
@@ -8,13 +10,13 @@ class CouponPayoutWorker {
   private interval: NodeJS.Timeout | null = null;
 
   enqueue(redemptionId: string) {
-    if (!appConfig.coupons.payoutEnabled) return;
+    if (!appConfig.coupons.payoutEnabled || !appConfig.coupons.payoutAuto) return;
     this.queue.add(redemptionId);
     void this.processQueue();
   }
 
   start(intervalMs = appConfig.coupons.payoutWorkerIntervalMs) {
-    if (!appConfig.coupons.payoutEnabled) return;
+    if (!appConfig.coupons.payoutEnabled || !appConfig.coupons.payoutAuto) return;
     if (this.interval) return;
 
     this.interval = setInterval(() => {
@@ -25,16 +27,28 @@ class CouponPayoutWorker {
   stop() {
     if (this.interval) {
       clearInterval(this.interval);
-      this.interval = null;
     }
+    this.interval = null;
   }
 
   private async pollPending() {
-    if (!appConfig.coupons.payoutEnabled) return;
-    const dao = new RedemptionDAO();
-    const pending = await dao.findPendingForPayout(20);
-    for (const redemption of pending) {
-      this.enqueue(redemption.redemption_id);
+    if (!appConfig.coupons.payoutEnabled || !appConfig.coupons.payoutAuto) return;
+    try {
+      const redemptionDAO = new RedemptionDAO();
+      const attemptDAO = new PayoutAttemptDAO();
+
+      const pending = await redemptionDAO.findPendingForPayout(20);
+      for (const redemption of pending) {
+        this.enqueue(redemption.redemption_id);
+      }
+
+      // Reconcile in-flight Cashfree transfers (5xx / missed webhooks)
+      const initiated = await attemptDAO.findInitiatedForReconcile(20);
+      for (const attempt of initiated) {
+        this.enqueue(attempt.redemption_id);
+      }
+    } catch (error) {
+      logger.error('Coupon payout worker poll failed', { error });
     }
   }
 
@@ -46,7 +60,12 @@ class CouponPayoutWorker {
       while (this.queue.size > 0) {
         const [redemptionId] = this.queue;
         this.queue.delete(redemptionId!);
-        await razorpayPayoutService.processRedemption(redemptionId!);
+        try {
+          await cashfreePayoutService.processRedemption(redemptionId!);
+        } catch (error) {
+          // Never let a single payout failure crash the API process
+          logger.error('Coupon payout processing failed', { redemptionId, error });
+        }
       }
     } finally {
       this.running = false;

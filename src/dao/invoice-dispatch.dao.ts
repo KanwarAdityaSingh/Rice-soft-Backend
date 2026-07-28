@@ -18,9 +18,9 @@ const INVOICE_DISPATCH_SELECT = `
   id, sales_sauda_id, godown_id, to_godown_id, internal_invoice_number,
   TO_CHAR(dispatch_date, 'YYYY-MM-DD') as dispatch_date, financial_year,
   party_name, party_address, party_gst_number, party_pan_number, transporter_id, vehicle_id,
-  lr_number, transportation_cost, distance_km, route_description, usp, bilti_image_url, bilti_pdf_url,
-  receiving_doc_image_url, receiving_doc_pdf_url,
-  status, created_at, updated_at, created_by, updated_by
+  driver_id, lr_number, transportation_cost, distance_km, route_description, usp, bilti_image_url, bilti_pdf_url,
+  lr_image_url, lr_pdf_url, receiving_doc_image_url, receiving_doc_pdf_url,
+  status, cancel_reason, created_at, updated_at, created_by, updated_by
 `;
 
 export class InvoiceDispatchDAO {
@@ -37,8 +37,16 @@ export class InvoiceDispatchDAO {
     const params: any[] = [];
     let n = 1;
     if (salesSaudaId) {
-      query += ` AND sales_sauda_id = $${n++}`;
+      query += ` AND (
+        sales_sauda_id = $${n}
+        OR EXISTS (
+          SELECT 1 FROM invoice_dispatch_saudas ids
+          WHERE ids.invoice_dispatch_id = invoice_dispatches.id
+            AND ids.sales_sauda_id = $${n}
+        )
+      )`;
       params.push(salesSaudaId);
+      n++;
     }
     if (status) {
       query += ` AND status = $${n++}`;
@@ -74,10 +82,10 @@ export class InvoiceDispatchDAO {
       INSERT INTO invoice_dispatches (
         sales_sauda_id, godown_id, to_godown_id, internal_invoice_number, dispatch_date, financial_year,
         party_name, party_address, party_gst_number, party_pan_number,
-        transporter_id, vehicle_id, lr_number, transportation_cost, distance_km, route_description, usp,
+        transporter_id, vehicle_id, driver_id, lr_number, transportation_cost, distance_km, route_description, usp,
         status, created_by
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, 'draft', $18)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, 'draft', $19)
       RETURNING ${INVOICE_DISPATCH_SELECT}
     `;
     const values = [
@@ -97,6 +105,7 @@ export class InvoiceDispatchDAO {
       data.party_pan_number ?? null,
       data.transporter_id ?? null,
       data.vehicle_id ?? null,
+      data.driver_id ?? null,
       data.lr_number != null && String(data.lr_number).trim() !== ''
         ? String(data.lr_number).trim()
         : null,
@@ -155,6 +164,10 @@ export class InvoiceDispatchDAO {
       fields.push(`vehicle_id = $${n++}`);
       values.push(data.vehicle_id || null);
     }
+    if (data.driver_id !== undefined) {
+      fields.push(`driver_id = $${n++}`);
+      values.push(data.driver_id || null);
+    }
     if (data.distance_km !== undefined) {
       fields.push(`distance_km = $${n++}`);
       values.push(data.distance_km ?? null);
@@ -181,6 +194,14 @@ export class InvoiceDispatchDAO {
       fields.push(`bilti_pdf_url = $${n++}`);
       values.push(data.bilti_pdf_url || null);
     }
+    if (data.lr_image_url !== undefined) {
+      fields.push(`lr_image_url = $${n++}`);
+      values.push(data.lr_image_url || null);
+    }
+    if (data.lr_pdf_url !== undefined) {
+      fields.push(`lr_pdf_url = $${n++}`);
+      values.push(data.lr_pdf_url || null);
+    }
     if (data.receiving_doc_image_url !== undefined) {
       fields.push(`receiving_doc_image_url = $${n++}`);
       values.push(data.receiving_doc_image_url || null);
@@ -198,6 +219,14 @@ export class InvoiceDispatchDAO {
       values.push(
         data.lr_number != null && String(data.lr_number).trim() !== ''
           ? String(data.lr_number).trim()
+          : null
+      );
+    }
+    if (data.cancel_reason !== undefined) {
+      fields.push(`cancel_reason = $${n++}`);
+      values.push(
+        data.cancel_reason != null && String(data.cancel_reason).trim() !== ''
+          ? String(data.cancel_reason).trim()
           : null
       );
     }

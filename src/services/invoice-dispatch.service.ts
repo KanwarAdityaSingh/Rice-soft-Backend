@@ -3,6 +3,7 @@ import { PoolClient } from 'pg';
 import { invoiceDispatchDAO } from '../dao/invoice-dispatch.dao';
 import { invoiceDispatchLineDAO } from '../dao/invoice-dispatch-line.dao';
 import { invoiceDispatchAllocationDAO } from '../dao/invoice-dispatch-allocation.dao';
+import { invoiceDispatchSaudaDAO } from '../dao/invoice-dispatch-sauda.dao';
 import { invoiceNumberSequenceDAO } from '../dao/invoice-number-sequence.dao';
 import { salesSaudaLineDAO } from '../dao/sales-sauda-line.dao';
 import { salesPartyDAO } from '../dao/sales-party.dao';
@@ -11,11 +12,15 @@ import { inventoryLedgerDAO } from '../dao/inventory-ledger.dao';
 import { eInvoiceDAO } from '../dao/e-invoice.dao';
 import { eWayBillDAO } from '../dao/e-way-bill.dao';
 import { godownDAO } from '../dao/godown.dao';
+import { driverDAO } from '../dao/driver.dao';
 import { godownService } from './godown.service';
+import type { Driver } from '../models/driver.model';
+import type { InvoiceDispatchDriverSummary } from '../models/invoice-dispatch.model';
 import {
   getAllocatedBySaudaLineId,
   hasPositiveRemaining,
   qtyExceedsRemaining,
+  type SaudaLineFulfillment,
 } from './sales-sauda-fulfillment';
 import { financialYearFromDate } from '../constants/financial-year';
 import {
@@ -32,13 +37,79 @@ import { salesmanCommissionLedgerService } from './salesman-commission-ledger.se
 import type { InvoiceDispatch } from '../models/invoice-dispatch.model';
 import type { InvoiceDispatchLine } from '../models/invoice-dispatch-line.model';
 
-function formatPartyAddress(addr: Address | undefined): string {
+/** 409 when another user already consumed remaining qty on the sales order(s). */
+const DISPATCH_ALREADY_TAKEN_MESSAGE =
+  'This Sales Order/Invoice has already been dispatched by another user. Please refresh the page to view the latest details.';
+
+function formatPartyAddress(addr: Address | null | undefined): string {
   if (!addr) return '';
   const parts = [addr.street, addr.city, addr.state, addr.pincode, addr.country].filter(Boolean);
   return parts.join(', ');
 }
 
+/** Stable key for comparing sauda delivery addresses (null/empty → ''). */
+function normalizeDeliveryAddressKey(addr: Address | null | undefined): string {
+  if (!addr) return '';
+  return [addr.street, addr.city, addr.state, addr.pincode, addr.country]
+    .map((part) => (part ?? '').trim().toLowerCase())
+    .join('|');
+}
+
+function resolveRequestedSaudaIds(data: {
+  sales_sauda_id?: string;
+  sales_sauda_ids?: string[];
+}): string[] {
+  const fromArray = data.sales_sauda_ids?.length
+    ? [...new Set(data.sales_sauda_ids)]
+    : [];
+  if (fromArray.length > 0) {
+    if (data.sales_sauda_id && !fromArray.includes(data.sales_sauda_id)) {
+      throw new ValidationError('sales_sauda_id must be included in sales_sauda_ids when both are sent');
+    }
+    // Preserve caller order for primary; put explicit sales_sauda_id first if provided
+    if (data.sales_sauda_id) {
+      return [data.sales_sauda_id, ...fromArray.filter((id) => id !== data.sales_sauda_id)];
+    }
+    return fromArray;
+  }
+  if (data.sales_sauda_id) return [data.sales_sauda_id];
+  throw new ValidationError('sales_sauda_id or sales_sauda_ids is required');
+}
+
+function dateOnlyFromDb(value: Date | string | null | undefined): string | null {
+  if (value == null) return null;
+  if (typeof value === 'string') return value.slice(0, 10);
+  return value.toISOString().slice(0, 10);
+}
+
+function toDriverSummary(driver: Driver): InvoiceDispatchDriverSummary {
+  return {
+    id: driver.id,
+    name: driver.name,
+    phone: driver.phone,
+    license_number: driver.license_number,
+    license_expires_at: dateOnlyFromDb(driver.license_expires_at),
+    transport_license_expires_at: dateOnlyFromDb(driver.transport_license_expires_at),
+    father_or_husband_name: driver.father_or_husband_name,
+    state: driver.state,
+    city_name: driver.city_name,
+    address: driver.address,
+    pincode: driver.pincode,
+    is_verified: driver.is_verified,
+    is_active: driver.is_active,
+  };
+}
+
 export class InvoiceDispatchService {
+  private async assertDriverAssignable(driverId: string | null | undefined): Promise<void> {
+    if (driverId == null || driverId === '') return;
+    const driver = await driverDAO.findById(driverId);
+    if (!driver) throw new NotFoundError('Driver not found');
+    if (!driver.is_active) {
+      throw new ValidationError('Driver must be active to attach to invoice dispatch');
+    }
+  }
+
   /**
    * Credit FGI at destination godown (godown transfer).
    * batch_id may be null (link later); packaging_id is still required for a new FGI row.
@@ -233,11 +304,14 @@ export class InvoiceDispatchService {
   /**
    * Next Bill of Supply internal invoice number for godown GST state + FY.
    * See constants/invoice-number-series.ts for format rules.
+   *
+   * Syncs the series tip to max existing invoice first so orphaned counters
+   * (e.g. delete without releaseTip) reuse the next free number.
    */
   private async allocateInternalInvoiceNumber(
     godownId: string,
-    dispatchDate?: string | Date | null,
-    client?: PoolClient
+    dispatchDate: string | Date | null | undefined,
+    client: PoolClient
   ): Promise<{ internalInvoiceNumber: string; financialYear: string }> {
     const godown = await godownDAO.findById(godownId);
     if (!godown) throw new NotFoundError('Godown not found');
@@ -259,6 +333,10 @@ export class InvoiceDispatchService {
       dispatchDate != null && String(dispatchDate).trim() !== '' ? dispatchDate : new Date()
     );
     const seriesKey = buildInvoiceSeriesKey(stateAlpha, fy.label);
+
+    // Heal orphan tips / lagging counters under the series row lock, then +1
+    await this.syncSeriesTipToExisting(client, seriesKey, fy.label, stateAlpha);
+
     const sequence = await invoiceNumberSequenceDAO.allocateNext(
       seriesKey,
       fy.label,
@@ -276,6 +354,35 @@ export class InvoiceDispatchService {
       }),
       financialYear: fy.label,
     };
+  }
+
+  /**
+   * Lock series row and set last_value to the highest sequence still present
+   * for this state + FY. Returns that synced tip (0 when series is empty).
+   */
+  private async syncSeriesTipToExisting(
+    client: PoolClient,
+    seriesKey: string,
+    financialYear: string,
+    stateAlpha: string
+  ): Promise<number> {
+    const tip = await invoiceNumberSequenceDAO.lockAndGetLastValue(
+      seriesKey,
+      financialYear,
+      stateAlpha,
+      INVOICE_DOCUMENT_TYPE_BOS,
+      client
+    );
+    const maxExisting = await this.maxSequenceInSeries(client, financialYear, stateAlpha);
+    if (maxExisting !== tip) {
+      await client.query(
+        `UPDATE invoice_number_sequences
+         SET last_value = $1, updated_at = CURRENT_TIMESTAMP
+         WHERE series_key = $2`,
+        [maxExisting, seriesKey]
+      );
+    }
+    return maxExisting;
   }
 
   private round3(value: number): number {
@@ -347,10 +454,7 @@ export class InvoiceDispatchService {
    */
   private async resolveDispatchLines(
     saudaLines: SalesSaudaLine[],
-    fulfillment: Map<
-      string,
-      { sales_sauda_line_id: string; ordered: number; allocated: number; returned: number; remaining: number }
-    >,
+    fulfillment: Map<string, SaudaLineFulfillment>,
     requestLines?: Array<{ sales_sauda_line_id: string; quantity?: number; packet_count?: number }>
   ): Promise<Array<{ saudaLine: SalesSaudaLine; quantity: number; packet_count: number | null }>> {
     const byId = new Map(saudaLines.map((l) => [l.id, l]));
@@ -368,7 +472,7 @@ export class InvoiceDispatchService {
         }
       }
       if (resolved.length === 0) {
-        throw new ValidationError('No remaining quantity on this sales sauda to dispatch');
+        throw new ConflictError(DISPATCH_ALREADY_TAKEN_MESSAGE);
       }
       return resolved;
     }
@@ -388,7 +492,7 @@ export class InvoiceDispatchService {
       const saudaLine = byId.get(req.sales_sauda_line_id);
       if (!saudaLine) {
         throw new ValidationError(
-          `Sales sauda line ${req.sales_sauda_line_id} does not belong to this sauda`
+          `Sales sauda line ${req.sales_sauda_line_id} does not belong to the selected sauda(s)`
         );
       }
 
@@ -396,9 +500,8 @@ export class InvoiceDispatchService {
 
       const remaining = fulfillment.get(saudaLine.id)?.remaining ?? 0;
       if (qtyExceedsRemaining(quantity, remaining)) {
-        throw new ValidationError(
-          `quantity ${quantity} exceeds remaining ${remaining} for line ${req.sales_sauda_line_id}`
-        );
+        // Concurrent create (or stale FE remaining) after FOR UPDATE — ask user to refresh.
+        throw new ConflictError(DISPATCH_ALREADY_TAKEN_MESSAGE);
       }
 
       resolved.push({ saudaLine, quantity, packet_count });
@@ -413,25 +516,54 @@ export class InvoiceDispatchService {
     godownId?: string,
     financialYear?: string
   ) {
-    return invoiceDispatchDAO.findAll(salesSaudaId, status, godownId, financialYear);
+    const list = await invoiceDispatchDAO.findAll(salesSaudaId, status, godownId, financialYear);
+    const idsByDispatch = await invoiceDispatchSaudaDAO.getLinkedSaudaIdsByDispatchIds(
+      list.map((d) => d.id)
+    );
+    const driverIds = [...new Set(list.map((d) => d.driver_id).filter(Boolean))] as string[];
+    const driversById = new Map<string, InvoiceDispatchDriverSummary>();
+    await Promise.all(
+      driverIds.map(async (id) => {
+        const driver = await driverDAO.findById(id);
+        if (driver) driversById.set(id, toDriverSummary(driver));
+      })
+    );
+    return list.map((d) => ({
+      ...d,
+      sales_sauda_ids: idsByDispatch.get(d.id) ?? [d.sales_sauda_id],
+      driver: d.driver_id ? driversById.get(d.driver_id) ?? null : null,
+    }));
   }
 
   async getById(id: string) {
     const dispatch = await invoiceDispatchDAO.findById(id);
     if (!dispatch) throw new NotFoundError('Invoice dispatch not found');
     const lines = await invoiceDispatchLineDAO.findByInvoiceDispatchId(id);
-    return { ...dispatch, lines };
+    const sales_sauda_ids = await invoiceDispatchSaudaDAO.getLinkedSaudaIds(id);
+    let driver: InvoiceDispatchDriverSummary | null = null;
+    if (dispatch.driver_id) {
+      const row = await driverDAO.findById(dispatch.driver_id);
+      driver = row ? toDriverSummary(row) : null;
+    }
+    return {
+      ...dispatch,
+      sales_sauda_ids: sales_sauda_ids.length > 0 ? sales_sauda_ids : [dispatch.sales_sauda_id],
+      driver,
+      lines,
+    };
   }
 
   async create(
     data: {
-      sales_sauda_id: string;
+      sales_sauda_id?: string;
+      sales_sauda_ids?: string[];
       godown_id: string;
       /** Optional; for transfers must match sauda.to_godown_id if sent */
       to_godown_id?: string | null;
       dispatch_date?: string;
       transporter_id?: string;
       vehicle_id?: string;
+      driver_id?: string;
       lr_number?: string | null;
       transportation_cost?: number | null;
       distance_km?: number;
@@ -446,11 +578,15 @@ export class InvoiceDispatchService {
     userId?: string
   ) {
     await godownService.assertActive(data.godown_id);
+    await this.assertDriverAssignable(data.driver_id);
+    const saudaIds = resolveRequestedSaudaIds(data);
+    const primarySaudaId = saudaIds[0];
 
     let dispatchId: string;
     try {
       dispatchId = await db.transaction(async (client: PoolClient) => {
-        // Serialize concurrent creates against the same sauda
+        // Lock all saudas in stable id order to avoid deadlocks
+        const lockOrder = [...saudaIds].sort();
         const locked = await client.query<{
           id: string;
           status: string;
@@ -458,47 +594,93 @@ export class InvoiceDispatchService {
           movement_type: string;
           from_godown_id: string | null;
           to_godown_id: string | null;
+          delivery_address: Address | null;
         }>(
-          `SELECT id, status, sales_party_id, movement_type, from_godown_id, to_godown_id
-           FROM sales_saudas WHERE id = $1 FOR UPDATE`,
-          [data.sales_sauda_id]
+          `SELECT id, status, sales_party_id, movement_type, from_godown_id, to_godown_id, delivery_address
+           FROM sales_saudas
+           WHERE id = ANY($1::uuid[])
+           ORDER BY id
+           FOR UPDATE`,
+          [lockOrder]
         );
-        if (locked.rows.length === 0) throw new NotFoundError('Sales sauda not found');
-        const sauda = locked.rows[0];
-        if (sauda.status !== 'order') {
-          throw new ValidationError('Sales sauda must be finalized (order) before creating dispatch');
+        if (locked.rows.length !== saudaIds.length) {
+          const found = new Set(locked.rows.map((r) => r.id));
+          const missing = saudaIds.filter((id) => !found.has(id));
+          throw new NotFoundError(`Sales sauda not found: ${missing.join(', ')}`);
         }
 
+        const byId = new Map(locked.rows.map((r) => [r.id, r]));
+        const saudas = saudaIds.map((id) => byId.get(id)!);
+
+        for (const sauda of saudas) {
+          if (sauda.status !== 'order') {
+            throw new ValidationError(
+              `Sales sauda ${sauda.id} must be finalized (order) before creating dispatch`
+            );
+          }
+        }
+
+        if (saudaIds.length > 1) {
+          const movementTypes = new Set(saudas.map((s) => s.movement_type));
+          if (movementTypes.size !== 1 || !movementTypes.has('sale')) {
+            throw new ValidationError(
+              'Multiple saudas can only be clubbed for sale movement (godown transfers stay single-sauda)'
+            );
+          }
+          const partyIds = new Set(saudas.map((s) => s.sales_party_id));
+          if (partyIds.size !== 1) {
+            throw new ValidationError('All clubbed saudas must belong to the same sales party');
+          }
+          const addressKeys = new Set(
+            saudas.map((s) => normalizeDeliveryAddressKey(s.delivery_address))
+          );
+          if (addressKeys.size !== 1) {
+            throw new ValidationError(
+              'All clubbed saudas must have the same delivery address'
+            );
+          }
+        }
+
+        const primary = saudas[0];
         let toGodownId: string | null = null;
-        if (sauda.movement_type === 'godown_transfer') {
-          if (!sauda.from_godown_id || !sauda.to_godown_id) {
+        if (primary.movement_type === 'godown_transfer') {
+          if (!primary.from_godown_id || !primary.to_godown_id) {
             throw new ValidationError('Godown transfer sauda is missing from/to godown');
           }
-          if (data.godown_id !== sauda.from_godown_id) {
+          if (data.godown_id !== primary.from_godown_id) {
             throw new ValidationError(
-              `Dispatch godown_id must match transfer from_godown_id (${sauda.from_godown_id})`
+              `Dispatch godown_id must match transfer from_godown_id (${primary.from_godown_id})`
             );
           }
           if (
             data.to_godown_id != null &&
             data.to_godown_id !== '' &&
-            data.to_godown_id !== sauda.to_godown_id
+            data.to_godown_id !== primary.to_godown_id
           ) {
             throw new ValidationError(
-              `to_godown_id must match transfer to_godown_id (${sauda.to_godown_id})`
+              `to_godown_id must match transfer to_godown_id (${primary.to_godown_id})`
             );
           }
-          await godownService.assertActive(sauda.to_godown_id);
-          toGodownId = sauda.to_godown_id;
+          await godownService.assertActive(primary.to_godown_id);
+          toGodownId = primary.to_godown_id;
         } else if (data.to_godown_id != null && data.to_godown_id !== '') {
           throw new ValidationError('to_godown_id is only allowed for godown_transfer saudas');
         }
 
-        const salesParty = await salesPartyDAO.findById(sauda.sales_party_id);
+        const salesParty = await salesPartyDAO.findById(primary.sales_party_id);
         if (!salesParty) throw new NotFoundError('Sales party not found');
 
-        const saudaLines = await salesSaudaLineDAO.findBySalesSaudaId(data.sales_sauda_id, client);
-        const fulfillment = await getAllocatedBySaudaLineId(data.sales_sauda_id, client);
+        const saudaLines: SalesSaudaLine[] = [];
+        const fulfillment = new Map<string, SaudaLineFulfillment>();
+        for (const saudaId of saudaIds) {
+          const lines = await salesSaudaLineDAO.findBySalesSaudaId(saudaId, client);
+          saudaLines.push(...lines);
+          const f = await getAllocatedBySaudaLineId(saudaId, client);
+          for (const [lineId, row] of f) {
+            fulfillment.set(lineId, row);
+          }
+        }
+
         const resolvedLines = await this.resolveDispatchLines(
           saudaLines,
           fulfillment,
@@ -506,7 +688,9 @@ export class InvoiceDispatchService {
         );
 
         const party_name = salesParty.business_name;
-        const party_address = formatPartyAddress(salesParty.address);
+        const sharedDelivery = primary.delivery_address;
+        const party_address =
+          formatPartyAddress(sharedDelivery) || formatPartyAddress(salesParty.address);
         const party_gst_number = salesParty.business_details?.gst_number ?? null;
         const party_pan_number = salesParty.business_details?.pan_number ?? null;
 
@@ -518,7 +702,7 @@ export class InvoiceDispatchService {
 
         const dispatch = await invoiceDispatchDAO.create(
           {
-            sales_sauda_id: data.sales_sauda_id,
+            sales_sauda_id: primarySaudaId,
             godown_id: data.godown_id,
             to_godown_id: toGodownId,
             internal_invoice_number: internalInvoiceNumber,
@@ -530,6 +714,7 @@ export class InvoiceDispatchService {
             party_pan_number,
             transporter_id: data.transporter_id,
             vehicle_id: data.vehicle_id,
+            driver_id: data.driver_id,
             lr_number: data.lr_number,
             transportation_cost: data.transportation_cost,
             distance_km: data.distance_km,
@@ -539,6 +724,8 @@ export class InvoiceDispatchService {
           },
           client
         );
+
+        await invoiceDispatchSaudaDAO.linkSaudas(dispatch.id, saudaIds, client);
 
         for (const { saudaLine, quantity, packet_count } of resolvedLines) {
           const rate = parseFloat(saudaLine.rate.toString());
@@ -581,6 +768,7 @@ export class InvoiceDispatchService {
       dispatch_date?: string | null;
       transporter_id?: string | null;
       vehicle_id?: string | null;
+      driver_id?: string | null;
       lr_number?: string | null;
       transportation_cost?: number | null;
       distance_km?: number | null;
@@ -591,6 +779,10 @@ export class InvoiceDispatchService {
   ) {
     const dispatch = await invoiceDispatchDAO.findById(id);
     if (!dispatch) throw new NotFoundError('Invoice dispatch not found');
+
+    if (data.driver_id !== undefined) {
+      await this.assertDriverAssignable(data.driver_id);
+    }
 
     const updated = await invoiceDispatchDAO.update(id, {
       ...data,
@@ -636,29 +828,13 @@ export class InvoiceDispatchService {
         : [];
 
     await db.transaction(async (client: PoolClient) => {
-      let tip = await invoiceNumberSequenceDAO.lockAndGetLastValue(
-        seriesKey,
-        dispatch.financial_year,
-        parsed.stateAlpha,
-        INVOICE_DOCUMENT_TYPE_BOS,
-        client
-      );
-
-      // Repair orphan tip from older gap-deletes (counter ahead of existing invoices)
-      const maxExisting = await this.maxSequenceInSeries(
+      // Includes the row being deleted; tip must match its sequence (latest only)
+      const tip = await this.syncSeriesTipToExisting(
         client,
+        seriesKey,
         dispatch.financial_year,
         parsed.stateAlpha
       );
-      if (maxExisting < tip) {
-        await client.query(
-          `UPDATE invoice_number_sequences
-           SET last_value = $1, updated_at = CURRENT_TIMESTAMP
-           WHERE series_key = $2`,
-          [maxExisting, seriesKey]
-        );
-        tip = maxExisting;
-      }
 
       if (tip !== parsed.sequence) {
         throw new ConflictError(
@@ -1012,16 +1188,18 @@ export class InvoiceDispatchService {
   }
 
   /**
-   * Reverse a confirmed godown-transfer dispatch:
-   * - debit destination FGI (fails if stock was already used)
-   * - restore source FGI from allocations
-   * - status → cancelled (frees sauda remaining qty)
-   *
-   * For sales dispatches, use DELETE instead (reverses stock and removes the row).
+   * Cancel a confirmed dispatch (sale or godown transfer):
+   * - restore stock to inventory (and debit destination for transfers)
+   * - status → cancelled with required reason (frees sauda remaining qty)
    */
-  async cancel(id: string, userId?: string) {
+  async cancel(id: string, reason: string, userId?: string) {
     const dispatch = await invoiceDispatchDAO.findById(id);
     if (!dispatch) throw new NotFoundError('Invoice dispatch not found');
+
+    const cancelReason = reason.trim();
+    if (!cancelReason) {
+      throw new ValidationError('Cancel reason is required');
+    }
 
     if (dispatch.status === 'cancelled') {
       return this.getById(id);
@@ -1032,11 +1210,6 @@ export class InvoiceDispatchService {
     if (dispatch.status !== 'confirmed') {
       throw new ConflictError('Only confirmed invoice dispatches can be cancelled');
     }
-    if (!dispatch.to_godown_id) {
-      throw new ConflictError(
-        'Only godown-transfer dispatches (with to_godown_id) can be reversed via cancel; use delete for sales dispatches'
-      );
-    }
 
     const lines = await invoiceDispatchLineDAO.findByInvoiceDispatchId(id);
 
@@ -1044,9 +1217,12 @@ export class InvoiceDispatchService {
       await this.reverseConfirmedDispatchInventory(client, dispatch, lines, userId);
       await client.query(
         `UPDATE invoice_dispatches
-         SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP, updated_by = $1
-         WHERE id = $2`,
-        [userId ?? null, id]
+         SET status = 'cancelled',
+             cancel_reason = $1,
+             updated_at = CURRENT_TIMESTAMP,
+             updated_by = $2
+         WHERE id = $3`,
+        [cancelReason, userId ?? null, id]
       );
     });
 

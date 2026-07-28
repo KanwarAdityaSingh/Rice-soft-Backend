@@ -24,6 +24,7 @@ const SALES_SAUDA_SELECT = `
   ss.status, ss.order_number, TO_CHAR(ss.sauda_date, 'YYYY-MM-DD') as sauda_date,
   ss.financial_year, ss.billing_address, ss.delivery_address,
   ss.notes, ss.payment_terms, ss.amount,
+  ss.customer_po_url, ss.email_attachment_url, ss.agreement_url, ss.whatsapp_screenshot_url,
   ss.created_at, ss.updated_at, ss.created_by, ss.updated_by
 `;
 
@@ -86,9 +87,14 @@ export class SalesSaudaDAO {
         sauda_type, movement_type, from_godown_id, to_godown_id,
         status, sauda_date, financial_year,
         billing_address, delivery_address,
-        notes, payment_terms, amount, created_by
+        notes, payment_terms, amount,
+        customer_po_url, email_attachment_url, agreement_url, whatsapp_screenshot_url,
+        created_by
       )
-      VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+      VALUES (
+        $1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
+        $17, $18, $19, $20, $21
+      )
       RETURNING id
     `;
     const values = [
@@ -112,8 +118,12 @@ export class SalesSaudaDAO {
       data.billing_address != null ? JSON.stringify(data.billing_address) : null,
       data.delivery_address != null ? JSON.stringify(data.delivery_address) : null,
       data.notes || null,
-      data.payment_terms ?? null,
+      data.payment_terms?.trim() || null,
       data.amount != null ? Number(data.amount) : 0,
+      data.customer_po_url?.trim() || null,
+      data.email_attachment_url?.trim() || null,
+      data.agreement_url?.trim() || null,
+      data.whatsapp_screenshot_url?.trim() || null,
       data.created_by || null,
     ];
     const result = await db.query<{ id: string }>(query, values);
@@ -201,7 +211,23 @@ export class SalesSaudaDAO {
     }
     if (data.payment_terms !== undefined) {
       fields.push(`payment_terms = $${paramCount++}`);
-      values.push(data.payment_terms ?? null);
+      values.push(data.payment_terms?.trim() || null);
+    }
+    if (data.customer_po_url !== undefined) {
+      fields.push(`customer_po_url = $${paramCount++}`);
+      values.push(data.customer_po_url?.trim() || null);
+    }
+    if (data.email_attachment_url !== undefined) {
+      fields.push(`email_attachment_url = $${paramCount++}`);
+      values.push(data.email_attachment_url?.trim() || null);
+    }
+    if (data.agreement_url !== undefined) {
+      fields.push(`agreement_url = $${paramCount++}`);
+      values.push(data.agreement_url?.trim() || null);
+    }
+    if (data.whatsapp_screenshot_url !== undefined) {
+      fields.push(`whatsapp_screenshot_url = $${paramCount++}`);
+      values.push(data.whatsapp_screenshot_url?.trim() || null);
     }
     if (data.amount !== undefined) {
       fields.push(`amount = $${paramCount++}`);

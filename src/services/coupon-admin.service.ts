@@ -1,14 +1,16 @@
 import { CouponDAO } from '../dao/coupon.dao';
+import { CouponBatchDAO } from '../dao/coupon-batch.dao';
 import { CouponStatusHistoryDAO } from '../dao/coupon-status-history.dao';
 import { RedeemerDAO } from '../dao/redeemer.dao';
 import { RedemptionDAO } from '../dao/redemption.dao';
 import { RuleApplicationDAO } from '../dao/rule-application.dao';
 import { PayoutAttemptDAO } from '../dao/payout-attempt.dao';
-import { RazorpayWebhookEventDAO } from '../dao/razorpay-webhook-event.dao';
+import { CashfreeWebhookEventDAO } from '../dao/cashfree-webhook-event.dao';
 import { RedemptionAttemptDAO } from '../dao/redemption-attempt.dao';
-import { NotFoundError } from '../utils/errors';
+import { ConflictError, NotFoundError } from '../utils/errors';
 import { db } from '../database/connection';
 import { CouponStateMachine } from './coupon-state.machine';
+import { COUPON_BATCH_LOCKED_MESSAGE } from './coupon-batch.service';
 import type { CouponStatus } from '../constants/coupon-status';
 import type { Redeemer, Redemption } from '../models/coupon.model';
 import { buildBankDetails, buildPayoutDetails, normalizePhone } from '../utils/coupon.helpers';
@@ -16,19 +18,29 @@ import { buildBankDetails, buildPayoutDetails, normalizePhone } from '../utils/c
 export class CouponAdminService {
   constructor(
     private couponDAO = new CouponDAO(),
+    private batchDAO = new CouponBatchDAO(),
     private historyDAO = new CouponStatusHistoryDAO(),
     private redeemerDAO = new RedeemerDAO(),
     private redemptionDAO = new RedemptionDAO(),
     private ruleApplicationDAO = new RuleApplicationDAO(),
     private payoutAttemptDAO = new PayoutAttemptDAO(),
-    private webhookEventDAO = new RazorpayWebhookEventDAO(),
+    private webhookEventDAO = new CashfreeWebhookEventDAO(),
     private redemptionAttemptDAO = new RedemptionAttemptDAO(),
     private stateMachine = new CouponStateMachine()
   ) {}
 
+  private async assertCouponBatchNotLocked(batchId: string, client?: Parameters<CouponBatchDAO['findById']>[1]) {
+    const batch = await this.batchDAO.findById(batchId, client);
+    if (!batch) throw new NotFoundError('Coupon batch not found');
+    if (batch.is_locked) {
+      throw new ConflictError(COUPON_BATCH_LOCKED_MESSAGE);
+    }
+  }
+
   async getCoupons(filters: {
     batchId?: string;
     status?: CouponStatus;
+    excludeVoid?: boolean;
     code?: string;
     page?: number;
     limit?: number;
@@ -47,6 +59,7 @@ export class CouponAdminService {
     return db.transaction(async (client) => {
       const coupon = await this.couponDAO.findByCodeForUpdate(code.toUpperCase(), client);
       if (!coupon) throw new NotFoundError('Coupon not found');
+      await this.assertCouponBatchNotLocked(coupon.coupon_batch_id, client);
       await this.stateMachine.transition(
         coupon,
         'void',
@@ -62,6 +75,7 @@ export class CouponAdminService {
     return db.transaction(async (client) => {
       const coupon = await this.couponDAO.findByCodeForUpdate(code.toUpperCase(), client);
       if (!coupon) throw new NotFoundError('Coupon not found');
+      await this.assertCouponBatchNotLocked(coupon.coupon_batch_id, client);
       await this.stateMachine.transition(
         coupon,
         'printed',
@@ -77,6 +91,7 @@ export class CouponAdminService {
     return db.transaction(async (client) => {
       const coupon = await this.couponDAO.findByCodeForUpdate(code.toUpperCase(), client);
       if (!coupon) throw new NotFoundError('Coupon not found');
+      await this.assertCouponBatchNotLocked(coupon.coupon_batch_id, client);
       await this.stateMachine.transition(
         coupon,
         'allotted',

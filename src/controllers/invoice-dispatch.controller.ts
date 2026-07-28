@@ -6,6 +6,7 @@ import {
   validate,
   createInvoiceDispatchSchema,
   updateInvoiceDispatchSchema,
+  cancelInvoiceDispatchSchema,
   uuidSchema,
 } from '../utils/validators';
 import { AuthRequest } from '../middleware/auth.middleware';
@@ -42,9 +43,15 @@ function formatLine(line: InvoiceDispatchLine) {
 }
 
 function formatDispatch(dispatch: any) {
+  const salesSaudaIds: string[] = Array.isArray(dispatch.sales_sauda_ids)
+    ? dispatch.sales_sauda_ids
+    : dispatch.sales_sauda_id
+      ? [dispatch.sales_sauda_id]
+      : [];
   return {
     id: dispatch.id,
     sales_sauda_id: dispatch.sales_sauda_id,
+    sales_sauda_ids: salesSaudaIds,
     godown_id: dispatch.godown_id,
     to_godown_id: dispatch.to_godown_id ?? null,
     internal_invoice_number: dispatch.internal_invoice_number,
@@ -56,6 +63,8 @@ function formatDispatch(dispatch: any) {
     party_pan_number: dispatch.party_pan_number,
     transporter_id: dispatch.transporter_id,
     vehicle_id: dispatch.vehicle_id,
+    driver_id: dispatch.driver_id ?? null,
+    driver: dispatch.driver ?? null,
     lr_number: dispatch.lr_number ?? null,
     transportation_cost:
       dispatch.transportation_cost != null
@@ -66,9 +75,12 @@ function formatDispatch(dispatch: any) {
     usp: dispatch.usp ?? null,
     bilti_image_url: dispatch.bilti_image_url ?? null,
     bilti_pdf_url: dispatch.bilti_pdf_url ?? null,
+    lr_image_url: dispatch.lr_image_url ?? null,
+    lr_pdf_url: dispatch.lr_pdf_url ?? null,
     receiving_doc_image_url: dispatch.receiving_doc_image_url ?? null,
     receiving_doc_pdf_url: dispatch.receiving_doc_pdf_url ?? null,
     status: dispatch.status,
+    cancel_reason: dispatch.cancel_reason ?? null,
     created_at: dispatch.created_at instanceof Date ? dispatch.created_at.toISOString() : dispatch.created_at,
     updated_at: dispatch.updated_at instanceof Date ? dispatch.updated_at.toISOString() : dispatch.updated_at,
     lines: Array.isArray(dispatch.lines) ? dispatch.lines.map(formatLine) : [],
@@ -103,12 +115,14 @@ export class InvoiceDispatchController {
   async create(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const body = validate<{
-        sales_sauda_id: string;
+        sales_sauda_id?: string;
+        sales_sauda_ids?: string[];
         godown_id: string;
         to_godown_id?: string | null;
         dispatch_date?: string;
         transporter_id?: string;
         vehicle_id?: string;
+        driver_id?: string;
         lr_number?: string | null;
         transportation_cost?: number | null;
         distance_km?: number;
@@ -124,11 +138,13 @@ export class InvoiceDispatchController {
       const dispatch = await invoiceDispatchService.create(
         {
           sales_sauda_id: body.sales_sauda_id,
+          sales_sauda_ids: body.sales_sauda_ids,
           godown_id: body.godown_id,
           to_godown_id: body.to_godown_id,
           dispatch_date: body.dispatch_date,
           transporter_id: body.transporter_id,
           vehicle_id: body.vehicle_id,
+          driver_id: body.driver_id,
           lr_number: body.lr_number,
           transportation_cost: body.transportation_cost,
           distance_km: body.distance_km,
@@ -151,6 +167,7 @@ export class InvoiceDispatchController {
         dispatch_date?: string | null;
         transporter_id?: string | null;
         vehicle_id?: string | null;
+        driver_id?: string | null;
         lr_number?: string | null;
         transportation_cost?: number | null;
         distance_km?: number | null;
@@ -188,17 +205,18 @@ export class InvoiceDispatchController {
 
   /**
    * POST /invoice-dispatches/:id/cancel
-   * Reverse a confirmed godown-transfer dispatch (stock back to from, out of to).
+   * Body: { reason } — cancel confirmed sale or godown-transfer; restores stock.
    */
   async cancel(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const id = validate<string>(uuidSchema, req.params.id);
+      const body = validate<{ reason: string }>(cancelInvoiceDispatchSchema, req.body ?? {});
       const userId = req.user?.userId;
-      const dispatch = await invoiceDispatchService.cancel(id, userId);
+      const dispatch = await invoiceDispatchService.cancel(id, body.reason, userId);
       return ResponseHandler.success(
         res,
         formatDispatch(dispatch),
-        'Godown transfer dispatch cancelled and stock reversed successfully'
+        'Invoice dispatch cancelled and stock restored successfully'
       );
     } catch (error) {
       next(error);
@@ -265,6 +283,72 @@ export class InvoiceDispatchController {
           bilti_pdf_url: dispatch.bilti_pdf_url,
         },
         'Bilti uploaded successfully'
+      );
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /invoice-dispatches/:id/upload-lr
+   * multipart field: file (image or PDF) — Lorry Receipt copy
+   */
+  async uploadLr(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const id = validate<string>(uuidSchema, req.params.id);
+
+      const existing = await invoiceDispatchDAO.findById(id);
+      if (!existing) {
+        throw new NotFoundError('Invoice dispatch not found');
+      }
+
+      if (!req.file) {
+        throw new ValidationError('File is required');
+      }
+
+      validateFileSize(req.file.size, 10);
+      validateFileType(req.file.mimetype, [
+        'image/jpeg',
+        'image/jpg',
+        'image/png',
+        'image/gif',
+        'application/pdf',
+      ]);
+
+      let uploadResult;
+      try {
+        uploadResult = await uploadToS3(
+          req.file.buffer,
+          req.file.originalname,
+          appConfig.aws.s3.lrFolder
+        );
+      } catch {
+        throw new InternalServerError('Failed to upload LR. Please try again.');
+      }
+
+      const isPdf = req.file.mimetype === 'application/pdf';
+      const updateData: UpdateInvoiceDispatchDTO = {
+        updated_by: req.user?.userId,
+      };
+      if (isPdf) {
+        updateData.lr_pdf_url = uploadResult.url;
+      } else {
+        updateData.lr_image_url = uploadResult.url;
+      }
+
+      const dispatch = await invoiceDispatchDAO.update(id, updateData);
+      if (!dispatch) {
+        throw new NotFoundError('Invoice dispatch not found');
+      }
+
+      return ResponseHandler.success(
+        res,
+        {
+          url: uploadResult.url,
+          lr_image_url: dispatch.lr_image_url,
+          lr_pdf_url: dispatch.lr_pdf_url,
+        },
+        'LR uploaded successfully'
       );
     } catch (error) {
       next(error);

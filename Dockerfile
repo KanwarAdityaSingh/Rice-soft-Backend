@@ -6,9 +6,10 @@ COPY package*.json ./
 RUN npm ci --include=dev
 
 COPY . .
-RUN npm run build && \
-    mkdir -p dist/database/migrations && \
-    cp -f src/database/migrations/*.sql dist/database/migrations/ || true
+# Fail the image build if tsc fails. Do not use `|| true` — that shipped stale dist to prod.
+RUN npm run build
+RUN mkdir -p dist/database/migrations && \
+    cp -f src/database/migrations/*.sql dist/database/migrations/
 
 ## Runtime stage
 FROM node:18-alpine

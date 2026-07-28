@@ -63,6 +63,37 @@ export class SalesmanCommissionEntryDAO {
     return result.rows[0] ? transform(result.rows[0]) : null;
   }
 
+  async findAccrualByDispatchAndSauda(
+    invoiceDispatchId: string,
+    salesSaudaId: string,
+    client?: PoolClient
+  ): Promise<SalesmanCommissionEntry | null> {
+    const sql = `SELECT ${SELECT} ${FROM}
+       WHERE e.invoice_dispatch_id = $1
+         AND e.sales_sauda_id = $2
+         AND e.entry_type = 'accrual'
+       LIMIT 1`;
+    const params = [invoiceDispatchId, salesSaudaId];
+    const result = client
+      ? await client.query<SalesmanCommissionEntry>(sql, params)
+      : await db.query<SalesmanCommissionEntry>(sql, params);
+    return result.rows[0] ? transform(result.rows[0]) : null;
+  }
+
+  async findAccrualsByDispatchId(
+    invoiceDispatchId: string,
+    client?: PoolClient
+  ): Promise<SalesmanCommissionEntry[]> {
+    const sql = `SELECT ${SELECT} ${FROM}
+       WHERE e.invoice_dispatch_id = $1 AND e.entry_type = 'accrual'
+       ORDER BY e.created_at ASC, e.id ASC`;
+    const params = [invoiceDispatchId];
+    const result = client
+      ? await client.query<SalesmanCommissionEntry>(sql, params)
+      : await db.query<SalesmanCommissionEntry>(sql, params);
+    return result.rows.map(transform);
+  }
+
   async findReversalByCreditNoteId(
     creditNoteId: string,
     client?: PoolClient

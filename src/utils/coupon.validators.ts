@@ -47,13 +47,39 @@ export const analyticsDateQuerySchema = Joi.string()
   .optional();
 
 export const createCouponBatchSchema = Joi.object({
-  name: Joi.string().required().max(255),
   description: Joi.string().optional().allow('', null),
   face_value_paise: Joi.number().integer().min(1).required(),
   total_count: Joi.number().integer().min(1).max(500000).required(),
   expires_at: Joi.date().iso().optional().allow(null),
   redeem_base_url: Joi.string().uri().optional().allow('', null),
 });
+
+/**
+ * Partial mark-allotted selection.
+ * Empty / omitted body → all printed coupons (legacy).
+ * mode=next_available → next N printed by batch_sequence.
+ * mode=serial_range → printed coupons whose serial falls in [from, to].
+ */
+export const markBatchAllottedSchema = Joi.object({
+  mode: Joi.string().valid('next_available', 'serial_range').optional(),
+  count: Joi.when('mode', {
+    is: 'next_available',
+    then: Joi.number().integer().min(1).max(500000).required(),
+    otherwise: Joi.forbidden(),
+  }),
+  from_serial: Joi.when('mode', {
+    is: 'serial_range',
+    then: Joi.string().trim().required().max(64),
+    otherwise: Joi.forbidden(),
+  }),
+  to_serial: Joi.when('mode', {
+    is: 'serial_range',
+    then: Joi.string().trim().required().max(64),
+    otherwise: Joi.forbidden(),
+  }),
+})
+  .optional()
+  .default({});
 
 export const verifyCouponSchema = Joi.object({
   code: couponCodeSchema.required(),
@@ -82,12 +108,8 @@ export const redeemCouponSchema = Joi.object({
   })
   .custom((value, helpers) => {
     if (value.account_number) {
-      if (!value.kyc_verification_details?.bank) {
-        return helpers.message({
-          custom:
-            'kyc_verification_details.bank is required. Call GET /api/v1/coupons/public/verifyBankAccount first.',
-        });
-      }
+      // kyc_verification_details optional when redeemer already has verified bank matching these fields
+      // (CouponRedeemService reuses stored KYC). New/changed bank still needs verifyBankAccount snapshot.
       if (!value.account_holder_name?.trim()) {
         return helpers.message({ custom: 'account_holder_name is required for bank payout' });
       }
@@ -203,6 +225,8 @@ export const couponListQuerySchema = Joi.object({
   status: Joi.string()
     .valid(...COUPON_STATUSES)
     .optional(),
+  /** When true, omit void coupons. Ignored if `status` is set (exact status wins). */
+  excludeVoid: Joi.boolean().optional(),
   code: Joi.string().optional(),
   page: Joi.number().integer().min(1).optional(),
   limit: Joi.number().integer().min(1).max(200).optional(),

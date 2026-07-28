@@ -1,8 +1,10 @@
 # Coupon Module — Implementation Guide
 
-Independent module for the rice coupon program: generate physical coupons, track inventory, let customers redeem online, apply bonus rules, and pay out (manually or via Razorpay).
+Independent module for the rice coupon program: generate physical coupons, track inventory, let customers redeem online, apply bonus rules, and pay out (manually or via Cashfree IMPS).
 
 **Base path:** `/api/v1/coupons/`
+
+**Payout flow (redeem → pending → manual / Cashfree):** see [COUPON_PAYOUT_FLOW.md](./COUPON_PAYOUT_FLOW.md)
 
 ---
 
@@ -12,11 +14,11 @@ Independent module for the rice coupon program: generate physical coupons, track
 |---|---|---|
 | **Phase 1** | Batch generation, inventory lifecycle, public verify/redeem, manual payouts | Yes |
 | **Phase 2** | Configurable promotion rules (bonuses at redeem) | Yes |
-| **Phase 3** | Razorpay auto payout + webhooks | No — requires env config |
+| **Phase 3** | Cashfree bank IMPS auto payout + webhooks | No — requires env config |
 | **Phase 4** | Analytics & ops dashboards | Yes |
 | **Phase 5** | Customer OTP login, refresh tokens, redemption history, payout status | Yes |
 
-**Migrations:** `156`–`165` — core (`156`–`162`), `163_add_payout_bank_name_to_redemptions`, `164_create_razorpay_webhook_events`, `165_add_redeemer_bank_kyc`
+**Migrations:** `156`–`165` (core + Razorpay-era tables), `187_cashfree_coupon_payouts` (Cashfree: `provider_transfer_id`, `transfer_id`, `cashfree_webhook_events`)
 
 ---
 
@@ -109,9 +111,9 @@ Every status change is logged in `coupon_status_history` (append-only).
 ### Admin workflow
 
 ```
-1. Create batch (name, face value, count, optional expiry — `expires_at: null` = never expires)
-2. Generate codes
-3. Export CSV for printer (code, redeem URL, face value)
+1. Create batch (auto `batch_code`, face value, count, optional expiry — `expires_at: null` = never expires)
+2. Generate codes (each coupon gets `serial_number` = `{batch_code}-NNNNNN`)
+3. Export CSV for printer (serial, code, redeem URL, face value)
 4. Mark batch printed
 5. Put coupons in rice bags
 6. Mark batch allotted  ← codes become redeemable
@@ -119,6 +121,7 @@ Every status change is logged in `coupon_status_history` (append-only).
 8. Pay customer manually → Mark redemption paid
 ```
 
+Hard delete is allowed when there are no coupons, or every coupon is still `created`. If any coupon is printed / allotted / redeemed / expired (or void), delete returns `400` — archive instead. Day series numbers are never reused.
 ### Public workflow
 
 ```
@@ -146,7 +149,7 @@ Every status change is logged in `coupon_status_history` (append-only).
 
 | Table | Purpose |
 |---|---|
-| `coupon_batches` | Print runs (name, face value, count, expiry — `expires_at` nullable = never expires) |
+| `coupon_batches` | Print runs (`batch_code`, face value, count, expiry — `expires_at` nullable = never expires) |
 | `coupons` | One row per code (`code` UNIQUE) |
 | `coupon_status_history` | Audit trail of every status change |
 | `redeemers` | People keyed by phone + latest UPI/bank details |
@@ -199,7 +202,7 @@ See `docs/COUPON_PUBLIC_UI_INTEGRATION.md` for full request/response shapes and 
 | POST | `/bulkMarkRedemptionsPaid` | Bulk manual mark paid |
 | POST | `/unmarkRedemptionPaid/:id` | Undo paid (ops correction) |
 | GET | `/getRedemptionAttempts` | Failed verify/redeem log (fraud) |
-| POST | `/deleteCouponBatch/:batchId` | Delete empty/draft batch |
+| POST | `/deleteCouponBatch/:batchId` | Delete batch if all coupons still `created` (or none) |
 | GET | `/getRedeemerByPhone/:phone` | Redeemer + history |
 | GET | `/getAllRedeemers` | List redeemers |
 

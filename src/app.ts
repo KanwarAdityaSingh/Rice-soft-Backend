@@ -29,8 +29,18 @@ export function createApp(): Application {
     })
   );
 
-  // Body parsing middleware
-  app.use(express.json({ limit: '10mb' }));
+  // Body parsing middleware (capture raw body for Cashfree webhook signature)
+  app.use(
+    express.json({
+      limit: '10mb',
+      verify: (req, _res, buf) => {
+        const url = req.url || '';
+        if (url.includes('/coupons/admin/webhooks/cashfree')) {
+          (req as express.Request & { rawBody?: string }).rawBody = buf.toString('utf8');
+        }
+      },
+    })
+  );
   app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
   // Request logging middleware

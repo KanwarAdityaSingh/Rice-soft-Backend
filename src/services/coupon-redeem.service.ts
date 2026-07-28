@@ -4,9 +4,11 @@ import { RedeemerDAO } from '../dao/redeemer.dao';
 import { RedemptionDAO } from '../dao/redemption.dao';
 import { RedemptionAttemptDAO } from '../dao/redemption-attempt.dao';
 import { RuleApplicationDAO } from '../dao/rule-application.dao';
-import { RedeemCouponDTO } from '../models/coupon.model';
+import { RedeemCouponDTO, Redeemer } from '../models/coupon.model';
+import type { EntityKycVerificationDetails } from '../models/kyc-verification.model';
 import { BadRequestError, ValidationError } from '../utils/errors';
 import { generatePublicRef, normalizeCouponCode, normalizePhone } from '../utils/coupon.helpers';
+import { parseEntityKycDetails } from '../utils/kyc-verification';
 import { CouponStateMachine } from './coupon-state.machine';
 import { CouponVerifyService } from './coupon-verify.service';
 import { PromotionRulesEngine } from './promotion-rules.engine';
@@ -15,6 +17,26 @@ import { appConfig } from '../config/app.config';
 import { couponPayoutWorker } from '../workers/coupon-payout.worker';
 import { couponBankVerifyService } from './coupon-bank-verify.service';
 import { bankVerificationSuccessExtras } from '../utils/bank-verification-response';
+
+function accountDigits(value: string | null | undefined): string {
+  return (value ?? '').replace(/\D/g, '');
+}
+
+function normText(value: string | null | undefined): string {
+  return (value ?? '').trim();
+}
+
+/** True when submitted bank identity matches the stored redeemer row (KYC can be reused). */
+function submittedBankMatchesStored(
+  data: Pick<RedeemCouponDTO, 'account_holder_name' | 'account_number' | 'ifsc'>,
+  stored: Redeemer
+): boolean {
+  return (
+    normText(data.account_holder_name) === normText(stored.account_holder_name) &&
+    accountDigits(data.account_number) === accountDigits(stored.account_number) &&
+    normText(data.ifsc).toUpperCase() === normText(stored.ifsc).toUpperCase()
+  );
+}
 
 export class CouponRedeemService {
   constructor(
@@ -49,15 +71,28 @@ export class CouponRedeemService {
 
     const usesBankPayout = Boolean(data.account_number?.trim());
 
+    let resolvedKyc: EntityKycVerificationDetails | undefined = data.kyc_verification_details;
     let bankVerifyResult;
     if (usesBankPayout) {
+      if (!resolvedKyc?.bank) {
+        const existing = await this.redeemerDAO.findByPhone(phone);
+        const storedKyc = parseEntityKycDetails(existing?.kyc_verification_details);
+        if (
+          existing?.bank_details_verified_at &&
+          storedKyc.bank &&
+          submittedBankMatchesStored(data, existing)
+        ) {
+          resolvedKyc = storedKyc;
+        }
+      }
+
       bankVerifyResult = couponBankVerifyService.assertBankVerifiedFromSnapshot(
         {
           account_holder_name: data.account_holder_name,
           account_number: data.account_number,
           ifsc: data.ifsc,
         },
-        data.kyc_verification_details
+        resolvedKyc
       );
     }
 
@@ -114,10 +149,10 @@ export class CouponRedeemService {
         throw new BadRequestError('Failed to resolve redeemer');
       }
 
-      if (usesBankPayout && data.kyc_verification_details) {
+      if (usesBankPayout && resolvedKyc) {
         await this.redeemerDAO.markBankDetailsVerified(
           redeemer.redeemer_id,
-          data.kyc_verification_details,
+          resolvedKyc,
           client
         );
       }
@@ -172,7 +207,7 @@ export class CouponRedeemService {
       return { redemption, appliedRules };
     });
 
-    if (appConfig.coupons.payoutEnabled) {
+    if (appConfig.coupons.payoutEnabled && appConfig.coupons.payoutAuto) {
       couponPayoutWorker.enqueue(result.redemption.redemption_id);
     }
 
