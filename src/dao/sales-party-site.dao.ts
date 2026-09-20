@@ -11,20 +11,46 @@ const SELECT_COLUMNS = `
   created_at, updated_at, created_by, updated_by
 `;
 
+export interface SalesPartySiteListOptions {
+  includeInactive?: boolean;
+  limit: number;
+  offset: number;
+}
+
 export class SalesPartySiteDAO {
-  async findBySalesPartyId(salesPartyId: string, includeInactive = false): Promise<SalesPartySite[]> {
-    let query = `
-      SELECT ${SELECT_COLUMNS}
-      FROM sales_party_sites
-      WHERE sales_party_id = $1
-    `;
+  async findBySalesPartyId(
+    salesPartyId: string,
+    options: SalesPartySiteListOptions
+  ): Promise<{ rows: SalesPartySite[]; total: number }> {
+    const { includeInactive = false, limit, offset } = options;
+
+    let where = `WHERE sales_party_id = $1`;
     const params: unknown[] = [salesPartyId];
+    let paramCount = 2;
+
     if (!includeInactive) {
-      query += ` AND is_active = true`;
+      where += ` AND is_active = true`;
     }
-    query += ` ORDER BY name NULLS LAST, created_at ASC`;
-    const result = await db.query<SalesPartySite>(query, params);
-    return result.rows;
+
+    const countResult = await db.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM sales_party_sites ${where}`,
+      params
+    );
+    const total = parseInt(countResult.rows[0]?.count ?? '0', 10);
+
+    const limitIdx = paramCount++;
+    const offsetIdx = paramCount++;
+    params.push(limit, offset);
+
+    const result = await db.query<SalesPartySite>(
+      `SELECT ${SELECT_COLUMNS}
+       FROM sales_party_sites
+       ${where}
+       ORDER BY name NULLS LAST, created_at ASC
+       LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
+      params
+    );
+    return { rows: result.rows, total };
   }
 
   async findById(id: string): Promise<SalesPartySite | null> {

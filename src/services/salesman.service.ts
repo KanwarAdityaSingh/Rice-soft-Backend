@@ -59,8 +59,13 @@ export interface SalesmanDetail extends Salesman {
 }
 
 export class SalesmanService {
-  async getAllSalesmen(includeInactive: boolean): Promise<Salesman[]> {
-    return salesmanDAO.findAll(includeInactive);
+  async getAllSalesmen(filters: {
+    includeInactive?: boolean;
+    search?: string;
+    limit: number;
+    offset: number;
+  }): Promise<{ rows: Salesman[]; total: number }> {
+    return salesmanDAO.findAll(filters);
   }
 
   async getSalesmanById(id: string): Promise<SalesmanDetail> {

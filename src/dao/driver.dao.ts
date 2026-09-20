@@ -9,6 +9,7 @@ import {
 import { logger } from '../utils/logger';
 import { ConflictError } from '../utils/errors';
 import { normalizeDrivingLicenseForStorage, driverProfileFromMapped, parseTransportLicenseExpiryDate } from '../utils/driver-license';
+import { buildNormalizedSearchClause } from '../utils/search';
 
 const SELECT_COLUMNS = `
   id, license_number, phone, name, date_of_birth, license_expires_at,
@@ -22,6 +23,9 @@ export interface DriverListFilters {
   includeInactive?: boolean;
   isActive?: boolean;
   isVerified?: boolean;
+  search?: string;
+  limit: number;
+  offset: number;
 }
 
 /** Accept ISO YYYY-MM-DD or DD-MM-YYYY (common on Indian DL text). */
@@ -71,34 +75,70 @@ function profileFromVerificationDetails(
 }
 
 export class DriverDAO {
-  async findAll(filters: DriverListFilters = {}): Promise<Driver[]> {
-    const { includeInactive = false, isActive, isVerified } = filters;
+  async findAll(filters: DriverListFilters): Promise<{ rows: Driver[]; total: number }> {
+    const { includeInactive = false, isActive, isVerified, search, limit, offset } = filters;
 
-    let query = `SELECT ${SELECT_COLUMNS} FROM drivers WHERE 1=1`;
+    let where = `WHERE 1=1`;
     const params: unknown[] = [];
+    let paramCount = 1;
 
     if (includeInactive) {
       if (isActive === true) {
-        query += ` AND is_active = true`;
+        where += ` AND is_active = true`;
       } else if (isActive === false) {
-        query += ` AND is_active = false`;
+        where += ` AND is_active = false`;
       }
     } else if (isActive === false) {
-      query += ` AND is_active = false`;
+      where += ` AND is_active = false`;
     } else {
-      query += ` AND is_active = true`;
+      where += ` AND is_active = true`;
     }
 
     if (isVerified === true) {
-      query += ` AND is_verified = true`;
+      where += ` AND is_verified = true`;
     } else if (isVerified === false) {
-      query += ` AND is_verified = false`;
+      where += ` AND is_verified = false`;
     }
 
-    query += ` ORDER BY license_number ASC`;
+    const searchClause = buildNormalizedSearchClause(
+      [
+        'license_number',
+        'phone',
+        'name',
+        'father_or_husband_name',
+        'state',
+        'city_name',
+        'address',
+        'pincode',
+        'gender',
+        'vehicle_classes::text',
+      ],
+      search,
+      paramCount
+    );
+    where += searchClause.sql;
+    params.push(...searchClause.params);
+    paramCount = searchClause.nextParamIndex;
 
-    const result = await db.query<Driver>(query, params);
-    return result.rows;
+    const countResult = await db.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM drivers ${where}`,
+      params
+    );
+    const total = parseInt(countResult.rows[0]?.count ?? '0', 10);
+
+    const limitIdx = paramCount++;
+    const offsetIdx = paramCount++;
+    params.push(limit, offset);
+
+    const result = await db.query<Driver>(
+      `SELECT ${SELECT_COLUMNS}
+       FROM drivers
+       ${where}
+       ORDER BY license_number ASC
+       LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
+      params
+    );
+    return { rows: result.rows, total };
   }
 
   async findById(id: string): Promise<Driver | null> {

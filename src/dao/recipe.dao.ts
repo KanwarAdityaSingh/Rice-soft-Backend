@@ -1,20 +1,46 @@
 import { db } from '../database/connection';
 import { Recipe, CreateRecipeDTO, UpdateRecipeDTO } from '../models/recipe.model';
 import { logger } from '../utils/logger';
+import { buildNormalizedSearchClause } from '../utils/search';
 
 export class RecipeDAO {
-  async findAll(): Promise<Recipe[]> {
-    const query = `
+  async findAll(
+    pagination?: { limit: number; offset: number },
+    search?: string
+  ): Promise<{ rows: Recipe[]; total: number }> {
+    let where = 'WHERE 1=1';
+    const params: unknown[] = [];
+    const searchClause = buildNormalizedSearchClause(
+      ['recipe_name', 'formula::text'],
+      search,
+      1
+    );
+    where += searchClause.sql;
+    params.push(...searchClause.params);
+
+    const countResult = await db.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM recipes ${where}`,
+      params
+    );
+    const total = parseInt(countResult.rows[0]?.count ?? '0', 10);
+
+    let query = `
       SELECT id, recipe_name, formula, created_at, updated_at, created_by, updated_by
       FROM recipes
+      ${where}
       ORDER BY recipe_name ASC
     `;
-    const result = await db.query<Recipe>(query);
+    if (pagination) {
+      params.push(pagination.limit, pagination.offset);
+      query += ` LIMIT $${params.length - 1} OFFSET $${params.length}`;
+    }
+    const result = await db.query<Recipe>(query, params);
     // Parse JSONB formula to array
-    return result.rows.map(row => ({
+    const rows = result.rows.map((row) => ({
       ...row,
-      formula: typeof row.formula === 'string' ? JSON.parse(row.formula) : row.formula
+      formula: typeof row.formula === 'string' ? JSON.parse(row.formula) : row.formula,
     }));
+    return { rows, total };
   }
 
   async findById(id: string): Promise<Recipe | null> {

@@ -1,18 +1,23 @@
 export type PackagingWeight = 5 | 10 | 25 | 26 | 30 | 50;
 
+export type PackagingStatus = 'active' | 'inactive';
+
 export interface Packaging {
-  id: string; // UUID primary key
-  packaging_number: string | null; // Sequential number: PACK-001, PACK-002, etc.
+  id: string;
+  packaging_number: string | null;
   product_id: string;
   holding_capacity: PackagingWeight;
+  /** Legacy free-text; kept for sales-safe GET (aliased from material name when needed) */
   packet_type: string;
+  packaging_material_id: string;
+  packaging_material_name?: string | null;
+  remarks: string | null;
+  status: PackagingStatus;
   packaging_vendor_id: string | null;
   ordered_weight: number | null;
-  /** Weight of one empty bag (kg). */
   empty_bag_weight_kg: number | null;
   empty_bag_rate_per_kg: number | null;
   empty_bag_gst_percent: number | null;
-  /** Snapshot at first stock-in (initial_packets); total kg = count × empty_bag_weight_kg. */
   empty_bags_total_weight_kg: number | null;
   empty_bags_taxable_amount: number | null;
   empty_bags_gst_amount: number | null;
@@ -29,37 +34,19 @@ export interface Packaging {
 export interface CreatePackagingDTO {
   product_id: string;
   holding_capacity: PackagingWeight;
-  packet_type: string;
-  packaging_vendor_id?: string;
-  ordered_weight?: number;
-  /** Rare: override auto-generated PACK-xxx (usually omitted). */
+  packaging_material_id: string;
+  remarks?: string | null;
+  status?: PackagingStatus;
+  /** Rare: override auto-generated PACK-xxx */
   packaging_number?: string | null;
-  initial_packets?: number; // Optional: initial number of empty packets to add to inventory
-  /** Required when initial_packets > 0 — target godown for packets_inventory row */
-  godown_id?: string;
-  /** Required when initial_packets > 0 — weight of one empty bag (kg). */
-  empty_bag_weight_kg?: number;
-  /** Required when initial_packets > 0 — purchase rate per kg. */
-  empty_bag_rate_per_kg?: number;
-  /** Required when initial_packets > 0 — GST % (0–100). */
-  empty_bag_gst_percent?: number;
-  bill_number?: string | null;
-  bill_date?: string | null;
-  packaging_bill_url?: string | null;
   created_by?: string;
 }
 
 export interface UpdatePackagingDTO {
   holding_capacity?: PackagingWeight;
-  packet_type?: string;
-  packaging_vendor_id?: string;
-  ordered_weight?: number;
-  empty_bag_weight_kg?: number | null;
-  empty_bag_rate_per_kg?: number | null;
-  empty_bag_gst_percent?: number | null;
-  bill_number?: string | null;
-  bill_date?: string | null;
-  packaging_bill_url?: string | null;
+  packaging_material_id?: string;
+  remarks?: string | null;
+  status?: PackagingStatus;
   updated_by?: string;
 }
 
@@ -71,11 +58,15 @@ export interface PackagingGodownInventoryItem {
 }
 
 export interface PackagingResponse {
-  id: string; // UUID primary key
-  packaging_number: string | null; // Sequential number: PACK-001, PACK-002, etc.
+  id: string;
+  packaging_number: string | null;
   product_id: string;
   holding_capacity: PackagingWeight;
   packet_type: string;
+  packaging_material_id: string;
+  packaging_material_name: string | null;
+  remarks: string | null;
+  status: PackagingStatus;
   packaging_vendor_id: string | null;
   ordered_weight: number | null;
   empty_bag_weight_kg: number | null;
@@ -90,7 +81,5 @@ export interface PackagingResponse {
   packaging_bill_url: string | null;
   created_at: string;
   updated_at: string;
-  /** Empty-packet inventory per godown (one row per godown that holds stock). */
   packets_inventory: PackagingGodownInventoryItem[];
 }
-

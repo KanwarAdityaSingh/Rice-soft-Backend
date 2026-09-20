@@ -26,6 +26,7 @@ import { UserDAO } from '../dao/user.dao';
 import { SalesmanDAO } from '../dao/salesman.dao';
 import { extractCoordinates } from '../utils/location-parser';
 import { uploadToS3, validateFileSize, validateFileType } from '../utils/s3-upload';
+import { parsePaginationQuery, toPaginatedResult } from '../utils/pagination';
 
 const leadDAO = new LeadDAO();
 const leadEventDAO = new LeadEventDAO();
@@ -37,21 +38,23 @@ const salesmanDAO = new SalesmanDAO();
 export class LeadController {
   async getAll(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
+      const { page, limit, offset } = parsePaginationQuery(req.query);
       const leadStatus = req.query.lead_status as LeadStatus;
       const assignedTo = req.query.assigned_to as string;
       const priority = req.query.priority as string;
       const isExistingCustomer = req.query.is_existing_customer === 'true' ? true : 
                                 req.query.is_existing_customer === 'false' ? false : undefined;
 
-      const leads = await leadDAO.findAll(
-        false,
+      const { rows, total } = await leadDAO.findAll({
         leadStatus,
         assignedTo,
-        priority as any,
-        isExistingCustomer
-      );
+        priority: priority as any,
+        isExistingCustomer,
+        limit,
+        offset,
+      });
 
-      const leadResponses: LeadResponse[] = leads.map((lead: any) => ({
+      const leadResponses: LeadResponse[] = rows.map((lead: any) => ({
         id: lead.id,
         company_name: lead.company_name,
         contact_persons: lead.contact_persons,
@@ -81,7 +84,7 @@ export class LeadController {
         google_location_link: lead.google_location_link,
       }));
 
-      return ResponseHandler.success(res, leadResponses);
+      return ResponseHandler.success(res, toPaginatedResult(leadResponses, total, page, limit));
     } catch (error) {
       next(error);
     }

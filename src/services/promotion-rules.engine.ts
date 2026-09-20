@@ -74,7 +74,7 @@ export class PromotionRulesEngine {
     }
   ): Promise<RuleStackPreview> {
     const rules = opts?.includeInactive
-      ? await this.ruleDAO.findAll(true)
+      ? (await this.ruleDAO.findAll(true)).rows
       : await this.ruleDAO.findActive(opts?.client);
 
     const activeRules = opts?.includeInactive ? rules.filter((r) => r.is_active) : rules;

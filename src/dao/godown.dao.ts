@@ -2,6 +2,7 @@ import { db } from '../database/connection';
 import type { Godown, CreateGodownDTO, UpdateGodownDTO } from '../models/godown.model';
 import type { ContactPerson } from '../models/vendor.model';
 import { logger } from '../utils/logger';
+import { buildNormalizedSearchClause } from '../utils/search';
 
 const COLUMNS =
   'id, name, gst_number, address, google_maps_link, contact_persons, sales_party_id, is_active, created_at, updated_at, created_by, updated_by';
@@ -43,13 +44,41 @@ export class GodownDAO {
     };
   }
 
-  async findAll(includeInactive = false): Promise<Godown[]> {
-    let query = `SELECT ${COLUMNS} FROM godowns WHERE 1=1`;
-    const params: any[] = [];
-    if (!includeInactive) query += ' AND is_active = true';
-    query += ' ORDER BY name ASC';
+  async findAll(
+    includeInactive = false,
+    pagination?: { limit: number; offset: number },
+    search?: string
+  ): Promise<{ rows: Godown[]; total: number }> {
+    let where = 'WHERE 1=1';
+    if (!includeInactive) where += ' AND is_active = true';
+    const params: unknown[] = [];
+    const searchClause = buildNormalizedSearchClause(
+      [
+        'name',
+        'gst_number',
+        'google_maps_link',
+        'contact_persons::text',
+        'address::text',
+      ],
+      search,
+      1
+    );
+    where += searchClause.sql;
+    params.push(...searchClause.params);
+
+    const countResult = await db.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM godowns ${where}`,
+      params
+    );
+    const total = parseInt(countResult.rows[0]?.count ?? '0', 10);
+
+    let query = `SELECT ${COLUMNS} FROM godowns ${where} ORDER BY name ASC`;
+    if (pagination) {
+      params.push(pagination.limit, pagination.offset);
+      query += ` LIMIT $${params.length - 1} OFFSET $${params.length}`;
+    }
     const result = await db.query<Godown>(query, params);
-    return result.rows.map((r) => this.mapRow(r));
+    return { rows: result.rows.map((r) => this.mapRow(r)), total };
   }
 
   async findById(id: string): Promise<Godown | null> {

@@ -115,6 +115,52 @@ export class KycController {
     }
   }
 
+  async lookupMobileToName(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const mobileNumber = (req.query.mobile_number || req.query.mobile || req.query.phone) as string;
+      if (!mobileNumber) {
+        throw new ValidationError('mobile_number is required');
+      }
+
+      const envelope = await gstLookupService.lookupMobileToName(mobileNumber);
+      await saveKycSnapshotForEntity(
+        parsePersistKycRequest(req, 'mobile_to_name', undefined, envelope.mapped.mobile_number),
+        envelope
+      );
+
+      return ResponseHandler.success(
+        res,
+        { ...envelope.mapped, surepass_response: envelope.raw },
+        'Mobile name fetched successfully'
+      );
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async lookupTelecomHlr(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const mobileNumber = (req.query.mobile_number || req.query.mobile || req.query.phone) as string;
+      if (!mobileNumber) {
+        throw new ValidationError('mobile_number is required');
+      }
+
+      const envelope = await gstLookupService.lookupTelecomHlr(mobileNumber);
+      await saveKycSnapshotForEntity(
+        parsePersistKycRequest(req, 'telecom_hlr', undefined, envelope.mapped.mobile_number),
+        envelope
+      );
+
+      return ResponseHandler.success(
+        res,
+        { ...envelope.mapped, surepass_response: envelope.raw },
+        'Telecom HLR fetched successfully'
+      );
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async lookupGSTAdvanced(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const gstNumber = (req.query.gst_number || req.query.gstin) as string;

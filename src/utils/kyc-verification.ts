@@ -68,6 +68,20 @@ export function mergeEntityKycDetailsPatch(
       };
       continue;
     }
+    if (key === 'mobiles' && typeof value === 'object' && !Array.isArray(value)) {
+      result.mobiles = {
+        ...(existing.mobiles ?? {}),
+        ...(value as NonNullable<EntityKycVerificationDetails['mobiles']>),
+      };
+      continue;
+    }
+    if (key === 'telecom_hlr' && typeof value === 'object' && !Array.isArray(value)) {
+      result.telecom_hlr = {
+        ...(existing.telecom_hlr ?? {}),
+        ...(value as NonNullable<EntityKycVerificationDetails['telecom_hlr']>),
+      };
+      continue;
+    }
     (result as Record<string, unknown>)[key as string] = value;
   }
 
@@ -94,7 +108,8 @@ export function mergeEntityKycSnapshot(
   existing: EntityKycVerificationDetails,
   key: keyof EntityKycVerificationDetails,
   snapshot: SurepassVerificationSnapshot,
-  email?: string
+  email?: string,
+  mobile?: string
 ): EntityKycVerificationDetails {
   if (key === 'emails') {
     if (!email) {
@@ -106,6 +121,32 @@ export function mergeEntityKycSnapshot(
       emails: {
         ...(existing.emails ?? {}),
         [normalizedEmail]: snapshot,
+      },
+    };
+  }
+
+  if (key === 'mobiles') {
+    if (!mobile) {
+      return existing;
+    }
+    return {
+      ...existing,
+      mobiles: {
+        ...(existing.mobiles ?? {}),
+        [mobile]: snapshot,
+      },
+    };
+  }
+
+  if (key === 'telecom_hlr') {
+    if (!mobile) {
+      return existing;
+    }
+    return {
+      ...existing,
+      telecom_hlr: {
+        ...(existing.telecom_hlr ?? {}),
+        [mobile]: snapshot,
       },
     };
   }
@@ -202,6 +243,64 @@ export function isSalesPartyKycVerified(
     return true;
   }
   return isRegistrationKycVerified(registrationType, kyc);
+}
+
+/**
+ * Master Vendor KYC gate (packaging suppliers):
+ * - consumer → no KYC required (verified)
+ * - unregistered → PAN snapshot required
+ * - registered → GST snapshot AND PAN snapshot required
+ */
+export type MasterVendorKycRegistrationType =
+  | 'registered'
+  | 'unregistered'
+  | 'consumer';
+
+function hasGstKycSnapshot(kyc: EntityKycVerificationDetails): boolean {
+  return hasKycSnapshot(kyc, 'gst_advanced') || hasKycSnapshot(kyc, 'gst');
+}
+
+function hasPanKycSnapshot(kyc: EntityKycVerificationDetails): boolean {
+  return hasKycSnapshot(kyc, 'pan_comprehensive') || hasKycSnapshot(kyc, 'pan');
+}
+
+export function isMasterVendorKycVerified(
+  registrationType: MasterVendorKycRegistrationType,
+  kyc: EntityKycVerificationDetails
+): boolean {
+  if (registrationType === 'consumer') {
+    return true;
+  }
+  if (registrationType === 'unregistered') {
+    return hasPanKycSnapshot(kyc);
+  }
+  return hasGstKycSnapshot(kyc) && hasPanKycSnapshot(kyc);
+}
+
+export type MasterVendorLifecycleStatus = 'active' | 'inactive' | 'blacklisted';
+
+/**
+ * Resolve status from KYC + explicit intent.
+ * Unverified cannot be active (blacklisted preserved unless explicitly changed).
+ */
+export function resolveMasterVendorStatus(
+  isVerified: boolean,
+  explicitStatus?: MasterVendorLifecycleStatus,
+  currentStatus?: MasterVendorLifecycleStatus
+): MasterVendorLifecycleStatus {
+  if (explicitStatus === 'blacklisted') {
+    return 'blacklisted';
+  }
+
+  if (currentStatus === 'blacklisted' && explicitStatus === undefined) {
+    return 'blacklisted';
+  }
+
+  if (!isVerified) {
+    return 'inactive';
+  }
+
+  return explicitStatus ?? 'active';
 }
 
 /** Salesman identity KYC: PAN or Aadhaar snapshot. Does not gate is_active. */

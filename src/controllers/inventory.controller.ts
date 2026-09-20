@@ -5,6 +5,7 @@ import { ResponseHandler } from '../utils/response';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { validate, uuidSchema } from '../utils/validators';
 import { BAG_TYPE_VALUES } from '../constants/bag-types';
+import { parsePaginationQuery, toPaginatedResult } from '../utils/pagination';
 
 export class InventoryController {
   // =====================================================
@@ -89,11 +90,12 @@ export class InventoryController {
   async getLotInventoryAuditByLotId(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const lotId = validate<string>(uuidSchema, req.params.lotId);
-      const limit = parseInt(req.query.limit as string) || 100;
-
-      const audits = await inventoryAuditService.getLotInventoryAuditByLotId(lotId, limit);
-
-      return ResponseHandler.success(res, audits);
+      const { page, limit, offset } = parsePaginationQuery(req.query);
+      const { items, total } = await inventoryAuditService.getLotInventoryAuditByLotId(lotId, {
+        limit,
+        offset,
+      });
+      return ResponseHandler.success(res, toPaginatedResult(items, total, page, limit));
     } catch (error) {
       next(error);
     }
@@ -102,11 +104,12 @@ export class InventoryController {
   async getLotInventoryAuditByLotInventoryId(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const lotInventoryId = validate<string>(uuidSchema, req.params.lotInventoryId);
-      const limit = parseInt(req.query.limit as string) || 100;
-
-      const audits = await inventoryAuditService.getLotInventoryAuditByLotInventoryId(lotInventoryId, limit);
-
-      return ResponseHandler.success(res, audits);
+      const { page, limit, offset } = parsePaginationQuery(req.query);
+      const { items, total } = await inventoryAuditService.getLotInventoryAuditByLotInventoryId(
+        lotInventoryId,
+        { limit, offset }
+      );
+      return ResponseHandler.success(res, toPaginatedResult(items, total, page, limit));
     } catch (error) {
       next(error);
     }
@@ -114,11 +117,12 @@ export class InventoryController {
 
   async getRecentLotInventoryAudit(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const limit = parseInt(req.query.limit as string) || 100;
-
-      const audits = await inventoryAuditService.getRecentLotInventoryAudit(limit);
-
-      return ResponseHandler.success(res, audits);
+      const { page, limit, offset } = parsePaginationQuery(req.query);
+      const { items, total } = await inventoryAuditService.getRecentLotInventoryAudit({
+        limit,
+        offset,
+      });
+      return ResponseHandler.success(res, toPaginatedResult(items, total, page, limit));
     } catch (error) {
       next(error);
     }
@@ -131,11 +135,12 @@ export class InventoryController {
   async getPacketsInventoryAuditByPackagingId(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const packagingId = validate<string>(uuidSchema, req.params.packagingId);
-      const limit = parseInt(req.query.limit as string) || 100;
-
-      const audits = await inventoryAuditService.getPacketsInventoryAuditByPackagingId(packagingId, limit);
-
-      return ResponseHandler.success(res, audits);
+      const { page, limit, offset } = parsePaginationQuery(req.query);
+      const { items, total } = await inventoryAuditService.getPacketsInventoryAuditByPackagingId(
+        packagingId,
+        { limit, offset }
+      );
+      return ResponseHandler.success(res, toPaginatedResult(items, total, page, limit));
     } catch (error) {
       next(error);
     }
@@ -144,11 +149,13 @@ export class InventoryController {
   async getPacketsInventoryAuditByPacketsInventoryId(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const packetsInventoryId = validate<string>(uuidSchema, req.params.packetsInventoryId);
-      const limit = parseInt(req.query.limit as string) || 100;
-
-      const audits = await inventoryAuditService.getPacketsInventoryAuditByPacketsInventoryId(packetsInventoryId, limit);
-
-      return ResponseHandler.success(res, audits);
+      const { page, limit, offset } = parsePaginationQuery(req.query);
+      const { items, total } =
+        await inventoryAuditService.getPacketsInventoryAuditByPacketsInventoryId(packetsInventoryId, {
+          limit,
+          offset,
+        });
+      return ResponseHandler.success(res, toPaginatedResult(items, total, page, limit));
     } catch (error) {
       next(error);
     }
@@ -156,11 +163,12 @@ export class InventoryController {
 
   async getRecentPacketsInventoryAudit(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const limit = parseInt(req.query.limit as string) || 100;
-
-      const audits = await inventoryAuditService.getRecentPacketsInventoryAudit(limit);
-
-      return ResponseHandler.success(res, audits);
+      const { page, limit, offset } = parsePaginationQuery(req.query);
+      const { items, total } = await inventoryAuditService.getRecentPacketsInventoryAudit({
+        limit,
+        offset,
+      });
+      return ResponseHandler.success(res, toPaginatedResult(items, total, page, limit));
     } catch (error) {
       next(error);
     }
@@ -173,11 +181,12 @@ export class InventoryController {
   async getBagsInventoryAuditByBagsInventoryId(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const bagsInventoryId = validate<string>(uuidSchema, req.params.bagsInventoryId);
-      const limit = parseInt(req.query.limit as string) || 100;
-
-      const audits = await inventoryAuditService.getBagsInventoryAuditByBagsInventoryId(bagsInventoryId, limit);
-
-      return ResponseHandler.success(res, audits);
+      const { page, limit, offset } = parsePaginationQuery(req.query);
+      const { items, total } = await inventoryAuditService.getBagsInventoryAuditByBagsInventoryId(
+        bagsInventoryId,
+        { limit, offset }
+      );
+      return ResponseHandler.success(res, toPaginatedResult(items, total, page, limit));
     } catch (error) {
       next(error);
     }
@@ -187,7 +196,7 @@ export class InventoryController {
     try {
       const bagType = req.params.bagType;
       const bagCapacity = parseFloat(req.params.bagCapacity);
-      const limit = parseInt(req.query.limit as string) || 100;
+      const { page, limit, offset } = parsePaginationQuery(req.query);
 
       if (!(BAG_TYPE_VALUES as readonly string[]).includes(bagType)) {
         return ResponseHandler.error(res, `Invalid bag type. Must be one of: ${BAG_TYPE_VALUES.join(', ')}`, 400);
@@ -197,9 +206,12 @@ export class InventoryController {
         return ResponseHandler.error(res, 'Invalid bag capacity', 400);
       }
 
-      const audits = await inventoryAuditService.getBagsInventoryAuditByBagTypeAndCapacity(bagType, bagCapacity, limit);
-
-      return ResponseHandler.success(res, audits);
+      const { items, total } = await inventoryAuditService.getBagsInventoryAuditByBagTypeAndCapacity(
+        bagType,
+        bagCapacity,
+        { limit, offset }
+      );
+      return ResponseHandler.success(res, toPaginatedResult(items, total, page, limit));
     } catch (error) {
       next(error);
     }
@@ -208,10 +220,12 @@ export class InventoryController {
   async getBagsInventoryAuditByKaantaId(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const kaantaId = validate<string>(uuidSchema, req.params.kaantaId);
-
-      const audits = await inventoryAuditService.getBagsInventoryAuditByKaantaId(kaantaId);
-
-      return ResponseHandler.success(res, audits);
+      const { page, limit, offset } = parsePaginationQuery(req.query);
+      const { items, total } = await inventoryAuditService.getBagsInventoryAuditByKaantaId(kaantaId, {
+        limit,
+        offset,
+      });
+      return ResponseHandler.success(res, toPaginatedResult(items, total, page, limit));
     } catch (error) {
       next(error);
     }
@@ -219,11 +233,12 @@ export class InventoryController {
 
   async getRecentBagsInventoryAudit(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const limit = parseInt(req.query.limit as string) || 100;
-
-      const audits = await inventoryAuditService.getRecentBagsInventoryAudit(limit);
-
-      return ResponseHandler.success(res, audits);
+      const { page, limit, offset } = parsePaginationQuery(req.query);
+      const { items, total } = await inventoryAuditService.getRecentBagsInventoryAudit({
+        limit,
+        offset,
+      });
+      return ResponseHandler.success(res, toPaginatedResult(items, total, page, limit));
     } catch (error) {
       next(error);
     }
@@ -236,11 +251,12 @@ export class InventoryController {
   async getFinishedGoodsInventoryAuditByProductId(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const productId = validate<string>(uuidSchema, req.params.productId);
-      const limit = parseInt(req.query.limit as string) || 100;
-
-      const audits = await inventoryAuditService.getFinishedGoodsInventoryAuditByProductId(productId, limit);
-
-      return ResponseHandler.success(res, audits);
+      const { page, limit, offset } = parsePaginationQuery(req.query);
+      const { items, total } = await inventoryAuditService.getFinishedGoodsInventoryAuditByProductId(
+        productId,
+        { limit, offset }
+      );
+      return ResponseHandler.success(res, toPaginatedResult(items, total, page, limit));
     } catch (error) {
       next(error);
     }
@@ -249,10 +265,12 @@ export class InventoryController {
   async getFinishedGoodsInventoryAuditByBatchId(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const batchId = validate<string>(uuidSchema, req.params.batchId);
-
-      const audits = await inventoryAuditService.getFinishedGoodsInventoryAuditByBatchId(batchId);
-
-      return ResponseHandler.success(res, audits);
+      const { page, limit, offset } = parsePaginationQuery(req.query);
+      const { items, total } = await inventoryAuditService.getFinishedGoodsInventoryAuditByBatchId(
+        batchId,
+        { limit, offset }
+      );
+      return ResponseHandler.success(res, toPaginatedResult(items, total, page, limit));
     } catch (error) {
       next(error);
     }
@@ -261,11 +279,13 @@ export class InventoryController {
   async getFinishedGoodsInventoryAuditByFGInventoryId(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const fgInventoryId = validate<string>(uuidSchema, req.params.fgInventoryId);
-      const limit = parseInt(req.query.limit as string) || 100;
-
-      const audits = await inventoryAuditService.getFinishedGoodsInventoryAuditByFGInventoryId(fgInventoryId, limit);
-
-      return ResponseHandler.success(res, audits);
+      const { page, limit, offset } = parsePaginationQuery(req.query);
+      const { items, total } =
+        await inventoryAuditService.getFinishedGoodsInventoryAuditByFGInventoryId(fgInventoryId, {
+          limit,
+          offset,
+        });
+      return ResponseHandler.success(res, toPaginatedResult(items, total, page, limit));
     } catch (error) {
       next(error);
     }
@@ -273,11 +293,12 @@ export class InventoryController {
 
   async getRecentFinishedGoodsInventoryAudit(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const limit = parseInt(req.query.limit as string) || 100;
-
-      const audits = await inventoryAuditService.getRecentFinishedGoodsInventoryAudit(limit);
-
-      return ResponseHandler.success(res, audits);
+      const { page, limit, offset } = parsePaginationQuery(req.query);
+      const { items, total } = await inventoryAuditService.getRecentFinishedGoodsInventoryAudit({
+        limit,
+        offset,
+      });
+      return ResponseHandler.success(res, toPaginatedResult(items, total, page, limit));
     } catch (error) {
       next(error);
     }
@@ -290,9 +311,8 @@ export class InventoryController {
   async getAllAuditsByBatchId(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const batchId = validate<string>(uuidSchema, req.params.batchId);
-
-      const audits = await inventoryAuditService.getAllAuditsByBatchId(batchId);
-
+      const { limit, offset } = parsePaginationQuery(req.query);
+      const audits = await inventoryAuditService.getAllAuditsByBatchId(batchId, { limit, offset });
       return ResponseHandler.success(res, audits);
     } catch (error) {
       next(error);

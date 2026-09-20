@@ -11,20 +11,46 @@ const SELECT_COLUMNS = `
   created_at, updated_at, created_by, updated_by
 `;
 
+export interface VendorSiteListOptions {
+  includeInactive?: boolean;
+  limit: number;
+  offset: number;
+}
+
 export class VendorSiteDAO {
-  async findByVendorId(vendorId: string, includeInactive = false): Promise<VendorSite[]> {
-    let query = `
-      SELECT ${SELECT_COLUMNS}
-      FROM vendor_sites
-      WHERE vendor_id = $1
-    `;
+  async findByVendorId(
+    vendorId: string,
+    options: VendorSiteListOptions
+  ): Promise<{ rows: VendorSite[]; total: number }> {
+    const { includeInactive = false, limit, offset } = options;
+
+    let where = `WHERE vendor_id = $1`;
     const params: unknown[] = [vendorId];
+    let paramCount = 2;
+
     if (!includeInactive) {
-      query += ` AND is_active = true`;
+      where += ` AND is_active = true`;
     }
-    query += ` ORDER BY name NULLS LAST, created_at ASC`;
-    const result = await db.query<VendorSite>(query, params);
-    return result.rows;
+
+    const countResult = await db.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM vendor_sites ${where}`,
+      params
+    );
+    const total = parseInt(countResult.rows[0]?.count ?? '0', 10);
+
+    const limitIdx = paramCount++;
+    const offsetIdx = paramCount++;
+    params.push(limit, offset);
+
+    const result = await db.query<VendorSite>(
+      `SELECT ${SELECT_COLUMNS}
+       FROM vendor_sites
+       ${where}
+       ORDER BY name NULLS LAST, created_at ASC
+       LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
+      params
+    );
+    return { rows: result.rows, total };
   }
 
   async findById(id: string): Promise<VendorSite | null> {

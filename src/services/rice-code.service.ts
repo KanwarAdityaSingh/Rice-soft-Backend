@@ -45,8 +45,13 @@ export function toRiceCodeResponse(riceCode: RiceCode): RiceCodeResponse {
 }
 
 export class RiceCodeService {
-  async getAllRiceCodes(category?: RiceCategory): Promise<RiceCode[]> {
-    return riceCodeDAO.findAll(category);
+  async getAllRiceCodes(
+    category?: RiceCategory,
+    pagination?: { limit: number; offset: number },
+    search?: string
+  ): Promise<{ items: RiceCode[]; total: number }> {
+    const { rows, total } = await riceCodeDAO.findAll(category, pagination, search);
+    return { items: rows, total };
   }
 
   async getRiceCodeById(riceCodeId: string): Promise<RiceCode> {

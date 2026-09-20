@@ -8,12 +8,19 @@
  * From FY 2026-27 onward:
  *   Haryana → A/HR/B/26-27/1
  *   Delhi   → A/DL/B/26-27/1
+ *
+ * Credit notes (all FYs) use the same modern skeleton with CN instead of B:
+ *   Haryana → A/HR/CN/26-27/32
+ *   Delhi   → A/DL/CN/26-27/32
+ * Sequence is independent of Bill of Supply (series_key CN:{ST}:{FY}).
  */
 
 /** FY start year when the unified A/{ST}/B/{YY-YY}/{n} format begins */
 export const INVOICE_NUMBER_NEW_FORMAT_FY_START = 2026;
 
 export const INVOICE_DOCUMENT_TYPE_BOS = 'BOS';
+/** Credit-note series uses the same A/{ST}/…/{YY-YY}/{n} pattern with CN instead of B. */
+export const INVOICE_DOCUMENT_TYPE_CN = 'CN';
 
 /** GSTIN first-2-digit state code → short alpha used in invoice numbers */
 export const GST_STATE_CODE_TO_INVOICE_ALPHA: Record<string, string> = {
@@ -80,6 +87,28 @@ export type ParsedInternalInvoiceNumber = {
   stateAlpha: string;
   sequence: number;
 };
+
+/**
+ * Credit note number: A/HR/CN/26-27/32 (same skeleton as Bill of Supply, CN not B).
+ * Independent per-state sequence from invoices.
+ */
+export function formatCreditNoteDocumentNumber(params: {
+  stateAlpha: string;
+  financialYearLabel: string;
+  sequence: number;
+}): string {
+  const shortFy = shortFinancialYearLabel(params.financialYearLabel);
+  return `A/${params.stateAlpha}/CN/${shortFy}/${params.sequence}`;
+}
+
+export function parseCreditNoteDocumentNumber(
+  creditNoteNumber: string
+): ParsedInternalInvoiceNumber | null {
+  const raw = (creditNoteNumber || '').trim();
+  const modern = raw.match(/^A\/(HR|DL)\/CN\/\d{2}-\d{2}\/(\d+)$/i);
+  if (!modern) return null;
+  return { stateAlpha: modern[1].toUpperCase(), sequence: parseInt(modern[2], 10) };
+}
 
 /**
  * Parse sequence + state from a stored internal invoice number.

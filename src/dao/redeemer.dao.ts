@@ -2,6 +2,7 @@ import { PoolClient } from 'pg';
 import { db } from '../database/connection';
 import { Redeemer } from '../models/coupon.model';
 import type { EntityKycVerificationDetails } from '../models/kyc-verification.model';
+import { buildNormalizedSearchClause } from '../utils/search';
 
 export interface UpsertRedeemerInput {
   phone: string;
@@ -147,15 +148,44 @@ export class RedeemerDAO {
     );
   }
 
-  async findAll(page = 1, limit = 50): Promise<{ rows: Redeemer[]; total: number }> {
+  async findAll(
+    page = 1,
+    limit = 50,
+    search?: string
+  ): Promise<{ rows: Redeemer[]; total: number }> {
     const offset = (page - 1) * limit;
+    let where = 'WHERE 1=1';
+    const values: unknown[] = [];
+    let paramIndex = 1;
+
+    const searchClause = buildNormalizedSearchClause(
+      [
+        'phone',
+        'name',
+        'upi_vpa',
+        'account_holder_name',
+        'account_number',
+        'ifsc',
+        'bank_name',
+      ],
+      search,
+      paramIndex
+    );
+    where += searchClause.sql;
+    values.push(...searchClause.params);
+    paramIndex = searchClause.nextParamIndex;
+
     const countResult = await db.query<{ count: string }>(
-      `SELECT COUNT(*)::text AS count FROM redeemers`
+      `SELECT COUNT(*)::text AS count FROM redeemers ${where}`,
+      values
     );
     const total = parseInt(countResult.rows[0]?.count ?? '0', 10);
+    values.push(limit, offset);
     const result = await db.query<Redeemer>(
-      `SELECT * FROM redeemers ORDER BY last_redeemed_at DESC NULLS LAST LIMIT $1 OFFSET $2`,
-      [limit, offset]
+      `SELECT * FROM redeemers ${where}
+       ORDER BY last_redeemed_at DESC NULLS LAST
+       LIMIT $${paramIndex++} OFFSET $${paramIndex}`,
+      values
     );
     return { rows: result.rows, total };
   }

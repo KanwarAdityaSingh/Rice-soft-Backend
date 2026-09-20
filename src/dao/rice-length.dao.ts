@@ -12,18 +12,33 @@ const SELECT_COLUMNS = `
 `;
 
 export class RiceLengthDAO {
-  async findAll(includeInactive = false): Promise<RiceLength[]> {
+  async findAll(
+    includeInactive = false,
+    pagination?: { limit: number; offset: number }
+  ): Promise<{ rows: RiceLength[]; total: number }> {
+    let where = `WHERE 1=1`;
+    if (!includeInactive) {
+      where += ` AND is_active = true`;
+    }
+
+    const countResult = await db.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM rice_lengths ${where}`
+    );
+    const total = parseInt(countResult.rows[0]?.count ?? '0', 10);
+
     let query = `
       SELECT ${SELECT_COLUMNS}
       FROM rice_lengths
-      WHERE 1=1
+      ${where}
+      ORDER BY name ASC
     `;
-    if (!includeInactive) {
-      query += ` AND is_active = true`;
+    const params: unknown[] = [];
+    if (pagination) {
+      params.push(pagination.limit, pagination.offset);
+      query += ` LIMIT $1 OFFSET $2`;
     }
-    query += ` ORDER BY name ASC`;
-    const result = await db.query<RiceLength>(query);
-    return result.rows;
+    const result = await db.query<RiceLength>(query, params);
+    return { rows: result.rows, total };
   }
 
   async findById(riceLengthId: string): Promise<RiceLength | null> {

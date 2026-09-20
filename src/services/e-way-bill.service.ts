@@ -1,8 +1,11 @@
 import { resolveGstStateCode, resolveGstStateName } from '../constants/gst-state-codes';
+import type { EWayBillCancelReason } from '../constants/e-way-bill';
 import { eWayBillDAO } from '../dao/e-way-bill.dao';
 import { invoiceDispatchDAO } from '../dao/invoice-dispatch.dao';
 import { driverDAO } from '../dao/driver.dao';
 import type { Address, ContactPerson } from '../models/vendor.model';
+import type { EWayBill } from '../models/e-way-bill.model';
+import { appConfig } from '../config/app.config';
 import { BadRequestError, ConflictError, NotFoundError } from '../utils/errors';
 import { mastersIndiaApiService } from './masters-india-api.service';
 import {
@@ -81,12 +84,20 @@ type EWayBillPayload = {
   route: string | null;
   transporter_id: string | null;
   payload: Record<string, unknown> | null;
+  status: 'generated' | 'cancelled';
+  cancelled_at: string | null;
+  cancel_reason: string | null;
+  cancel_remark: string | null;
   created_at: string;
   updated_at: string;
 };
 
 export type EWayBillPreview = {
   dispatch_id: string;
+  /** Invoice dispatch status at preview time — 'confirmed' required before actual generation */
+  dispatch_status: 'draft' | 'confirmed' | 'cancelled';
+  /** Set when dispatch_status !== 'confirmed'; null once the dispatch is confirmed */
+  preview_notice: string | null;
   already_generated: boolean;
   existing_eway_bill_number: string | null;
   document_number: string;
@@ -184,6 +195,10 @@ export type EWayBillPreview = {
     cgst: number;
     sgst: number;
     igst: number;
+    invoice_value_before_round_off: number;
+    /** Signed half-up adjustment to nearest rupee */
+    round_off: number;
+    /** Final invoice total after round-off */
     invoice_value: number;
   };
   items: Array<{
@@ -210,7 +225,17 @@ export type EWayBillPreview = {
   masters_india_payload: Record<string, unknown>;
 };
 
-function mapRow(row: Awaited<ReturnType<typeof eWayBillDAO.create>>): EWayBillPayload {
+function isActiveEWayBill(row: EWayBill): boolean {
+  return row.status !== 'cancelled';
+}
+
+function toIso(value: Date | string | null | undefined): string | null {
+  if (value == null) return null;
+  if (value instanceof Date) return value.toISOString();
+  return String(value);
+}
+
+function mapRow(row: EWayBill): EWayBillPayload {
   return {
     id: row.id,
     invoice_dispatch_id: row.invoice_dispatch_id,
@@ -221,9 +246,22 @@ function mapRow(row: Awaited<ReturnType<typeof eWayBillDAO.create>>): EWayBillPa
     route: row.route,
     transporter_id: row.transporter_id,
     payload: row.payload as Record<string, unknown> | null,
-    created_at: row.created_at.toISOString(),
-    updated_at: row.updated_at.toISOString(),
+    status: row.status === 'cancelled' ? 'cancelled' : 'generated',
+    cancelled_at: toIso(row.cancelled_at),
+    cancel_reason: row.cancel_reason,
+    cancel_remark: row.cancel_remark,
+    created_at: toIso(row.created_at) ?? new Date(row.created_at).toISOString(),
+    updated_at: toIso(row.updated_at) ?? new Date(row.updated_at).toISOString(),
   };
+}
+
+function userGstinFromPayload(payload: Record<string, unknown> | null): string | null {
+  const request = payload?.request;
+  if (!request || typeof request !== 'object') return null;
+  const gstin = (request as { userGstin?: unknown }).userGstin;
+  if (typeof gstin !== 'string') return null;
+  const trimmed = gstin.trim().toUpperCase();
+  return trimmed || null;
 }
 
 type PreparedEWayBill = {
@@ -245,21 +283,46 @@ export class EWayBillService {
   }
 
   /**
+   * Batch lookup: map of invoice_dispatch_id → latest EWB payload (or null if none).
+   * Every requested id is present in the result.
+   */
+  async lookupLatestByInvoiceDispatchIds(
+    invoiceDispatchIds: string[]
+  ): Promise<Record<string, EWayBillPayload | null>> {
+    const uniqueIds = [...new Set(invoiceDispatchIds)];
+    const rows = await eWayBillDAO.findLatestByInvoiceDispatchIds(uniqueIds);
+    const byId = new Map<string, EWayBillPayload>();
+    for (const row of rows) {
+      if (row.invoice_dispatch_id) {
+        byId.set(row.invoice_dispatch_id, mapRow(row));
+      }
+    }
+    const result: Record<string, EWayBillPayload | null> = {};
+    for (const id of uniqueIds) {
+      result[id] = byId.get(id) ?? null;
+    }
+    return result;
+  }
+
+  /**
    * Build the MastersIndia e-way bill request for confirmation UI.
    * Calls the distance API when distance is not provided; does not generate or persist.
    * Distance API failures do not block preview — FE can enter distance manually.
+   * Allowed on draft dispatches too (unlike generate) — lines/party/GST snapshot are
+   * already final at create() time, so the preview payload is accurate pre-confirm.
    */
   async previewForDispatch(
     invoiceDispatchId: string,
     data: EWayBillGenerateInput
   ): Promise<EWayBillPreview> {
     const existingRows = await eWayBillDAO.findByInvoiceDispatchId(invoiceDispatchId);
-    const existing = existingRows[0] ?? null;
+    const existing = existingRows.find(isActiveEWayBill) ?? null;
 
     const prepared = await this.prepareForDispatch(invoiceDispatchId, data, {
       persistLrOverride: false,
       allowDistanceFailure: true,
       requireVehicleNumber: false,
+      enforceConfirmedStatus: false,
     });
 
     const {
@@ -303,6 +366,11 @@ export class EWayBillService {
 
     return {
       dispatch_id: invoiceDispatchId,
+      dispatch_status: dispatch.status,
+      preview_notice:
+        dispatch.status !== 'confirmed'
+          ? 'Preview only — confirm the dispatch before generating the real e-way bill.'
+          : null,
       already_generated: existing != null,
       existing_eway_bill_number: existing?.eway_bill_number ?? null,
       document_number: ctx.documentNumber,
@@ -363,6 +431,8 @@ export class EWayBillService {
         cgst: ctx.totals.cgst,
         sgst: ctx.totals.sgst,
         igst: ctx.totals.igst,
+        invoice_value_before_round_off: ctx.totals.invoiceValueBeforeRoundOff,
+        round_off: ctx.totals.roundOff,
         invoice_value: ctx.totals.invoiceValue,
       },
       items: ctx.itemRows.map((item) => ({
@@ -388,14 +458,16 @@ export class EWayBillService {
     data: EWayBillGenerateInput
   ): Promise<EWayBillPayload> {
     const existingRows = await eWayBillDAO.findByInvoiceDispatchId(invoiceDispatchId);
-    if (existingRows.length > 0) {
-      return mapRow(existingRows[0]);
+    const existing = existingRows.find(isActiveEWayBill);
+    if (existing) {
+      return mapRow(existing);
     }
 
     const prepared = await this.prepareForDispatch(invoiceDispatchId, data, {
       persistLrOverride: true,
       allowDistanceFailure: false,
       requireVehicleNumber: true,
+      enforceConfirmedStatus: true,
     });
 
     if (prepared.distanceKm == null) {
@@ -431,9 +503,78 @@ export class EWayBillService {
   }
 
   /**
+   * Cancel the active e-way bill for a dispatch on NIC, then mark the local row cancelled.
+   * Idempotent if already cancelled locally. After cancel, generateForDispatch can issue a new bill.
+   */
+  async cancelForDispatch(
+    invoiceDispatchId: string,
+    data: { reason_of_cancel: EWayBillCancelReason; cancel_remark: string }
+  ): Promise<EWayBillPayload> {
+    const dispatch = await invoiceDispatchDAO.findById(invoiceDispatchId);
+    if (!dispatch) throw new NotFoundError('Invoice dispatch not found');
+
+    const existingRows = await eWayBillDAO.findByInvoiceDispatchId(invoiceDispatchId);
+    const active = existingRows.find(isActiveEWayBill) ?? null;
+    if (!active) {
+      const cancelled = existingRows.find((row) => row.status === 'cancelled');
+      if (cancelled) return mapRow(cancelled);
+      throw new NotFoundError('No e-way bill found for this invoice dispatch');
+    }
+
+    const ewayBillNumber = (active.eway_bill_number || '').trim();
+    if (!ewayBillNumber) {
+      throw new ConflictError('Stored e-way bill is missing a number and cannot be cancelled');
+    }
+
+    let userGstin = userGstinFromPayload(active.payload);
+    if (!userGstin) {
+      const ctx = await loadSalesDocumentContext(invoiceDispatchId);
+      userGstin = ctx.sellerGstin;
+    }
+    if (!userGstin) {
+      userGstin = appConfig.apis.mastersIndia.sellerGstin || '';
+    }
+    if (!userGstin) {
+      throw new BadRequestError(
+        'Seller GSTIN is required to cancel e-way bill (godown GSTIN or MASTERS_INDIA_SELLER_GSTIN)'
+      );
+    }
+
+    const nicResult = await mastersIndiaApiService.cancelEWayBill({
+      userGstin,
+      ewayBillNumber,
+      reasonOfCancel: data.reason_of_cancel,
+      cancelRemark: data.cancel_remark,
+    });
+
+    const existingPayload =
+      active.payload && typeof active.payload === 'object' ? { ...active.payload } : {};
+    const updated = await eWayBillDAO.markCancelled(active.id, {
+      cancel_reason: data.reason_of_cancel,
+      cancel_remark: data.cancel_remark,
+      payload: {
+        ...existingPayload,
+        cancel_request: {
+          userGstin,
+          eway_bill_number: ewayBillNumber,
+          reason_of_cancel: data.reason_of_cancel,
+          cancel_remark: data.cancel_remark,
+          data_source: 'erp',
+        },
+        cancel_response: nicResult.message,
+        already_cancelled_on_nic: nicResult.alreadyCancelled,
+      },
+    });
+
+    return mapRow(updated);
+  }
+
+  /**
    * Shared prep for preview + generate: context, distance (incl. MastersIndia), payload.
    * When `allowDistanceFailure` is true (preview), MastersIndia distance errors
    * return null distance instead of failing the whole request.
+   * When `enforceConfirmedStatus` is false (preview), draft/cancelled dispatches are
+   * allowed through — the caller is responsible for surfacing that it's preview-only.
    */
   private async prepareForDispatch(
     invoiceDispatchId: string,
@@ -442,11 +583,12 @@ export class EWayBillService {
       persistLrOverride: boolean;
       allowDistanceFailure: boolean;
       requireVehicleNumber: boolean;
+      enforceConfirmedStatus: boolean;
     }
   ): Promise<PreparedEWayBill> {
     const dispatch = await invoiceDispatchDAO.findById(invoiceDispatchId);
     if (!dispatch) throw new NotFoundError('Invoice dispatch not found');
-    if (dispatch.status !== 'confirmed') {
+    if (options.enforceConfirmedStatus && dispatch.status !== 'confirmed') {
       throw new ConflictError('Invoice dispatch must be confirmed before generating e-way bill');
     }
 

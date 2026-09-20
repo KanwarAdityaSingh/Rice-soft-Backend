@@ -21,13 +21,23 @@ import {
   redemptionAttemptListQuerySchema,
   previewPromotionRuleStackSchema,
   promotionRuleStatsQuerySchema,
+  couponBatchListQuerySchema,
+  couponBatchDetailQuerySchema,
   couponListQuerySchema,
   redemptionListQuerySchema,
+  redeemerListQuerySchema,
 } from '../utils/coupon.validators';
-import { CreateCouponBatchDTO, CreatePromotionRuleDTO, UpdatePromotionRuleDTO } from '../models/coupon.model';
-import type { CouponStatus } from '../constants/coupon-status';
+import {
+  CouponBatchListFilters,
+  CouponListFilters,
+  CreateCouponBatchDTO,
+  CreatePromotionRuleDTO,
+  UpdatePromotionRuleDTO,
+} from '../models/coupon.model';
 import { appConfig } from '../config/app.config';
 import { BadRequestError } from '../utils/errors';
+import { parsePaginationQuery, toPaginatedResult } from '../utils/pagination';
+import { parseSearchQuery } from '../utils/search';
 import { logger } from '../utils/logger';
 import type { MarkBatchAllottedSelection } from '../services/coupon-batch.service';
 
@@ -57,9 +67,22 @@ export class CouponAdminController {
 
   async getAllCouponBatches(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const page = parseInt(String(req.query.page ?? '1'), 10);
-      const limit = parseInt(String(req.query.limit ?? '50'), 10);
-      const result = await couponBatchService.getAllBatches(page, limit);
+      const query = validate<{
+        search?: string;
+        q?: string;
+        status?: CouponBatchListFilters['status'];
+        isLocked?: boolean;
+        page?: number;
+        limit?: number;
+      }>(couponBatchListQuerySchema, req.query);
+      const { page, limit } = parsePaginationQuery(query);
+      const result = await couponBatchService.getAllBatches({
+        search: parseSearchQuery(query),
+        status: query.status,
+        isLocked: query.isLocked,
+        page,
+        limit,
+      });
       return ResponseHandler.success(res, result);
     } catch (error) {
       next(error);
@@ -69,7 +92,15 @@ export class CouponAdminController {
   async getCouponBatchById(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const batchId = validate<string>(uuidSchema, req.params.batchId);
-      const result = await couponBatchService.getBatchById(batchId);
+      const query = validate<{ from_serial?: string; to_serial?: string }>(
+        couponBatchDetailQuerySchema,
+        req.query
+      );
+      const serialScope =
+        query.from_serial && query.to_serial
+          ? { from_serial: query.from_serial, to_serial: query.to_serial }
+          : undefined;
+      const result = await couponBatchService.getBatchById(batchId, serialScope);
       return ResponseHandler.success(res, result);
     } catch (error) {
       next(error);
@@ -171,15 +202,15 @@ export class CouponAdminController {
 
   async getAllCoupons(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const query = validate<{
-        batchId?: string;
-        status?: CouponStatus;
-        excludeVoid?: boolean;
-        code?: string;
-        page?: number;
-        limit?: number;
-      }>(couponListQuerySchema, req.query);
-      const result = await couponAdminService.getCoupons(query);
+      const query = validate<
+        CouponListFilters & {
+          q?: string;
+        }
+      >(couponListQuerySchema, req.query);
+      const result = await couponAdminService.getCoupons({
+        ...query,
+        search: parseSearchQuery(query) ?? query.search,
+      });
       return ResponseHandler.success(res, result);
     } catch (error) {
       next(error);
@@ -233,12 +264,17 @@ export class CouponAdminController {
         batchId?: string;
         phone?: string;
         code?: string;
+        search?: string;
+        q?: string;
         fromDate?: string;
         toDate?: string;
         page?: number;
         limit?: number;
       }>(redemptionListQuerySchema, req.query);
-      const result = await couponAdminService.getRedemptions(query);
+      const result = await couponAdminService.getRedemptions({
+        ...query,
+        search: parseSearchQuery(query),
+      });
       return ResponseHandler.success(res, result);
     } catch (error) {
       next(error);
@@ -323,9 +359,18 @@ export class CouponAdminController {
 
   async getAllRedeemers(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const page = parseInt(String(req.query.page ?? '1'), 10);
-      const limit = parseInt(String(req.query.limit ?? '50'), 10);
-      const result = await couponAdminService.getAllRedeemers(page, limit);
+      const query = validate<{
+        search?: string;
+        q?: string;
+        page?: number;
+        limit?: number;
+      }>(redeemerListQuerySchema, req.query);
+      const { page, limit } = parsePaginationQuery(query);
+      const result = await couponAdminService.getAllRedeemers(
+        page,
+        limit,
+        parseSearchQuery(query)
+      );
       return ResponseHandler.success(res, result);
     } catch (error) {
       next(error);
@@ -345,8 +390,14 @@ export class CouponAdminController {
   async getAllPromotionRules(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const includeInactive = req.query.includeInactive !== 'false';
-      const rules = await promotionRuleService.getAll(includeInactive);
-      return ResponseHandler.success(res, rules);
+      const { page, limit, offset } = parsePaginationQuery(req.query);
+      const search = parseSearchQuery(req.query);
+      const { items, total } = await promotionRuleService.getAll(
+        includeInactive,
+        { limit, offset },
+        search
+      );
+      return ResponseHandler.success(res, toPaginatedResult(items, total, page, limit));
     } catch (error) {
       next(error);
     }
@@ -433,12 +484,17 @@ export class CouponAdminController {
         phone?: string;
         ip?: string;
         failureReason?: string;
+        search?: string;
+        q?: string;
         fromDate?: string;
         toDate?: string;
         page?: number;
         limit?: number;
       }>(redemptionAttemptListQuerySchema, req.query);
-      const result = await couponAdminService.getRedemptionAttempts(query);
+      const result = await couponAdminService.getRedemptionAttempts({
+        ...query,
+        search: parseSearchQuery(query),
+      });
       return ResponseHandler.success(res, result);
     } catch (error) {
       next(error);

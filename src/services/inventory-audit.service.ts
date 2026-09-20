@@ -15,29 +15,42 @@ import {
   FinishedGoodsInventoryAuditResponse
 } from '../models/inventory-audit.model';
 
+type Pagination = { limit: number; offset: number };
+
 export class InventoryAuditService {
   // =====================================================
   // LOT INVENTORY AUDIT
   // =====================================================
 
-  async getLotInventoryAuditByLotId(lotId: string, limit = 100): Promise<LotInventoryAuditResponse[]> {
-    const audits = await lotInventoryAuditDAO.findByLotId(lotId, limit);
-    return this.formatLotAuditResponse(audits);
+  async getLotInventoryAuditByLotId(
+    lotId: string,
+    pagination?: Pagination
+  ): Promise<{ items: LotInventoryAuditResponse[]; total: number }> {
+    const { rows, total } = await lotInventoryAuditDAO.findByLotId(lotId, pagination);
+    return { items: this.formatLotAuditResponse(rows), total };
   }
 
-  async getLotInventoryAuditByLotInventoryId(lotInventoryId: string, limit = 100): Promise<LotInventoryAuditResponse[]> {
-    const audits = await lotInventoryAuditDAO.findByLotInventoryId(lotInventoryId, limit);
-    return this.formatLotAuditResponse(audits);
+  async getLotInventoryAuditByLotInventoryId(
+    lotInventoryId: string,
+    pagination?: Pagination
+  ): Promise<{ items: LotInventoryAuditResponse[]; total: number }> {
+    const { rows, total } = await lotInventoryAuditDAO.findByLotInventoryId(lotInventoryId, pagination);
+    return { items: this.formatLotAuditResponse(rows), total };
   }
 
-  async getLotInventoryAuditByBatchId(batchId: string): Promise<LotInventoryAuditResponse[]> {
-    const audits = await lotInventoryAuditDAO.findByBatchId(batchId);
-    return this.formatLotAuditResponse(audits);
+  async getLotInventoryAuditByBatchId(
+    batchId: string,
+    pagination?: Pagination
+  ): Promise<{ items: LotInventoryAuditResponse[]; total: number }> {
+    const { rows, total } = await lotInventoryAuditDAO.findByBatchId(batchId, pagination);
+    return { items: this.formatLotAuditResponse(rows), total };
   }
 
-  async getRecentLotInventoryAudit(limit = 100): Promise<LotInventoryAuditResponse[]> {
-    const audits = await lotInventoryAuditDAO.findRecent(limit);
-    return this.formatLotAuditResponse(audits);
+  async getRecentLotInventoryAudit(
+    pagination?: Pagination
+  ): Promise<{ items: LotInventoryAuditResponse[]; total: number }> {
+    const { rows, total } = await lotInventoryAuditDAO.findRecent(pagination);
+    return { items: this.formatLotAuditResponse(rows), total };
   }
 
   private formatLotAuditResponse(audits: (LotInventoryAudit & { lot_number?: string; rice_code_id?: string; rice_type?: string; user_name?: string })[]): LotInventoryAuditResponse[] {
@@ -74,24 +87,38 @@ export class InventoryAuditService {
   // PACKETS INVENTORY AUDIT
   // =====================================================
 
-  async getPacketsInventoryAuditByPackagingId(packagingId: string, limit = 100): Promise<PacketsInventoryAuditResponse[]> {
-    const audits = await packetsInventoryAuditDAO.findByPackagingId(packagingId, limit);
-    return this.formatPacketsAuditResponse(audits);
+  async getPacketsInventoryAuditByPackagingId(
+    packagingId: string,
+    pagination?: Pagination
+  ): Promise<{ items: PacketsInventoryAuditResponse[]; total: number }> {
+    const { rows, total } = await packetsInventoryAuditDAO.findByPackagingId(packagingId, pagination);
+    return { items: this.formatPacketsAuditResponse(rows), total };
   }
 
-  async getPacketsInventoryAuditByPacketsInventoryId(packetsInventoryId: string, limit = 100): Promise<PacketsInventoryAuditResponse[]> {
-    const audits = await packetsInventoryAuditDAO.findByPacketsInventoryId(packetsInventoryId, limit);
-    return this.formatPacketsAuditResponse(audits);
+  async getPacketsInventoryAuditByPacketsInventoryId(
+    packetsInventoryId: string,
+    pagination?: Pagination
+  ): Promise<{ items: PacketsInventoryAuditResponse[]; total: number }> {
+    const { rows, total } = await packetsInventoryAuditDAO.findByPacketsInventoryId(
+      packetsInventoryId,
+      pagination
+    );
+    return { items: this.formatPacketsAuditResponse(rows), total };
   }
 
-  async getPacketsInventoryAuditByBatchId(batchId: string): Promise<PacketsInventoryAuditResponse[]> {
-    const audits = await packetsInventoryAuditDAO.findByBatchId(batchId);
-    return this.formatPacketsAuditResponse(audits);
+  async getPacketsInventoryAuditByBatchId(
+    batchId: string,
+    pagination?: Pagination
+  ): Promise<{ items: PacketsInventoryAuditResponse[]; total: number }> {
+    const { rows, total } = await packetsInventoryAuditDAO.findByBatchId(batchId, pagination);
+    return { items: this.formatPacketsAuditResponse(rows), total };
   }
 
-  async getRecentPacketsInventoryAudit(limit = 100): Promise<PacketsInventoryAuditResponse[]> {
-    const audits = await packetsInventoryAuditDAO.findRecent(limit);
-    return this.formatPacketsAuditResponse(audits);
+  async getRecentPacketsInventoryAudit(
+    pagination?: Pagination
+  ): Promise<{ items: PacketsInventoryAuditResponse[]; total: number }> {
+    const { rows, total } = await packetsInventoryAuditDAO.findRecent(pagination);
+    return { items: this.formatPacketsAuditResponse(rows), total };
   }
 
   private formatPacketsAuditResponse(audits: (PacketsInventoryAudit & { holding_capacity?: number; packet_type?: string; user_name?: string })[]): PacketsInventoryAuditResponse[] {
@@ -127,29 +154,48 @@ export class InventoryAuditService {
   // BAGS INVENTORY AUDIT
   // =====================================================
 
-  async getBagsInventoryAuditByBagsInventoryId(bagsInventoryId: string, limit = 100): Promise<BagsInventoryAuditResponse[]> {
-    const audits = await bagsInventoryAuditDAO.findByBagsInventoryId(bagsInventoryId, limit);
-    return this.formatBagsAuditResponse(audits);
+  async getBagsInventoryAuditByBagsInventoryId(
+    bagsInventoryId: string,
+    pagination?: Pagination
+  ): Promise<{ items: BagsInventoryAuditResponse[]; total: number }> {
+    const { rows, total } = await bagsInventoryAuditDAO.findByBagsInventoryId(bagsInventoryId, pagination);
+    return { items: this.formatBagsAuditResponse(rows), total };
   }
 
-  async getBagsInventoryAuditByBagTypeAndCapacity(bagType: string, bagCapacity: number, limit = 100): Promise<BagsInventoryAuditResponse[]> {
-    const audits = await bagsInventoryAuditDAO.findByBagTypeAndCapacity(bagType, bagCapacity, limit);
-    return this.formatBagsAuditResponse(audits);
+  async getBagsInventoryAuditByBagTypeAndCapacity(
+    bagType: string,
+    bagCapacity: number,
+    pagination?: Pagination
+  ): Promise<{ items: BagsInventoryAuditResponse[]; total: number }> {
+    const { rows, total } = await bagsInventoryAuditDAO.findByBagTypeAndCapacity(
+      bagType,
+      bagCapacity,
+      pagination
+    );
+    return { items: this.formatBagsAuditResponse(rows), total };
   }
 
-  async getBagsInventoryAuditByBatchId(batchId: string): Promise<BagsInventoryAuditResponse[]> {
-    const audits = await bagsInventoryAuditDAO.findByBatchId(batchId);
-    return this.formatBagsAuditResponse(audits);
+  async getBagsInventoryAuditByBatchId(
+    batchId: string,
+    pagination?: Pagination
+  ): Promise<{ items: BagsInventoryAuditResponse[]; total: number }> {
+    const { rows, total } = await bagsInventoryAuditDAO.findByBatchId(batchId, pagination);
+    return { items: this.formatBagsAuditResponse(rows), total };
   }
 
-  async getBagsInventoryAuditByKaantaId(kaantaId: string): Promise<BagsInventoryAuditResponse[]> {
-    const audits = await bagsInventoryAuditDAO.findByKaantaId(kaantaId);
-    return this.formatBagsAuditResponse(audits);
+  async getBagsInventoryAuditByKaantaId(
+    kaantaId: string,
+    pagination?: Pagination
+  ): Promise<{ items: BagsInventoryAuditResponse[]; total: number }> {
+    const { rows, total } = await bagsInventoryAuditDAO.findByKaantaId(kaantaId, pagination);
+    return { items: this.formatBagsAuditResponse(rows), total };
   }
 
-  async getRecentBagsInventoryAudit(limit = 100): Promise<BagsInventoryAuditResponse[]> {
-    const audits = await bagsInventoryAuditDAO.findRecent(limit);
-    return this.formatBagsAuditResponse(audits);
+  async getRecentBagsInventoryAudit(
+    pagination?: Pagination
+  ): Promise<{ items: BagsInventoryAuditResponse[]; total: number }> {
+    const { rows, total } = await bagsInventoryAuditDAO.findRecent(pagination);
+    return { items: this.formatBagsAuditResponse(rows), total };
   }
 
   private formatBagsAuditResponse(audits: (BagsInventoryAudit & { user_name?: string; kaanta_number?: string; kaanta_sauda_id?: string; kaanta_isp_id?: string })[]): BagsInventoryAuditResponse[] {
@@ -186,24 +232,38 @@ export class InventoryAuditService {
   // FINISHED GOODS INVENTORY AUDIT
   // =====================================================
 
-  async getFinishedGoodsInventoryAuditByProductId(productId: string, limit = 100): Promise<FinishedGoodsInventoryAuditResponse[]> {
-    const audits = await finishedGoodsInventoryAuditDAO.findByProductId(productId, limit);
-    return this.formatFinishedGoodsAuditResponse(audits);
+  async getFinishedGoodsInventoryAuditByProductId(
+    productId: string,
+    pagination?: Pagination
+  ): Promise<{ items: FinishedGoodsInventoryAuditResponse[]; total: number }> {
+    const { rows, total } = await finishedGoodsInventoryAuditDAO.findByProductId(productId, pagination);
+    return { items: this.formatFinishedGoodsAuditResponse(rows), total };
   }
 
-  async getFinishedGoodsInventoryAuditByBatchId(batchId: string): Promise<FinishedGoodsInventoryAuditResponse[]> {
-    const audits = await finishedGoodsInventoryAuditDAO.findByBatchId(batchId);
-    return this.formatFinishedGoodsAuditResponse(audits);
+  async getFinishedGoodsInventoryAuditByBatchId(
+    batchId: string,
+    pagination?: Pagination
+  ): Promise<{ items: FinishedGoodsInventoryAuditResponse[]; total: number }> {
+    const { rows, total } = await finishedGoodsInventoryAuditDAO.findByBatchId(batchId, pagination);
+    return { items: this.formatFinishedGoodsAuditResponse(rows), total };
   }
 
-  async getFinishedGoodsInventoryAuditByFGInventoryId(fgInventoryId: string, limit = 100): Promise<FinishedGoodsInventoryAuditResponse[]> {
-    const audits = await finishedGoodsInventoryAuditDAO.findByFinishedGoodsInventoryId(fgInventoryId, limit);
-    return this.formatFinishedGoodsAuditResponse(audits);
+  async getFinishedGoodsInventoryAuditByFGInventoryId(
+    fgInventoryId: string,
+    pagination?: Pagination
+  ): Promise<{ items: FinishedGoodsInventoryAuditResponse[]; total: number }> {
+    const { rows, total } = await finishedGoodsInventoryAuditDAO.findByFinishedGoodsInventoryId(
+      fgInventoryId,
+      pagination
+    );
+    return { items: this.formatFinishedGoodsAuditResponse(rows), total };
   }
 
-  async getRecentFinishedGoodsInventoryAudit(limit = 100): Promise<FinishedGoodsInventoryAuditResponse[]> {
-    const audits = await finishedGoodsInventoryAuditDAO.findRecent(limit);
-    return this.formatFinishedGoodsAuditResponse(audits);
+  async getRecentFinishedGoodsInventoryAudit(
+    pagination?: Pagination
+  ): Promise<{ items: FinishedGoodsInventoryAuditResponse[]; total: number }> {
+    const { rows, total } = await finishedGoodsInventoryAuditDAO.findRecent(pagination);
+    return { items: this.formatFinishedGoodsAuditResponse(rows), total };
   }
 
   private formatFinishedGoodsAuditResponse(audits: (FinishedGoodsInventoryAudit & { product_name?: string; holding_capacity?: number; packet_type?: string; user_name?: string })[]): FinishedGoodsInventoryAuditResponse[] {
@@ -247,29 +307,32 @@ export class InventoryAuditService {
   // COMBINED AUDIT FOR A BATCH
   // =====================================================
 
-  async getAllAuditsByBatchId(batchId: string) {
+  async getAllAuditsByBatchId(batchId: string, pagination?: Pagination) {
     const [lotAudits, packetsAudits, bagsAudits, finishedGoodsAudits] = await Promise.all([
-      this.getLotInventoryAuditByBatchId(batchId),
-      this.getPacketsInventoryAuditByBatchId(batchId),
-      this.getBagsInventoryAuditByBatchId(batchId),
-      this.getFinishedGoodsInventoryAuditByBatchId(batchId)
+      this.getLotInventoryAuditByBatchId(batchId, pagination),
+      this.getPacketsInventoryAuditByBatchId(batchId, pagination),
+      this.getBagsInventoryAuditByBatchId(batchId, pagination),
+      this.getFinishedGoodsInventoryAuditByBatchId(batchId, pagination)
     ]);
 
     return {
-      lot_inventory_audit: lotAudits,
-      packets_inventory_audit: packetsAudits,
-      bags_inventory_audit: bagsAudits,
-      finished_goods_inventory_audit: finishedGoodsAudits,
+      lot_inventory_audit: lotAudits.items,
+      packets_inventory_audit: packetsAudits.items,
+      bags_inventory_audit: bagsAudits.items,
+      finished_goods_inventory_audit: finishedGoodsAudits.items,
       summary: {
-        lot_operations: lotAudits.length,
-        packets_operations: packetsAudits.length,
-        bags_operations: bagsAudits.length,
-        finished_goods_operations: finishedGoodsAudits.length,
-        total_operations: lotAudits.length + packetsAudits.length + bagsAudits.length + finishedGoodsAudits.length
-      }
+        lot_operations: lotAudits.total,
+        packets_operations: packetsAudits.total,
+        bags_operations: bagsAudits.total,
+        finished_goods_operations: finishedGoodsAudits.total,
+        total_operations:
+          lotAudits.total +
+          packetsAudits.total +
+          bagsAudits.total +
+          finishedGoodsAudits.total,
+      },
     };
   }
 }
 
 export const inventoryAuditService = new InventoryAuditService();
-

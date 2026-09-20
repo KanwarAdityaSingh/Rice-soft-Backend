@@ -1,9 +1,10 @@
 import { db } from '../database/connection';
 import { InwardSlipLot, CreateInwardSlipLotDTO, UpdateInwardSlipLotDTO } from '../models/inward-slip-lot.model';
 import { logger } from '../utils/logger';
+import { buildNormalizedSearchClause } from '../utils/search';
 
 const LOT_COLUMNS = `
-  id, sauda_id, godown_id, lot_number, rice_category, rice_code_id, rice_type, rice_length_id,
+  id, sauda_id, godown_id, serial_number, lot_number, rice_category, rice_code_id, rice_type, rice_length_id,
   no_of_bags, bag_weight, total_weight, bill_weight, received_weight, rate, amount,
   inward_slip_pass_created_at, created_at, updated_at, created_by, updated_by
 `;
@@ -17,33 +18,88 @@ export class InwardSlipLotDAO {
     return parseInt(result.rows[0]?.count ?? '0', 10);
   }
 
-  async findAll(saudaId?: string, godownId?: string): Promise<InwardSlipLot[]> {
-    let query = `
-      SELECT ${LOT_COLUMNS}
-      FROM inward_slip_lots
-      WHERE 1=1
-    `;
-
+  async findAll(
+    saudaId?: string,
+    godownId?: string,
+    pagination?: { limit: number; offset: number },
+    search?: string
+  ): Promise<{ rows: InwardSlipLot[]; total: number }> {
+    let where = ` WHERE 1=1`;
     const params: unknown[] = [];
     let paramCount = 1;
 
     if (saudaId) {
-      query += ` AND sauda_id = $${paramCount++}`;
+      where += ` AND isl.sauda_id = $${paramCount++}`;
       params.push(saudaId);
     }
     if (godownId) {
-      query += ` AND godown_id = $${paramCount++}`;
+      where += ` AND isl.godown_id = $${paramCount++}`;
       params.push(godownId);
     }
 
-    query += ` ORDER BY lot_number ASC`;
+    const from = `
+      FROM inward_slip_lots isl
+      LEFT JOIN rice_codes rc ON rc.rice_code_id = isl.rice_code_id
+      LEFT JOIN godowns g ON g.id = isl.godown_id
+    `;
 
-    const result = await db.query<InwardSlipLot>(query, params);
-    return result.rows;
+    const searchClause = buildNormalizedSearchClause(
+      [
+        'isl.lot_number',
+        'isl.serial_number',
+        'isl.rice_category',
+        'isl.rice_type',
+        'isl.rate',
+        'isl.no_of_bags',
+        'isl.bill_weight',
+        'isl.received_weight',
+        'isl.total_weight',
+        'isl.amount',
+        'rc.rice_code_name',
+        'g.name',
+      ],
+      search,
+      paramCount
+    );
+    where += searchClause.sql;
+    params.push(...searchClause.params);
+    paramCount = searchClause.nextParamIndex;
+
+    const countResult = await db.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count ${from}${where}`,
+      params
+    );
+    const total = parseInt(countResult.rows[0]?.count ?? '0', 10);
+
+    const limit = pagination?.limit ?? 50;
+    const offset = pagination?.offset ?? 0;
+    const result = await db.query<InwardSlipLot>(
+      `SELECT isl.id, isl.sauda_id, isl.godown_id, isl.serial_number, isl.lot_number, isl.rice_category, isl.rice_code_id, isl.rice_type, isl.rice_length_id,
+              isl.no_of_bags, isl.bag_weight, isl.total_weight, isl.bill_weight, isl.received_weight, isl.rate, isl.amount,
+              isl.inward_slip_pass_created_at, isl.created_at, isl.updated_at, isl.created_by, isl.updated_by
+       ${from}
+       ${where}
+       ORDER BY isl.serial_number ASC, isl.lot_number ASC
+       LIMIT $${paramCount++} OFFSET $${paramCount}`,
+      [...params, limit, offset]
+    );
+    return { rows: result.rows, total };
   }
 
   async findBySaudaId(saudaId: string, godownId?: string): Promise<InwardSlipLot[]> {
-    return this.findAll(saudaId, godownId);
+    let query = `
+      SELECT ${LOT_COLUMNS}
+      FROM inward_slip_lots
+      WHERE sauda_id = $1
+    `;
+    const params: unknown[] = [saudaId];
+    if (godownId) {
+      query += ` AND godown_id = $2`;
+      params.push(godownId);
+    }
+    query += ` ORDER BY serial_number ASC, lot_number ASC`;
+    const result = await db.query<InwardSlipLot>(query, params);
+    return result.rows;
   }
 
   async findById(id: string): Promise<InwardSlipLot | null> {

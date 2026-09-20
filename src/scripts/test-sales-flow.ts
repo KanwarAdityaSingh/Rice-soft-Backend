@@ -241,8 +241,7 @@ async function main() {
     if (returnQty > 0) {
       const cnCreateRes = await request('POST', '/credit-notes', token, {
         invoice_dispatch_id: dispatchId,
-        sales_sauda_id: salesSaudaId,
-        credit_note_number: `CN-TEST-${Date.now()}`,
+        credit_note_type: 'sales_return_partial',
         credit_note_date: new Date().toISOString().split('T')[0],
         reason: 'Test return from automated script',
         lines: [

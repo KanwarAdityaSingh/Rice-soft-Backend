@@ -1,5 +1,4 @@
 import { PackagingWeight } from './packaging.model';
-import { Brand } from './product.model';
 import { RiceType } from './lead.model';
 
 export interface ProductRateHistory {
@@ -28,8 +27,14 @@ export interface ProductRateHistoryResponse {
     id: string;
     name: string;
     description: string | null;
-    brand: Brand | null;
+    brand: string | null;
     rice_type: RiceType | null;
   };
   points: ProductRateHistoryPointResponse[];
+}
+
+export interface UpdateRateHistoryPointResponse {
+  point: ProductRateHistoryPointResponse;
+  /** True when this row was also the current live rate for its capacity, so product_rates was updated too. */
+  current_rate_updated: boolean;
 }

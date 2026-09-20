@@ -7,35 +7,71 @@ import {
   mergeVehicleVerificationDetailsPatch,
   parseVehicleVerificationDetails,
 } from '../utils/kyc-verification';
+import { buildNormalizedSearchClause } from '../utils/search';
 
 export class VehicleDAO {
-  async findAll(transporterId?: string, isActive?: boolean): Promise<Vehicle[]> {
-    let query = `
-      SELECT id, vehicle_number, rc_number, owner_name, vehicle_class, fuel_type,
-             maker_model, registration_date, insurance_validity, fitness_validity,
-             permit_validity, challan_details, transporter_ids, is_verified, verified_at, verification_details,
-             is_active, created_at, updated_at, created_by, updated_by
-      FROM vehicles
-      WHERE 1=1
-    `;
-    
-    const params: any[] = [];
+  async findAll(filters: {
+    transporterId?: string;
+    isActive?: boolean;
+    search?: string;
+    limit: number;
+    offset: number;
+  }): Promise<{ rows: Vehicle[]; total: number }> {
+    const { transporterId, isActive, search, limit, offset } = filters;
+
+    let where = `WHERE 1=1`;
+    const params: unknown[] = [];
     let paramCount = 1;
 
     if (isActive !== undefined) {
-      query += ` AND is_active = $${paramCount++}`;
+      where += ` AND is_active = $${paramCount++}`;
       params.push(isActive);
     }
 
     if (transporterId) {
-      query += ` AND $${paramCount++} = ANY(transporter_ids)`;
+      where += ` AND $${paramCount++} = ANY(transporter_ids)`;
       params.push(transporterId);
     }
 
-    query += ` ORDER BY vehicle_number ASC`;
+    const searchClause = buildNormalizedSearchClause(
+      [
+        'vehicle_number',
+        'rc_number',
+        'owner_name',
+        'vehicle_class',
+        'maker_model',
+        'fuel_type',
+        'challan_details::text',
+      ],
+      search,
+      paramCount
+    );
+    where += searchClause.sql;
+    params.push(...searchClause.params);
+    paramCount = searchClause.nextParamIndex;
 
-    const result = await db.query<Vehicle>(query, params);
-    return result.rows;
+    const countResult = await db.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM vehicles ${where}`,
+      params
+    );
+    const total = parseInt(countResult.rows[0]?.count ?? '0', 10);
+
+    const limitIdx = paramCount++;
+    const offsetIdx = paramCount++;
+    params.push(limit, offset);
+
+    const result = await db.query<Vehicle>(
+      `SELECT id, vehicle_number, rc_number, owner_name, vehicle_class, fuel_type,
+              maker_model, registration_date, insurance_validity, fitness_validity,
+              permit_validity, challan_details, transporter_ids, is_verified, verified_at, verification_details,
+              is_active, created_at, updated_at, created_by, updated_by
+       FROM vehicles
+       ${where}
+       ORDER BY vehicle_number ASC
+       LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
+      params
+    );
+    return { rows: result.rows, total };
   }
 
   async findById(id: string): Promise<Vehicle | null> {

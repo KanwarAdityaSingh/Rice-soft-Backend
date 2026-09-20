@@ -534,21 +534,21 @@ export class SalesmanReportService {
          cnl.product_id,
          CASE
            WHEN pkg.holding_capacity IS NOT NULL AND pkg.holding_capacity > 0
-             THEN ROUND(cnl.quantity_returned / pkg.holding_capacity)::text
+             THEN ROUND(COALESCE(cnl.quantity_credited, cnl.quantity_returned) / pkg.holding_capacity)::text
            ELSE NULL
          END AS bags,
-         cnl.quantity_returned::text AS quantity,
-         ROUND((cnl.quantity_returned * COALESCE(dl.rate, 0))::numeric, 2)::text AS return_amount,
+         COALESCE(cnl.quantity_credited, cnl.quantity_returned)::text AS quantity,
+         COALESCE(cnl.final_amount, ROUND((COALESCE(cnl.quantity_credited, cnl.quantity_returned) * COALESCE(dl.rate, 0))::numeric, 2))::text AS return_amount,
          cn.reason
        FROM credit_notes cn
        JOIN sales_saudas ss ON ss.id = cn.sales_sauda_id
        JOIN invoice_dispatches d ON d.id = cn.invoice_dispatch_id
        LEFT JOIN sales_parties sp ON sp.id = ss.sales_party_id
        JOIN credit_note_lines cnl ON cnl.credit_note_id = cn.id
-       JOIN products p ON p.id = cnl.product_id
+       LEFT JOIN products p ON p.id = cnl.product_id
        LEFT JOIN invoice_dispatch_lines dl ON dl.id = cnl.invoice_dispatch_line_id
        LEFT JOIN packaging pkg ON pkg.id = dl.packaging_id
-       WHERE cn.status = 'confirmed'
+       WHERE cn.status = 'posted'
          AND ss.salesman_id = $1
          AND ss.movement_type = 'sale'
          ${dateFilter}
@@ -588,7 +588,7 @@ export class SalesmanReportService {
         }),
       };
     }
-    const entries = await salesmanCommissionEntryDAO.list({
+    const { rows: entries } = await salesmanCommissionEntryDAO.list({
       salesmanId: filters.salesmanId,
       status: filters.status,
       from: filters.from,

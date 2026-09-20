@@ -71,6 +71,12 @@ export const appConfig = {
       panToEmailMobileUrl:
         process.env.SUREPASS_PAN_TO_EMAIL_MOBILE_API_URL ||
         'https://kyc-api.surepass.io/api/v1/pan-to-email-mobile/verification',
+      mobileToNameUrl:
+        process.env.SUREPASS_MOBILE_TO_NAME_API_URL ||
+        'https://kyc-api.surepass.app/api/v1/mobile-to-name/verification',
+      telecomHlrUrl:
+        process.env.SUREPASS_TELECOM_HLR_API_URL ||
+        'https://kyc-api.surepass.app/api/v1/telecom/hlr',
       rcVerificationUrl:
         process.env.SUREPASS_RC_API_URL ||
         'https://kyc-api.surepass.io/api/v1/rc-verification',
@@ -107,6 +113,9 @@ export const appConfig = {
         process.env.MASTERS_INDIA_EINVOICE_URL || 'https://pro.mastersindia.co/api/v1/einvoice/',
       eWayBillUrl:
         process.env.MASTERS_INDIA_EWAY_BILL_URL || 'https://pro.mastersindia.co/ewayBillsGenerate',
+      eWayBillCancelUrl:
+        process.env.MASTERS_INDIA_EWAY_BILL_CANCEL_URL ||
+        'https://pro.mastersindia.co/api/v1/ewayBillCancel/',
       distanceUrl:
         process.env.MASTERS_INDIA_DISTANCE_URL || 'https://pro.mastersindia.co/distance',
       sellerGstin: (process.env.MASTERS_INDIA_SELLER_GSTIN || '').trim().toUpperCase(),
@@ -128,6 +137,18 @@ export const appConfig = {
       whatsappFromNumber: process.env.KALEYRA_WHATSAPP_FROM_NUMBER || '',
       whatsappTemplateName: process.env.KALEYRA_WHATSAPP_TEMPLATE_NAME || 'sauda_notification',
     },
+    /** MSG91 Flow API — public coupon OTP (defaults work without env when unset) */
+    msg91: {
+      url: process.env.MSG91_FLOW_URL || 'https://control.msg91.com/api/v5/flow',
+      authKey: (process.env.MSG91_AUTH_KEY || '561441A9kIx2XR6aaa233bP1').trim(),
+      templateId: (process.env.MSG91_TEMPLATE_ID || '6a9e3c909cb214a6130e2693').trim(),
+      senderId: (process.env.MSG91_SENDER_ID || 'ADHAMT').trim(),
+      /** Must match ##var## in the MSG91 flow exactly (adhra_coupon uses ##var1##). */
+      otpVar: (process.env.MSG91_OTP_VAR || 'var1').trim() || 'var1',
+      /** Optional second flow variable for expiry minutes (e.g. VAR2 or minutes). */
+      expiryVar: (process.env.MSG91_EXPIRY_VAR || '').trim(),
+      shortUrl: process.env.MSG91_SHORT_URL === '1' ? '1' : '0',
+    },
   },
 
   openai: {
@@ -147,6 +168,14 @@ export const appConfig = {
     kaantaExtractionEnabled: process.env.OPENAI_KAANTA_EXTRACTION_ENABLED !== 'false',
     /** Stronger vision model for dense weighbridge slip OCR; defaults to gpt-4o. */
     kaantaModel: process.env.OPENAI_KAANTA_MODEL || 'gpt-4o',
+    /** Vision extraction of LR/Bilty/GR receipts (lr_number, vehicle_number, transporter_name). */
+    lrExtractionEnabled: process.env.OPENAI_LR_EXTRACTION_ENABLED !== 'false',
+    /** Formats vary wildly (printed/handwritten, Hindi/Punjabi/English) — defaults to gpt-4o. */
+    lrModel: process.env.OPENAI_LR_MODEL || 'gpt-4o',
+    /** Vision extraction of rice bag packaging (brand_name, product_name) for product create prefill. */
+    bagExtractionEnabled: process.env.OPENAI_BAG_EXTRACTION_ENABLED !== 'false',
+    /** Bag fronts are printed / high-contrast — defaults to gpt-4o. */
+    bagModel: process.env.OPENAI_BAG_MODEL || 'gpt-4o',
   },
 
   otp: {
@@ -174,8 +203,11 @@ export const appConfig = {
       inwardSlipBillsFolder: process.env.AWS_S3_INWARD_SLIP_BILLS_FOLDER || 'inward-slip-bills',
       kaantaParchisFolder: process.env.AWS_S3_KAANTA_PARCHIS_FOLDER || 'kaanta-parchis',
       packagingBillsFolder: process.env.AWS_S3_PACKAGING_BILLS_FOLDER || 'packaging-bills',
+      productBagImagesFolder:
+        process.env.AWS_S3_PRODUCT_BAG_IMAGES_FOLDER || 'product-bag-images',
       salesSaudaAttachmentsFolder:
         process.env.AWS_S3_SALES_SAUDA_ATTACHMENTS_FOLDER || 'sales-sauda-attachments',
+      creditNotesFolder: process.env.AWS_S3_CREDIT_NOTES_FOLDER || 'credit-notes',
     },
     ses: {
       fromEmail: process.env.AWS_SES_FROM_EMAIL || 'info@santkripaequipment.com',
@@ -208,19 +240,14 @@ export const appConfig = {
     payoutWorkerIntervalMs: parseInt(process.env.COUPON_PAYOUT_WORKER_INTERVAL_MS || '300000', 10),
     expiryCronEnabled: process.env.COUPON_EXPIRY_CRON_ENABLED === 'true',
     expiryCronMs: parseInt(process.env.COUPON_EXPIRY_CRON_MS || '86400000', 10),
-    /** When false, skip Kaleyra SMS for public coupon OTP (OTP still stored in DB). */
+    /** Default true — set COUPON_PUBLIC_SMS_ENABLED=false to skip SMS (OTP still stored in DB). */
     publicSmsEnabled: process.env.COUPON_PUBLIC_SMS_ENABLED !== 'false',
     /**
-     * Fixed OTP for allowlisted tester phones (default 996806).
-     * Set COUPON_PUBLIC_FIXED_OTP= (empty) to disable. Dev: all phones if allowlist empty.
+     * Optional fixed OTP for tester phones only — disabled by default.
+     * Set COUPON_PUBLIC_FIXED_OTP (6 digits) + COUPON_PUBLIC_FIXED_OTP_PHONES to enable.
      */
-    publicFixedOtp: (process.env.COUPON_PUBLIC_FIXED_OTP ?? '996806').trim(),
-    /**
-     * Phones that receive publicFixedOtp (defaults below).
-     * Set COUPON_PUBLIC_FIXED_OTP_PHONES= (empty) for all phones in non-prod.
-     * Production requires a non-empty allowlist when fixed OTP is enabled.
-     */
-    publicFixedOtpPhones: (process.env.COUPON_PUBLIC_FIXED_OTP_PHONES ?? '7050421216,8708190168')
+    publicFixedOtp: (process.env.COUPON_PUBLIC_FIXED_OTP ?? '').trim(),
+    publicFixedOtpPhones: (process.env.COUPON_PUBLIC_FIXED_OTP_PHONES ?? '')
       .split(',')
       .map((p) => p.replace(/\D/g, ''))
       .filter((p) => p.length === 10),

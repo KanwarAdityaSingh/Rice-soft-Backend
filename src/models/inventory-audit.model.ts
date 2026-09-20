@@ -314,6 +314,8 @@ export const INVENTORY_AUDIT_REASONS = {
   LOT: {
     INITIAL_STOCK: 'Lot created from inward slip',
     BATCH_CONSUMPTION: 'Consumed in batch production',
+    SALES_DISPATCH: 'Sold via invoice dispatch',
+    SALE_RETURN: 'Restored from credit note / dispatch cancel',
     MANUAL_ADDITION: 'Manual stock addition',
     MANUAL_ADJUSTMENT: 'Manual inventory adjustment',
     STOCK_CORRECTION: 'Stock count correction',

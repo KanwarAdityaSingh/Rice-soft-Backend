@@ -26,6 +26,8 @@ export interface InvoiceDispatch {
   godown_id: string;
   /** Destination godown for godown_transfer; null for normal sales */
   to_godown_id: string | null;
+  /** Global ascending serial; auto-assigned; only tip may be deleted */
+  serial_number: number;
   internal_invoice_number: string;
   dispatch_date: Date | string | null;
   /** Indian FY label Apr–Mar, e.g. 2025-2026 */
@@ -50,7 +52,15 @@ export interface InvoiceDispatch {
   lr_pdf_url: string | null;
   receiving_doc_image_url: string | null;
   receiving_doc_pdf_url: string | null;
+  /**
+   * True only for invoices created after the distance document policy.
+   * Historical bills stay false and never block the next invoice.
+   */
+  document_compliance_required: boolean;
   status: InvoiceDispatchStatus;
+  /** Unguessable token for public BoS authenticity verification (QR). */
+  bos_verification_token: string | null;
+  bos_verification_token_created_at: Date | string | null;
   cancel_reason: string | null;
   created_at: Date;
   updated_at: Date;
@@ -106,6 +116,7 @@ export interface InvoiceDispatchResponse {
   sales_sauda_ids: string[];
   godown_id: string;
   to_godown_id: string | null;
+  serial_number: number;
   internal_invoice_number: string;
   dispatch_date: string | null;
   financial_year: string;
@@ -131,6 +142,20 @@ export interface InvoiceDispatchResponse {
   receiving_doc_pdf_url: string | null;
   status: InvoiceDispatchStatus;
   cancel_reason: string | null;
+  document_compliance?: {
+    distance_km: number | null;
+    distance_band: 'under_100' | 'over_100' | 'unknown';
+    enforced: boolean;
+    required_document: 'receiving_doc' | 'bilti' | null;
+    is_recommendation: boolean;
+    has_receiving_document: boolean;
+    has_bilti: boolean;
+    has_required_document: boolean;
+    grace_days: number;
+    due_date: string | null;
+    is_overdue: boolean;
+    blocks_next_bill: boolean;
+  };
   created_at: string;
   updated_at: string;
 }

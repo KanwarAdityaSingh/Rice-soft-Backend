@@ -3,8 +3,13 @@ import type { Godown, CreateGodownDTO, UpdateGodownDTO } from '../models/godown.
 import { NotFoundError, ValidationError } from '../utils/errors';
 
 export class GodownService {
-  async list(includeInactive = false): Promise<Godown[]> {
-    return godownDAO.findAll(includeInactive);
+  async list(
+    includeInactive = false,
+    pagination?: { limit: number; offset: number },
+    search?: string
+  ): Promise<{ items: Godown[]; total: number }> {
+    const { rows, total } = await godownDAO.findAll(includeInactive, pagination, search);
+    return { items: rows, total };
   }
 
   async getById(id: string): Promise<Godown> {

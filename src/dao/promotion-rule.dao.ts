@@ -5,6 +5,7 @@ import {
   PromotionRule,
   UpdatePromotionRuleDTO,
 } from '../models/coupon.model';
+import { buildNormalizedSearchClause } from '../utils/search';
 
 export class PromotionRuleDAO {
   async create(data: CreatePromotionRuleDTO, client?: PoolClient): Promise<PromotionRule> {
@@ -34,12 +35,38 @@ export class PromotionRuleDAO {
     return result.rows[0];
   }
 
-  async findAll(includeInactive = true): Promise<PromotionRule[]> {
-    const query = includeInactive
-      ? `SELECT * FROM promotion_rules ORDER BY priority ASC, created_at DESC`
-      : `SELECT * FROM promotion_rules WHERE is_active = true ORDER BY priority ASC`;
-    const result = await db.query<PromotionRule>(query);
-    return result.rows;
+  async findAll(
+    includeInactive = true,
+    pagination?: { limit: number; offset: number },
+    search?: string
+  ): Promise<{ rows: PromotionRule[]; total: number }> {
+    let where = includeInactive ? 'WHERE 1=1' : 'WHERE is_active = true';
+    const params: unknown[] = [];
+    const searchClause = buildNormalizedSearchClause(
+      ['name', 'description', 'rule_type', 'conditions::text', 'reward::text'],
+      search,
+      1
+    );
+    where += searchClause.sql;
+    params.push(...searchClause.params);
+
+    const orderBy = includeInactive
+      ? 'ORDER BY priority ASC, created_at DESC'
+      : 'ORDER BY priority ASC';
+
+    const countResult = await db.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM promotion_rules ${where}`,
+      params
+    );
+    const total = parseInt(countResult.rows[0]?.count ?? '0', 10);
+
+    let query = `SELECT * FROM promotion_rules ${where} ${orderBy}`;
+    if (pagination) {
+      params.push(pagination.limit, pagination.offset);
+      query += ` LIMIT $${params.length - 1} OFFSET $${params.length}`;
+    }
+    const result = await db.query<PromotionRule>(query, params);
+    return { rows: result.rows, total };
   }
 
   async findActive(client?: PoolClient): Promise<PromotionRule[]> {

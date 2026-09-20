@@ -1,7 +1,8 @@
 import { PoolClient } from 'pg';
 import { db } from '../database/connection';
-import { Coupon } from '../models/coupon.model';
+import { Coupon, CouponListFilters, CouponListResult } from '../models/coupon.model';
 import type { CouponStatus } from '../constants/coupon-status';
+import { buildNormalizedSearchClause } from '../utils/search';
 
 export class CouponDAO {
   async bulkInsert(
@@ -181,51 +182,106 @@ export class CouponDAO {
     return result.rows[0] || null;
   }
 
-  async findAll(filters: {
-    batchId?: string;
-    status?: CouponStatus;
-    excludeVoid?: boolean;
-    code?: string;
-    page?: number;
-    limit?: number;
-  }): Promise<{ rows: Coupon[]; total: number }> {
-    const page = filters.page ?? 1;
-    const limit = filters.limit ?? 50;
-    const offset = (page - 1) * limit;
-    const conditions: string[] = ['1=1'];
+  /**
+   * Build the shared WHERE for inventory list + faceted status counts.
+   * `includeStatus` = false omits the status/excludeVoid clause so chip counts
+   * stay accurate when the user filters by a specific status.
+   */
+  private buildListWhere(
+    filters: CouponListFilters & {
+      fromSequence?: number;
+      toSequence?: number;
+    },
+    includeStatus: boolean,
+    paramStart: number
+  ): { where: string; values: unknown[]; nextParamIndex: number } {
+    let where = 'WHERE 1=1';
     const values: unknown[] = [];
-    let i = 1;
+    let i = paramStart;
 
     if (filters.batchId) {
-      conditions.push(`coupon_batch_id = $${i++}`);
+      where += ` AND coupon_batch_id = $${i++}`;
       values.push(filters.batchId);
     }
-    if (filters.status) {
-      conditions.push(`status = $${i++}`);
-      values.push(filters.status);
-    } else if (filters.excludeVoid) {
-      conditions.push(`status <> 'void'`);
+    if (filters.fromSequence != null && filters.toSequence != null) {
+      where += ` AND batch_sequence BETWEEN $${i++} AND $${i++}`;
+      values.push(filters.fromSequence, filters.toSequence);
+    } else if (filters.from_serial && filters.to_serial) {
+      // Cross-batch fallback when no batchId — zero-padded serials compare lexicographically.
+      where += ` AND UPPER(serial_number) BETWEEN $${i++} AND $${i++}`;
+      values.push(filters.from_serial.trim().toUpperCase(), filters.to_serial.trim().toUpperCase());
+    }
+    if (includeStatus) {
+      if (filters.status) {
+        where += ` AND status = $${i++}`;
+        values.push(filters.status);
+      } else if (filters.excludeVoid) {
+        where += ` AND status <> 'void'`;
+      }
     }
     if (filters.code) {
-      conditions.push(`code ILIKE $${i++}`);
+      where += ` AND code ILIKE $${i++}`;
       values.push(`${filters.code}%`);
     }
 
-    const where = conditions.join(' AND ');
+    const searchClause = buildNormalizedSearchClause(
+      ['code', 'serial_number', 'status', 'batch_sequence::text'],
+      filters.search,
+      i
+    );
+    where += searchClause.sql;
+    values.push(...searchClause.params);
+    i = searchClause.nextParamIndex;
+
+    return { where, values, nextParamIndex: i };
+  }
+
+  async findAll(
+    filters: CouponListFilters & {
+      fromSequence?: number;
+      toSequence?: number;
+    }
+  ): Promise<CouponListResult> {
+    const page = filters.page ?? 1;
+    const limit = filters.limit ?? 50;
+    const offset = (page - 1) * limit;
+
+    const list = this.buildListWhere(filters, true, 1);
     const countResult = await db.query<{ count: string }>(
-      `SELECT COUNT(*)::text AS count FROM coupons WHERE ${where}`,
-      values
+      `SELECT COUNT(*)::text AS count FROM coupons ${list.where}`,
+      list.values
     );
     const total = parseInt(countResult.rows[0]?.count ?? '0', 10);
 
-    values.push(limit, offset);
+    const listValues = [...list.values, limit, offset];
+    let i = list.nextParamIndex;
     const result = await db.query<Coupon>(
-      `SELECT * FROM coupons WHERE ${where}
+      `SELECT * FROM coupons ${list.where}
        ORDER BY batch_sequence ASC NULLS LAST, created_at DESC
        LIMIT $${i++} OFFSET $${i}`,
-      values
+      listValues
     );
-    return { rows: result.rows, total };
+
+    // Faceted status counts: same scope (batch / serial / search) but ignore status chip.
+    const facet = this.buildListWhere(filters, false, 1);
+    const facetResult = await db.query<{ status: string; count: number }>(
+      `SELECT status, COUNT(*)::int AS count FROM coupons ${facet.where} GROUP BY status`,
+      facet.values
+    );
+    const status_counts: CouponListResult['status_counts'] = {
+      created: 0,
+      printed: 0,
+      allotted: 0,
+      redeemed: 0,
+      expired: 0,
+      void: 0,
+    };
+    for (const row of facetResult.rows) {
+      const key = row.status as keyof typeof status_counts;
+      if (key in status_counts) status_counts[key] = row.count;
+    }
+
+    return { rows: result.rows, total, status_counts };
   }
 
   async expireEligible(

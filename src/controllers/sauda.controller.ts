@@ -7,6 +7,8 @@ import { riceLengthDAO } from '../dao/rice-length.dao';
 import { inwardSlipLotDAO } from '../dao/inward-slip-lot.dao';
 import { saudaRiceFieldsAreChanging } from '../utils/lot-rice-from-sauda';
 import { ResponseHandler } from '../utils/response';
+import { parsePaginationQuery, toPaginatedResult } from '../utils/pagination';
+import { parseSearchQuery } from '../utils/search';
 import {
   validate,
   createSaudaSchema,
@@ -142,11 +144,20 @@ export class SaudaController {
       const status = req.query.status as SaudaStatus | undefined;
       const saudaType = req.query.sauda_type as SaudaType | undefined;
       const purchaserId = req.query.purchaser_id as string | undefined;
-      
-      const saudas = await saudaDAO.findAll(includeInactive, status, saudaType, purchaserId);
-      const saudaResponses = await buildSaudaResponses(saudas);
+      const { page, limit, offset } = parsePaginationQuery(req.query);
+      const search = parseSearchQuery(req.query);
 
-      return ResponseHandler.success(res, saudaResponses);
+      const { rows, total } = await saudaDAO.findAll(
+        includeInactive,
+        status,
+        saudaType,
+        purchaserId,
+        { limit, offset },
+        search
+      );
+      const items = await buildSaudaResponses(rows);
+
+      return ResponseHandler.success(res, toPaginatedResult(items, total, page, limit));
     } catch (error) {
       next(error);
     }

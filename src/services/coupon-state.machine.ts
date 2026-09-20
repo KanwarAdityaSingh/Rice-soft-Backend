@@ -8,7 +8,9 @@ import { Coupon } from '../models/coupon.model';
 const ALLOWED_TRANSITIONS: Record<CouponStatus, CouponStatus[]> = {
   created: ['printed', 'void'],
   printed: ['allotted', 'void', 'expired'],
-  allotted: ['redeemed', 'void', 'expired'],
+  // 'printed' is also the "unlinked" target: cancelling an invoice dispatch or manually
+  // unlinking an allotment line reverts its coupons back to the available pool.
+  allotted: ['redeemed', 'void', 'expired', 'printed'],
   redeemed: [],
   expired: [],
   void: [],

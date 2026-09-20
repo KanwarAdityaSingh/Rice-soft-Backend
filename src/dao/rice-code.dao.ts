@@ -8,6 +8,7 @@ import {
 } from '../models/rice-code.model';
 import type { RiceCategory } from '../constants/rice-categories';
 import { logger } from '../utils/logger';
+import { buildNormalizedSearchClause } from '../utils/search';
 
 type VariantRow = {
   rice_code_id: string;
@@ -80,11 +81,58 @@ export class RiceCodeDAO {
     return mapRowsToRiceCodes(result.rows);
   }
 
-  async findAll(category?: RiceCategory): Promise<RiceCode[]> {
+  async findAll(
+    category?: RiceCategory,
+    pagination?: { limit: number; offset: number },
+    search?: string
+  ): Promise<{ rows: RiceCode[]; total: number }> {
+    const countParams: unknown[] = [];
+    let countWhere = 'WHERE 1=1';
+    let paramCount = 1;
     if (category) {
-      return this.fetchWithVariants('WHERE rc.category = $1', [category]);
+      countParams.push(category);
+      countWhere += ` AND category = $${paramCount++}`;
     }
-    return this.fetchWithVariants('');
+
+    const searchClause = buildNormalizedSearchClause(
+      ['rice_code_name', 'category'],
+      search,
+      paramCount
+    );
+    countWhere += searchClause.sql;
+    countParams.push(...searchClause.params);
+    paramCount = searchClause.nextParamIndex;
+
+    const countResult = await db.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM rice_codes ${countWhere}`,
+      countParams
+    );
+    const total = parseInt(countResult.rows[0]?.count ?? '0', 10);
+
+    let idQuery = `SELECT rice_code_id FROM rice_codes ${countWhere} ORDER BY rice_code_name ASC`;
+    const idParams = [...countParams];
+    if (pagination) {
+      idParams.push(pagination.limit, pagination.offset);
+      idQuery += ` LIMIT $${paramCount++} OFFSET $${paramCount}`;
+    }
+
+    const idResult = await db.query<{ rice_code_id: string }>(idQuery, idParams);
+    const ids = idResult.rows.map((r) => r.rice_code_id);
+    if (ids.length === 0) {
+      return { rows: [], total };
+    }
+
+    const rows = await this.fetchWithVariants(
+      'WHERE rc.rice_code_id = ANY($1::uuid[])',
+      [ids]
+    );
+
+    // Preserve parent page order (ANY does not guarantee ORDER BY)
+    const byId = new Map(rows.map((r) => [r.rice_code_id, r]));
+    return {
+      rows: ids.map((id) => byId.get(id)!).filter(Boolean),
+      total,
+    };
   }
 
   async findById(riceCodeId: string): Promise<RiceCode | null> {

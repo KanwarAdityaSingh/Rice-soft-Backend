@@ -42,48 +42,50 @@ export class InventoryLedgerDAO {
       source_type?: InventoryLedgerSourceType;
       from_date?: string;
       to_date?: string;
-      limit?: number;
-      offset?: number;
+      limit: number;
+      offset: number;
     }
-  ): Promise<InventoryLedgerEntry[]> {
-    let query = `
-      SELECT id, godown_id, product_id, quantity_change, source_type, source_id, stock_before, stock_after,
-             reference_type, reference_id, batch_id, packaging_id, created_at, created_by
-      FROM inventory_ledger WHERE 1=1
-    `;
+  ): Promise<{ rows: InventoryLedgerEntry[]; total: number }> {
+    let where = ` WHERE 1=1`;
     const params: any[] = [];
     let n = 1;
     if (filters.godown_id) {
-      query += ` AND godown_id = $${n++}`;
+      where += ` AND godown_id = $${n++}`;
       params.push(filters.godown_id);
     }
     if (filters.product_id) {
-      query += ` AND product_id = $${n++}`;
+      where += ` AND product_id = $${n++}`;
       params.push(filters.product_id);
     }
     if (filters.source_type) {
-      query += ` AND source_type = $${n++}`;
+      where += ` AND source_type = $${n++}`;
       params.push(filters.source_type);
     }
     if (filters.from_date) {
-      query += ` AND created_at >= $${n++}::timestamptz`;
+      where += ` AND created_at >= $${n++}::timestamptz`;
       params.push(filters.from_date);
     }
     if (filters.to_date) {
-      query += ` AND created_at <= $${n++}::timestamptz`;
+      where += ` AND created_at <= $${n++}::timestamptz`;
       params.push(filters.to_date);
     }
-    query += ` ORDER BY created_at DESC`;
-    if (filters.limit != null) {
-      query += ` LIMIT $${n++}`;
-      params.push(filters.limit);
-    }
-    if (filters.offset != null) {
-      query += ` OFFSET $${n++}`;
-      params.push(filters.offset);
-    }
-    const result = await db.query<InventoryLedgerEntry>(query, params);
-    return result.rows;
+
+    const countResult = await db.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM inventory_ledger${where}`,
+      params
+    );
+    const total = parseInt(countResult.rows[0]?.count ?? '0', 10);
+
+    const result = await db.query<InventoryLedgerEntry>(
+      `SELECT id, godown_id, product_id, quantity_change, source_type, source_id, stock_before, stock_after,
+              reference_type, reference_id, batch_id, packaging_id, created_at, created_by
+       FROM inventory_ledger
+       ${where}
+       ORDER BY created_at DESC
+       LIMIT $${n++} OFFSET $${n}`,
+      [...params, filters.limit, filters.offset]
+    );
+    return { rows: result.rows, total };
   }
 }
 

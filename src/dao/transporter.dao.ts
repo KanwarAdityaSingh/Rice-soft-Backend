@@ -3,6 +3,7 @@ import { Transporter, CreateTransporterDTO, UpdateTransporterDTO } from '../mode
 import { logger } from '../utils/logger';
 import { mergeEntityKycDetailsPatch, parseEntityKycDetails, isTransporterKycVerified, resolveEntityIsActiveFromKyc } from '../utils/kyc-verification';
 import type { TransportType } from '../models/transporter.model';
+import { buildNormalizedSearchClause } from '../utils/search';
 
 const TRANSPORTER_SELECT_COLUMNS = `
       id, business_name, contact_persons, contact_person, phone, email, address, gst_number, pan_number,
@@ -14,39 +15,74 @@ export interface TransporterListFilters {
   includeInactive?: boolean;
   isVerified?: boolean;
   bankVerified?: boolean;
+  search?: string;
+  limit: number;
+  offset: number;
 }
 
 export class TransporterDAO {
-  async findAll(filters: TransporterListFilters = {}): Promise<Transporter[]> {
-    const { includeInactive = false, isVerified, bankVerified } = filters;
-    let query = `
-      SELECT ${TRANSPORTER_SELECT_COLUMNS}
-      FROM transporters
-      WHERE 1=1
-    `;
-    
+  async findAll(filters: TransporterListFilters): Promise<{ rows: Transporter[]; total: number }> {
+    const { includeInactive = false, isVerified, bankVerified, search, limit, offset } = filters;
+
+    let where = `WHERE 1=1`;
     const params: unknown[] = [];
+    let paramCount = 1;
 
     if (!includeInactive) {
-      query += ` AND is_active = true`;
+      where += ` AND is_active = true`;
     }
 
     if (isVerified === true) {
-      query += ` AND is_verified = true`;
+      where += ` AND is_verified = true`;
     } else if (isVerified === false) {
-      query += ` AND is_verified = false`;
+      where += ` AND is_verified = false`;
     }
 
     if (bankVerified === true) {
-      query += ` AND bank_details_verified_at IS NOT NULL`;
+      where += ` AND bank_details_verified_at IS NOT NULL`;
     } else if (bankVerified === false) {
-      query += ` AND bank_details_verified_at IS NULL`;
+      where += ` AND bank_details_verified_at IS NULL`;
     }
 
-    query += ` ORDER BY business_name ASC`;
+    const searchClause = buildNormalizedSearchClause(
+      [
+        'business_name',
+        'email',
+        'phone',
+        'gst_number',
+        'pan_number',
+        'aadhar_number',
+        'contact_person',
+        'contact_persons::text',
+        'vehicle_numbers::text',
+        'transport_type',
+      ],
+      search,
+      paramCount
+    );
+    where += searchClause.sql;
+    params.push(...searchClause.params);
+    paramCount = searchClause.nextParamIndex;
 
-    const result = await db.query<Transporter>(query, params);
-    return result.rows;
+    const countResult = await db.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM transporters ${where}`,
+      params
+    );
+    const total = parseInt(countResult.rows[0]?.count ?? '0', 10);
+
+    const limitIdx = paramCount++;
+    const offsetIdx = paramCount++;
+    params.push(limit, offset);
+
+    const result = await db.query<Transporter>(
+      `SELECT ${TRANSPORTER_SELECT_COLUMNS}
+       FROM transporters
+       ${where}
+       ORDER BY business_name ASC
+       LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
+      params
+    );
+    return { rows: result.rows, total };
   }
 
   async findById(id: string): Promise<Transporter | null> {

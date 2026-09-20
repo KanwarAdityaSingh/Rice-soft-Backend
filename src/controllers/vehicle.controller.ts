@@ -8,10 +8,14 @@ import { AuthRequest } from '../middleware/auth.middleware';
 import { gstLookupService } from '../services/gst-lookup.service';
 import { kycPersistenceService } from '../services/kyc-persistence.service';
 import { parseVehicleVerificationDetails } from '../utils/kyc-verification';
+import { parsePaginationQuery, toPaginatedResult } from '../utils/pagination';
+import { parseSearchQuery } from '../utils/search';
 
 export class VehicleController {
   async getAll(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
+      const { page, limit, offset } = parsePaginationQuery(req.query);
+      const search = parseSearchQuery(req.query);
       const transporterId = req.query.transporter_id as string | undefined;
       const includeInactive = req.query.include_inactive === 'true';
       let isActive: boolean | undefined;
@@ -24,9 +28,15 @@ export class VehicleController {
         isActive = true;
       }
 
-      const vehicles = await vehicleDAO.findAll(transporterId, isActive);
+      const { rows, total } = await vehicleDAO.findAll({
+        transporterId,
+        isActive,
+        search,
+        limit,
+        offset,
+      });
 
-      const vehicleResponses: VehicleResponse[] = vehicles.map((vehicle) => ({
+      const vehicleResponses: VehicleResponse[] = rows.map((vehicle) => ({
         id: vehicle.id,
         vehicle_number: vehicle.vehicle_number,
         rc_number: vehicle.rc_number,
@@ -48,7 +58,7 @@ export class VehicleController {
         updated_at: vehicle.updated_at.toISOString(),
       }));
 
-      return ResponseHandler.success(res, vehicleResponses);
+      return ResponseHandler.success(res, toPaginatedResult(vehicleResponses, total, page, limit));
     } catch (error) {
       next(error);
     }

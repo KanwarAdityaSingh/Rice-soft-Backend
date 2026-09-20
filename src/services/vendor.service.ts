@@ -7,7 +7,7 @@ import { gstLookupService } from './gst-lookup.service';
 import { logger } from '../utils/logger';
 
 export class VendorService {
-  async getAllVendors(filters: VendorListFilters = {}): Promise<Vendor[]> {
+  async getAllVendors(filters: VendorListFilters): Promise<{ rows: Vendor[]; total: number }> {
     return await vendorDAO.findAll(filters);
   }
 

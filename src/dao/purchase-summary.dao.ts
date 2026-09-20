@@ -21,6 +21,7 @@ import { logger } from '../utils/logger';
 import { formatSaudaDisplayId } from '../utils/sauda-display';
 import { computeKaantaPricingNetWeight, floorToMoneyStep } from '../utils/money';
 import type { RiceType } from '../models/lead.model';
+import { brokerCommissionEntryDAO } from './broker-commission-entry.dao';
 import {
   DEFAULT_CALCULATION_POLICY_ID,
   getCalculationPolicy,
@@ -177,6 +178,7 @@ export class PurchaseSummaryDAO {
         totalBillWeight,
         totalSaidSentWeight,
         isDanaRequired: shouldApplyDana,
+        useBillWeightOnly: sauda.sauda_type === 'exgodown',
       });
       const saudaRate = parseFloat(String(sauda.rate || '0'));
       const kaantaMoney = calculationPolicy.buildKaantaMoneyInputs(pricing, saudaRate);
@@ -888,12 +890,55 @@ export class PurchaseSummaryDAO {
       totalBrokerCommission += summary.broker_commission_amount;
     }
 
-    logger.info('Broker commission summary calculated', { brokerId, saudaCount: lines.length, totalBrokerCommission });
+    const salesEntries = await brokerCommissionEntryDAO.listByBrokerId(brokerId, {
+      fromDate: options?.fromDate,
+      toDate: options?.toDate,
+    });
+
+    const salesLines = salesEntries.map((e) => ({
+      entry_id: e.id,
+      sales_sauda_id: e.sales_sauda_id,
+      order_number: e.order_number ?? null,
+      invoice_dispatch_id: e.invoice_dispatch_id,
+      invoice_number: e.invoice_number ?? null,
+      credit_note_id: e.credit_note_id,
+      credit_note_number: e.credit_note_number ?? null,
+      entry_type: e.entry_type,
+      broker_commission: e.commission_rate,
+      broker_commission_type: e.commission_type,
+      basis_quantity: e.basis_quantity,
+      basis_sale_amount: e.basis_sale_amount,
+      broker_commission_amount: e.commission_amount,
+      status: e.status,
+      party_name: e.party_name ?? null,
+      created_at:
+        e.created_at instanceof Date ? e.created_at.toISOString() : String(e.created_at),
+    }));
+    const salesTotal = floorToMoneyStep(
+      salesLines.reduce((s, l) => s + Number(l.broker_commission_amount), 0)
+    );
+    const purchaseTotal = floorToMoneyStep(totalBrokerCommission);
+
+    logger.info('Broker commission summary calculated', {
+      brokerId,
+      purchaseSaudaCount: lines.length,
+      salesEntryCount: salesLines.length,
+      purchaseTotal,
+      salesTotal,
+    });
 
     return {
       broker_id: brokerId,
+      purchase: {
+        lines,
+        total_broker_commission: purchaseTotal,
+      },
+      sales: {
+        lines: salesLines,
+        total_broker_commission: salesTotal,
+      },
+      total_broker_commission: floorToMoneyStep(purchaseTotal + salesTotal),
       lines,
-      total_broker_commission: floorToMoneyStep(totalBrokerCommission),
       period_from: options?.fromDate ?? null,
       period_to: options?.toDate ?? null,
     };

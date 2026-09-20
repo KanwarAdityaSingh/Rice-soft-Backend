@@ -1,43 +1,84 @@
 import { db } from '../database/connection';
 import { InwardSlipPass, CreateInwardSlipPassDTO, UpdateInwardSlipPassDTO } from '../models/inward-slip-pass.model';
 import { logger } from '../utils/logger';
+import { buildNormalizedSearchClause } from '../utils/search';
 
 export class InwardSlipPassDAO {
-  async findAll(saudaId?: string, godownId?: string): Promise<InwardSlipPass[]> {
-    let query = `
-      SELECT isp.id, isp.godown_id, isp.slip_number, isp.date, isp.vehicle_id, isp.party_name, isp.party_address,
-             isp.party_gst_number, isp.party_pan_number, isp.transporter_id, isp.transportation_cost, isp.status, 
-             isp.other_bills,
-             isp.bill_pdf_url, isp.bill_number, isp.bill_date, isp.bilti_image_url, isp.bilti_pdf_url, isp.eway_bill_number, isp.eway_bill_url,
-             isp.notes, isp.created_at, isp.updated_at, isp.created_by, isp.updated_by
-      FROM inward_slip_passes isp
-      WHERE 1=1
+  async findAll(
+    saudaId?: string,
+    godownId?: string,
+    pagination?: { limit: number; offset: number },
+    search?: string
+  ): Promise<{ rows: InwardSlipPass[]; total: number }> {
+    const selectCols = `
+      isp.id, isp.godown_id, isp.slip_number, isp.date, isp.vehicle_id, isp.party_name, isp.party_address,
+      isp.party_gst_number, isp.party_pan_number, isp.transporter_id, isp.transportation_cost, isp.status,
+      isp.other_bills,
+      isp.bill_pdf_url, isp.bill_number, isp.bill_date, isp.bilti_image_url, isp.bilti_pdf_url, isp.eway_bill_number, isp.eway_bill_url,
+      isp.notes, isp.created_at, isp.updated_at, isp.created_by, isp.updated_by
     `;
-    
+    let where = ` WHERE 1=1`;
     const params: any[] = [];
     let paramCount = 1;
 
     if (saudaId) {
-      query += ` AND isp.id IN (
-        SELECT inward_slip_pass_id 
-        FROM inward_slip_pass_saudas 
+      where += ` AND isp.id IN (
+        SELECT inward_slip_pass_id
+        FROM inward_slip_pass_saudas
         WHERE sauda_id = $${paramCount++}
       )`;
       params.push(saudaId);
     }
     if (godownId) {
-      query += ` AND isp.godown_id = $${paramCount++}`;
+      where += ` AND isp.godown_id = $${paramCount++}`;
       params.push(godownId);
     }
 
-    query += ` ORDER BY isp.date DESC, isp.created_at DESC`;
+    const searchClause = buildNormalizedSearchClause(
+      [
+        'isp.slip_number',
+        'isp.party_name',
+        'isp.party_gst_number',
+        'isp.party_pan_number',
+        'isp.bill_number',
+        'isp.eway_bill_number',
+        'isp.notes',
+        'isp.status',
+        'isp.party_address',
+        `TO_CHAR(isp.date, 'YYYY-MM-DD')`,
+        'isp.other_bills::text',
+      ],
+      search,
+      paramCount
+    );
+    where += searchClause.sql;
+    params.push(...searchClause.params);
+    paramCount = searchClause.nextParamIndex;
 
-    const result = await db.query<any>(query, params);
+    const countResult = await db.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM inward_slip_passes isp${where}`,
+      params
+    );
+    const total = parseInt(countResult.rows[0]?.count ?? '0', 10);
+
+    const limit = pagination?.limit ?? 50;
+    const offset = pagination?.offset ?? 0;
+    const result = await db.query<any>(
+      `SELECT ${selectCols}
+       FROM inward_slip_passes isp
+       ${where}
+       ORDER BY isp.date DESC, isp.created_at DESC
+       LIMIT $${paramCount++} OFFSET $${paramCount}`,
+      [...params, limit, offset]
+    );
     // Parse JSONB other_bills to array
-    return result.rows.map(row => ({
-      ...row,
-      other_bills: row.other_bills ? JSON.parse(JSON.stringify(row.other_bills)) : []
-    }));
+    return {
+      rows: result.rows.map((row) => ({
+        ...row,
+        other_bills: row.other_bills ? JSON.parse(JSON.stringify(row.other_bills)) : [],
+      })),
+      total,
+    };
   }
 
   async findById(id: string): Promise<InwardSlipPass | null> {

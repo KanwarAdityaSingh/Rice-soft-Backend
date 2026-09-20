@@ -7,13 +7,17 @@ import { RuleApplicationDAO } from '../dao/rule-application.dao';
 import { PayoutAttemptDAO } from '../dao/payout-attempt.dao';
 import { CashfreeWebhookEventDAO } from '../dao/cashfree-webhook-event.dao';
 import { RedemptionAttemptDAO } from '../dao/redemption-attempt.dao';
-import { ConflictError, NotFoundError } from '../utils/errors';
+import { ConflictError, NotFoundError, ValidationError } from '../utils/errors';
 import { db } from '../database/connection';
 import { CouponStateMachine } from './coupon-state.machine';
 import { COUPON_BATCH_LOCKED_MESSAGE } from './coupon-batch.service';
-import type { CouponStatus } from '../constants/coupon-status';
-import type { Redeemer, Redemption } from '../models/coupon.model';
-import { buildBankDetails, buildPayoutDetails, normalizePhone } from '../utils/coupon.helpers';
+import type { CouponListFilters, CouponListResult, Redeemer, Redemption } from '../models/coupon.model';
+import {
+  buildBankDetails,
+  buildPayoutDetails,
+  normalizePhone,
+  parseCouponSerialSequence,
+} from '../utils/coupon.helpers';
 
 export class CouponAdminService {
   constructor(
@@ -37,15 +41,36 @@ export class CouponAdminService {
     }
   }
 
-  async getCoupons(filters: {
-    batchId?: string;
-    status?: CouponStatus;
-    excludeVoid?: boolean;
-    code?: string;
-    page?: number;
-    limit?: number;
-  }) {
-    return this.couponDAO.findAll(filters);
+  async getCoupons(filters: CouponListFilters): Promise<CouponListResult> {
+    const daoFilters: CouponListFilters & {
+      fromSequence?: number;
+      toSequence?: number;
+    } = { ...filters };
+
+    if (filters.from_serial && filters.to_serial) {
+      if (filters.batchId) {
+        const batch = await this.batchDAO.findById(filters.batchId);
+        if (!batch) throw new NotFoundError('Coupon batch not found');
+        const fromSeq = parseCouponSerialSequence(filters.from_serial, batch.batch_code);
+        const toSeq = parseCouponSerialSequence(filters.to_serial, batch.batch_code);
+        if (fromSeq == null || toSeq == null) {
+          throw new ValidationError(
+            `Serial numbers must belong to this batch (${batch.batch_code}-NNNNNN)`
+          );
+        }
+        if (fromSeq > toSeq) {
+          throw new ValidationError('from_serial must be less than or equal to to_serial');
+        }
+        daoFilters.fromSequence = fromSeq;
+        daoFilters.toSequence = toSeq;
+      } else if (
+        filters.from_serial.trim().toUpperCase() > filters.to_serial.trim().toUpperCase()
+      ) {
+        throw new ValidationError('from_serial must be less than or equal to to_serial');
+      }
+    }
+
+    return this.couponDAO.findAll(daoFilters);
   }
 
   async getCouponByCode(code: string) {
@@ -149,8 +174,8 @@ export class CouponAdminService {
     };
   }
 
-  async getAllRedeemers(page = 1, limit = 50) {
-    const result = await this.redeemerDAO.findAll(page, limit);
+  async getAllRedeemers(page = 1, limit = 50, search?: string) {
+    const result = await this.redeemerDAO.findAll(page, limit, search);
     return {
       ...result,
       rows: result.rows.map((r) => this.formatRedeemerRow(r)),
@@ -162,6 +187,7 @@ export class CouponAdminService {
     phone?: string;
     ip?: string;
     failureReason?: string;
+    search?: string;
     fromDate?: string;
     toDate?: string;
     page?: number;

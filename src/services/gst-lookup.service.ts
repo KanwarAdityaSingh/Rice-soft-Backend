@@ -11,6 +11,7 @@ import {
   parseDrivingLicenseExpiryDate,
   parseTransportLicenseExpiryDate,
 } from '../utils/driver-license';
+import { indianMobileWithCountryCode, requireIndianMobile } from '../utils/indian-mobile';
 
 /**
  * GST API Response Interface
@@ -164,6 +165,34 @@ export interface EmailVerificationResult {
   domain_age?: string | null;
   domain_registrar?: string | null;
   organization?: string | null;
+}
+
+/**
+ * Surepass Mobile-to-Name API Response
+ */
+export interface MobileToNameResult {
+  client_id: string;
+  mobile_number: string;
+  name: string;
+}
+
+export interface TelecomHlrOperator {
+  name?: string;
+  mcc_mnc?: string;
+  country?: string;
+}
+
+export interface TelecomHlrResult {
+  client_id: string;
+  mobile_number: string;
+  is_valid: boolean;
+  number_type?: string;
+  original_operator?: TelecomHlrOperator;
+  current_operator?: TelecomHlrOperator;
+  operator?: string;
+  circle?: string;
+  is_ported?: boolean;
+  number_status?: string;
 }
 
 /**
@@ -1114,6 +1143,105 @@ export class GSTLookupService {
         throw error;
       }
       throw new InternalServerError('Failed to verify email via external API');
+    }
+  }
+
+  /**
+   * Resolve registered name for an Indian mobile via Surepass Mobile-to-Name API.
+   */
+  static async lookupMobileToName(
+    mobileNumber: string
+  ): Promise<SurepassApiEnvelope<MobileToNameResult>> {
+    const normalized = requireIndianMobile(mobileNumber);
+
+    logger.info('Mobile-to-name lookup requested', {
+      mobileNumber: `${normalized.slice(0, 2)}******${normalized.slice(-2)}`,
+    });
+
+    try {
+      const config = appConfig.apis.surepass;
+      const raw = await this.callSurepass<{ client_id?: string; name?: string }>(
+        config.mobileToNameUrl,
+        { mobile_number: normalized },
+        'Mobile to Name'
+      );
+
+      if (!raw.data?.name?.trim()) {
+        throw new BadRequestError('Mobile-to-name lookup returned no name');
+      }
+
+      const mapped: MobileToNameResult = {
+        client_id: raw.data.client_id ?? '',
+        mobile_number: normalized,
+        name: raw.data.name.trim(),
+      };
+
+      logger.info('Mobile-to-name lookup successful', {
+        mobileNumber: `${normalized.slice(0, 2)}******${normalized.slice(-2)}`,
+      });
+
+      return { mapped, raw };
+    } catch (error) {
+      logger.error('Mobile-to-name lookup failed', { error });
+      if (error instanceof ValidationError || error instanceof BadRequestError) {
+        throw error;
+      }
+      throw new InternalServerError('Failed to lookup mobile name via external API');
+    }
+  }
+
+  /**
+   * Lookup telecom HLR (operator / porting / validity) via Surepass.
+   * Provider expects 91 + 10-digit mobile.
+   */
+  static async lookupTelecomHlr(
+    mobileNumber: string
+  ): Promise<SurepassApiEnvelope<TelecomHlrResult>> {
+    const local = requireIndianMobile(mobileNumber);
+    const withCountry = indianMobileWithCountryCode(local);
+
+    logger.info('Telecom HLR lookup requested', {
+      mobileNumber: `${local.slice(0, 2)}******${local.slice(-2)}`,
+    });
+
+    try {
+      const config = appConfig.apis.surepass;
+      const raw = await this.callSurepass<TelecomHlrResult>(
+        config.telecomHlrUrl,
+        { mobile_number: withCountry },
+        'Telecom HLR'
+      );
+
+      if (!raw.data) {
+        throw new BadRequestError('Telecom HLR lookup returned no data');
+      }
+
+      const mapped: TelecomHlrResult = {
+        client_id: raw.data.client_id ?? '',
+        mobile_number: local,
+        is_valid: Boolean(raw.data.is_valid),
+        number_type: raw.data.number_type,
+        original_operator: raw.data.original_operator,
+        current_operator: raw.data.current_operator,
+        operator: raw.data.operator,
+        circle: raw.data.circle,
+        is_ported: raw.data.is_ported,
+        number_status: raw.data.number_status,
+      };
+
+      logger.info('Telecom HLR lookup successful', {
+        mobileNumber: `${local.slice(0, 2)}******${local.slice(-2)}`,
+        is_valid: mapped.is_valid,
+        operator: mapped.operator,
+      });
+
+      return { mapped, raw };
+    } catch (error) {
+      logger.error('Telecom HLR lookup failed', { error });
+      if (error instanceof ValidationError || error instanceof BadRequestError) {
+        throw error;
+      }
+      throw new InternalServerError('Failed to lookup telecom HLR via external API');
     }
   }
 

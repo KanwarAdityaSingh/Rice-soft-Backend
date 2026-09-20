@@ -1,11 +1,23 @@
 export type SalesSaudaDiscountType = 'per_kg' | 'percentage';
 
+import type { SalesSaudaLineType } from '../constants/sales-lot-sale';
+
+export type { SalesSaudaLineType };
+
 export interface SalesSaudaLine {
   id: string;
   sales_sauda_id: string;
-  product_id: string;
+  line_type: SalesSaudaLineType;
+  product_id: string | null;
+  /** Optional invoice display name; null → use product master name */
+  product_alias: string | null;
+  lot_id: string | null;
   packaging_id: string | null;
   packet_count: number | null;
+  /** Lot lines only — optional; not required to match quantity */
+  no_of_bags: number | null;
+  /** Lot lines only — kg per bag; optional */
+  bag_weight: number | null;
   quantity: number;
   quantity_unit: string;
   rate: number;
@@ -22,9 +34,14 @@ export interface SalesSaudaLine {
 }
 
 export interface CreateSalesSaudaLineDTO {
-  product_id: string;
+  line_type?: SalesSaudaLineType;
+  product_id?: string;
+  product_alias?: string | null;
+  lot_id?: string;
   packaging_id?: string;
   packet_count?: number;
+  no_of_bags?: number;
+  bag_weight?: number;
   quantity?: number;
   quantity_unit?: string;
   rate: number;
@@ -39,9 +56,14 @@ export interface CreateSalesSaudaLineDTO {
 }
 
 export interface UpdateSalesSaudaLineDTO {
-  product_id?: string;
+  line_type?: SalesSaudaLineType;
+  product_id?: string | null;
+  product_alias?: string | null;
+  lot_id?: string | null;
   packaging_id?: string | null;
   packet_count?: number | null;
+  no_of_bags?: number | null;
+  bag_weight?: number | null;
   quantity?: number;
   quantity_unit?: string;
   rate?: number;
@@ -58,9 +80,16 @@ export interface UpdateSalesSaudaLineDTO {
 export interface SalesSaudaLineResponse {
   id: string;
   sales_sauda_id: string;
-  product_id: string;
+  line_type: SalesSaudaLineType;
+  product_id: string | null;
+  product_alias: string | null;
+  lot_id: string | null;
   packaging_id: string | null;
   packet_count: number | null;
+  /** Lot lines only — optional; not required to match quantity */
+  no_of_bags: number | null;
+  /** Lot lines only — kg per bag; optional */
+  bag_weight: number | null;
   quantity: number;
   quantity_unit: string;
   rate: number;

@@ -119,9 +119,27 @@ export class LotInventoryDAO {
     return (result.rowCount || 0) > 0;
   }
 
+  async incrementQuantity(
+    lotId: string,
+    quantity: number,
+    godownId?: string,
+    client?: import('pg').PoolClient
+  ): Promise<boolean> {
+    const query = `
+      UPDATE lot_inventory
+      SET available_quantity = available_quantity + $1, updated_at = CURRENT_TIMESTAMP
+      WHERE lot_id = $2 AND ($3::uuid IS NULL OR godown_id = $3)
+    `;
+    const params = [quantity, lotId, godownId ?? null];
+    const result = client
+      ? await client.query(query, params)
+      : await db.query(query, params);
+    return (result.rowCount || 0) > 0;
+  }
+
   async getAvailableQuantity(lotId: string, godownId?: string): Promise<number> {
     const inventory = await this.findByLotId(lotId, godownId);
-    return inventory ? inventory.available_quantity : 0;
+    return inventory ? Number(inventory.available_quantity) : 0;
   }
 }
 

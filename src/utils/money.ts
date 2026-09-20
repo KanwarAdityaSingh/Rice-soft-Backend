@@ -57,6 +57,15 @@ export function floorToMoneyStep(amount: number | string, step = 1): number {
 }
 
 /**
+ * Round to nearest whole rupee (half-up): 90.4 → 90, 90.5 → 91.
+ * Uses Math.round semantics for positive invoice totals.
+ */
+export function roundToNearestRupee(amount: number): number {
+  if (!Number.isFinite(amount)) return amount;
+  return Math.round(amount);
+}
+
+/**
  * Dana (husk) deduction in kg: 300 g per quintal = weightKg × (3/1000).
  * Rounded to the nearest whole kg (0.5 rounds up).
  */
@@ -80,19 +89,51 @@ export type KaantaPricingWeightInput = {
   /** Party invoice / said-document weight; primary bill cap when present. */
   totalSaidSentWeight: number;
   isDanaRequired: boolean;
+  /**
+   * Ex-Godown saudas only: bill is always built on billCap (said_sent, else lot bill_weight) —
+   * the vendor invoices for the full contracted quantity regardless of what the re-weigh (kaanta)
+   * shows. Kaanta is verification-only; any difference is surfaced as `weightVariance` for
+   * reporting and does NOT change gross/dana/net. Omit (or pass false) for FOR saudas, where the
+   * existing "pay for what arrived" rule applies: gross = min(kaanta, billCap).
+   */
+  useBillWeightOnly?: boolean;
+};
+
+export type WeightVarianceDirection = 'short' | 'excess';
+
+export type KaantaWeightVariance = {
+  /** kaanta < billCap (short) or kaanta > billCap (excess). */
+  direction: WeightVarianceDirection;
+  /** abs(kaanta - billCap), always > 0. */
+  varianceKg: number;
+  billWeight: number;
+  kantaWeight: number;
 };
 
 export type KaantaPricingWeightResult = {
-  /** Weight before dana: min(kaanta, billCap) when billCap > 0, else kaanta-only. */
+  /**
+   * Weight before dana. FOR: min(kaanta, billCap) when billCap > 0, else kaanta-only.
+   * Ex-Godown (useBillWeightOnly): billCap when > 0, else kaanta-only (no bill recorded yet).
+   */
   grossWeightBeforeDana: number;
   danaDeductionKg: number;
   netWeightForPricing: number;
+  /**
+   * Set only when useBillWeightOnly and both kaanta & billCap are known and differ.
+   * Purely informational — never affects gross/dana/net above.
+   */
+  weightVariance: KaantaWeightVariance | null;
 };
 
 /**
  * Kaanta pricing weights when kaanta exists.
  * Bill cap = said_sent (invoice) when provided, else lot bill_weight (sauda quantity).
- * Gross = min(kaanta, billCap) — base amount = gross × rate.
+ *
+ * FOR saudas (default): gross = min(kaanta, billCap) — buyer pays only for what physically arrived.
+ * Ex-Godown saudas (useBillWeightOnly): gross = billCap always — vendor is paid for the full
+ * contracted quantity; the kaanta re-weigh is recorded for verification only. Any shortfall or
+ * excess vs. billCap is reported via `weightVariance` but never changes the amount.
+ *
  * Dana (if required) = round(gross × 3/1000); deducted separately as dana_kg × rate before discounts.
  * net = gross − dana — used for PA final_weight display.
  */
@@ -102,7 +143,15 @@ export function computeKaantaPricingNetWeight(input: KaantaPricingWeightInput): 
   const said = Number.isFinite(input.totalSaidSentWeight) ? Math.max(input.totalSaidSentWeight, 0) : 0;
 
   const billCap = said > 0 ? said : bill;
-  const grossWeightBeforeDana = billCap > 0 ? Math.min(kaanta, billCap) : kaanta;
+  const useBillWeightOnly = input.useBillWeightOnly ?? false;
+
+  const grossWeightBeforeDana = useBillWeightOnly
+    ? billCap > 0
+      ? billCap
+      : kaanta
+    : billCap > 0
+      ? Math.min(kaanta, billCap)
+      : kaanta;
 
   const danaDeductionKg =
     input.isDanaRequired && grossWeightBeforeDana > 0
@@ -111,5 +160,15 @@ export function computeKaantaPricingNetWeight(input: KaantaPricingWeightInput): 
 
   const netWeightForPricing = Math.max(grossWeightBeforeDana - danaDeductionKg, 0);
 
-  return { grossWeightBeforeDana, danaDeductionKg, netWeightForPricing };
+  let weightVariance: KaantaWeightVariance | null = null;
+  if (useBillWeightOnly && billCap > 0 && kaanta > 0 && Math.abs(kaanta - billCap) > EPS) {
+    weightVariance = {
+      direction: kaanta < billCap ? 'short' : 'excess',
+      varianceKg: Math.abs(kaanta - billCap),
+      billWeight: billCap,
+      kantaWeight: kaanta,
+    };
+  }
+
+  return { grossWeightBeforeDana, danaDeductionKg, netWeightForPricing, weightVariance };
 }

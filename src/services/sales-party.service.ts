@@ -9,7 +9,7 @@ import {
 import { logger } from '../utils/logger';
 
 export class SalesPartyService {
-  async list(filters: SalesPartyListFilters = {}): Promise<SalesParty[]> {
+  async list(filters: SalesPartyListFilters): Promise<{ rows: SalesParty[]; total: number }> {
     return salesPartyDAO.findAll(filters);
   }
 

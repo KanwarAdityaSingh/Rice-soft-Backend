@@ -27,6 +27,8 @@ import { kycPersistenceService } from '../services/kyc-persistence.service';
 import { parseEntityKycDetails } from '../utils/kyc-verification';
 import { applyBankVerificationFromSnapshot } from '../utils/apply-bank-verification-from-snapshot';
 import { assertModuleEmailAvailable } from '../utils/entity-email-conflict';
+import { parsePaginationQuery, toPaginatedResult } from '../utils/pagination';
+import { parseSearchQuery } from '../utils/search';
 import {
   bankVerificationSuccessExtras,
   isBankVerificationSuccess,
@@ -85,6 +87,8 @@ function toTransporterResponse(transporter: Transporter): TransporterResponse {
 export class TransporterController {
   async getAll(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
+      const { page, limit, offset } = parsePaginationQuery(req.query);
+      const search = parseSearchQuery(req.query);
       const includeInactive = req.query.include_inactive === 'true';
       let isVerified: boolean | undefined;
       if (req.query.is_verified === 'true') {
@@ -101,11 +105,21 @@ export class TransporterController {
         bankVerified = false;
       }
 
-      const transporters = await transporterDAO.findAll({ includeInactive, isVerified, bankVerified });
+      const { rows, total } = await transporterDAO.findAll({
+        includeInactive,
+        isVerified,
+        bankVerified,
+        search,
+        limit,
+        offset,
+      });
 
-      const transporterResponses: TransporterResponse[] = transporters.map(toTransporterResponse);
+      const transporterResponses: TransporterResponse[] = rows.map(toTransporterResponse);
 
-      return ResponseHandler.success(res, transporterResponses);
+      return ResponseHandler.success(
+        res,
+        toPaginatedResult(transporterResponses, total, page, limit)
+      );
     } catch (error) {
       next(error);
     }

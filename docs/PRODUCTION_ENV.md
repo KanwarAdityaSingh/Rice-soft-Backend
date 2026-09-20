@@ -166,7 +166,7 @@ CORS_ORIGIN=https://your-redeem-site.com,https://riceops.adhraamrit.com
 
 **Production rules:**
 
-- Set `COUPON_PUBLIC_SMS_ENABLED=true` for real OTP SMS (requires Kaleyra vars).
+- Set `COUPON_PUBLIC_SMS_ENABLED=true` for real OTP SMS (requires `MSG91_AUTH_KEY` + `MSG91_TEMPLATE_ID`).
 - Cashfree vars only needed if `COUPON_PAYOUT_ENABLED=true`.
 - Prefer no fixed OTP in production. If UAT needs it, set both `COUPON_PUBLIC_FIXED_OTP` (6 digits) and `COUPON_PUBLIC_FIXED_OTP_PHONES` (comma-separated 10-digit testers) — startup fails without the allowlist.
 
@@ -245,7 +245,9 @@ See [`env.template`](../env.template) and [`COUPON_MODULE.md`](./COUPON_MODULE.m
 | `JWT_SECRET` | Required; shared by admin auth and coupon public JWT |
 | `CORS_ORIGIN` | Include redeem portal + admin frontend origins |
 | `COUPON_PUBLIC_SMS_ENABLED` | `true` for real OTP |
-| `KALEYRA_*` | Required when public SMS enabled |
+| `MSG91_AUTH_KEY` | Required when public SMS enabled |
+| `MSG91_TEMPLATE_ID` | MSG91 Flow / SMS template id |
+| `MSG91_OTP_VAR` | Must match the OTP ##var## in the flow (default `otp`) |
 | `SUREPASS_API_TOKEN` | Required for bank KYC at redeem |
 | `COUPON_PAYOUT_ENABLED` | `false` until Cashfree is configured |
 | `COUPON_PAYOUT_AUTO` | `false` = CMS initiate only; `true` = enqueue on redeem + worker |

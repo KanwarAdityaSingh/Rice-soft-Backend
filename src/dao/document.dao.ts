@@ -3,32 +3,44 @@ import { Document, CreateDocumentDTO, UpdateDocumentDTO } from '../models/docume
 import { logger } from '../utils/logger';
 
 export class DocumentDAO {
-  async findAll(userId?: string, documentType?: string): Promise<Document[]> {
-    let query = `
-      SELECT id, user_id, document_type, document_number, document_name, issued_date, expiry_date,
-             issuing_authority, status, file_path, file_url, notes, is_primary, verified,
-             verified_at, verified_by, created_at, updated_at, created_by, updated_by
-      FROM documents
-      WHERE 1=1
-    `;
-    
+  async findAll(
+    userId?: string,
+    documentType?: string,
+    pagination?: { limit: number; offset: number }
+  ): Promise<{ rows: Document[]; total: number }> {
+    let where = ` WHERE 1=1`;
     const params: any[] = [];
     let paramCount = 1;
 
     if (userId) {
-      query += ` AND user_id = $${paramCount++}`;
+      where += ` AND user_id = $${paramCount++}`;
       params.push(userId);
     }
 
     if (documentType) {
-      query += ` AND document_type = $${paramCount++}`;
+      where += ` AND document_type = $${paramCount++}`;
       params.push(documentType);
     }
 
-    query += ` ORDER BY created_at DESC`;
+    const countResult = await db.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM documents${where}`,
+      params
+    );
+    const total = parseInt(countResult.rows[0]?.count ?? '0', 10);
 
-    const result = await db.query<Document>(query, params);
-    return result.rows;
+    const limit = pagination?.limit ?? 50;
+    const offset = pagination?.offset ?? 0;
+    const result = await db.query<Document>(
+      `SELECT id, user_id, document_type, document_number, document_name, issued_date, expiry_date,
+              issuing_authority, status, file_path, file_url, notes, is_primary, verified,
+              verified_at, verified_by, created_at, updated_at, created_by, updated_by
+       FROM documents
+       ${where}
+       ORDER BY created_at DESC
+       LIMIT $${paramCount++} OFFSET $${paramCount}`,
+      [...params, limit, offset]
+    );
+    return { rows: result.rows, total };
   }
 
   async findById(id: string): Promise<Document | null> {

@@ -62,6 +62,34 @@ export class InwardSlipPassSaudaDAO {
   }
 
   /**
+   * Batch: saudas linked to each inward slip pass (preserves created_at order per pass).
+   */
+  async getLinkedSaudaIdsByPassIds(
+    inwardSlipPassIds: string[]
+  ): Promise<Map<string, string[]>> {
+    const map = new Map<string, string[]>();
+    if (inwardSlipPassIds.length === 0) return map;
+
+    const result = await db.query<{
+      inward_slip_pass_id: string;
+      sauda_id: string;
+    }>(
+      `SELECT inward_slip_pass_id, sauda_id
+       FROM inward_slip_pass_saudas
+       WHERE inward_slip_pass_id = ANY($1::uuid[])
+       ORDER BY created_at ASC, sauda_id ASC`,
+      [inwardSlipPassIds]
+    );
+
+    for (const row of result.rows) {
+      const list = map.get(row.inward_slip_pass_id) ?? [];
+      list.push(row.sauda_id);
+      map.set(row.inward_slip_pass_id, list);
+    }
+    return map;
+  }
+
+  /**
    * Get all inward slip passes linked to a sauda
    */
   async getLinkedInwardSlipPassIds(saudaId: string): Promise<string[]> {

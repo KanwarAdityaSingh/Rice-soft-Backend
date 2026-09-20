@@ -10,6 +10,7 @@ import {
 } from '../utils/validators';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { CreateParameterDTO, ParameterResponse, UpdateParameterDTO } from '../models/parameter.model';
+import { parsePaginationQuery, toPaginatedResult } from '../utils/pagination';
 
 function toResponse(row: {
   id: string;
@@ -64,14 +65,21 @@ export class ParameterController {
         product_id?: string;
         inward_slip_pass_id?: string;
       }>(listParametersQuerySchema, req.query);
+      const { page, limit, offset } = parsePaginationQuery(req.query);
 
-      const rows = await parameterService.list({
-        sauda_id: q.sauda_id,
-        batch_id: q.batch_id,
-        product_id: q.product_id,
-        inward_slip_pass_id: q.inward_slip_pass_id,
-      });
-      return ResponseHandler.success(res, rows.map(toResponse));
+      const { items, total } = await parameterService.list(
+        {
+          sauda_id: q.sauda_id,
+          batch_id: q.batch_id,
+          product_id: q.product_id,
+          inward_slip_pass_id: q.inward_slip_pass_id,
+        },
+        { limit, offset }
+      );
+      return ResponseHandler.success(
+        res,
+        toPaginatedResult(items.map(toResponse), total, page, limit)
+      );
     } catch (error) {
       next(error);
     }

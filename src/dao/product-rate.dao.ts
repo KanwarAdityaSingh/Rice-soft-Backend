@@ -2,7 +2,7 @@ import { db } from '../database/connection';
 import { ProductRate } from '../models/product-rate.model';
 import { PackagingWeight } from '../models/packaging.model';
 import { logger } from '../utils/logger';
-import { productRateHistoryDAO } from './product-rate-history.dao';
+import { productRateHistoryDAO, ProductRateHistoryJoinedRow } from './product-rate-history.dao';
 
 const VALID_CAPACITIES: PackagingWeight[] = [5, 10, 25, 26, 30, 50];
 
@@ -148,6 +148,59 @@ export class ProductRateDAO {
         count: results.length,
       });
       return results;
+    });
+  }
+
+  /**
+   * Correct the `rate` on one existing history point (effective_date/capacity/product stay fixed).
+   * If this point is the one currently driving `product_rates` (its effective_date matches the
+   * current row for that capacity), the live rate is updated too so the two stay consistent.
+   * Returns null when the history row doesn't exist or doesn't belong to `productId`.
+   */
+  async editHistoryRate(
+    productId: string,
+    historyId: string,
+    newRate: number
+  ): Promise<{ history: ProductRateHistoryJoinedRow; currentRateUpdated: boolean } | null> {
+    return db.transaction(async (client) => {
+      const existing = await productRateHistoryDAO.findById(historyId, client);
+      if (!existing || existing.product_id !== productId) {
+        return null;
+      }
+
+      await productRateHistoryDAO.updateRate(client, historyId, newRate);
+
+      const capacityInt = Math.round(Number(existing.holding_capacity));
+      const currentRes = await client.query<{ effective_date: string }>(
+        `SELECT to_char(effective_date, 'YYYY-MM-DD') AS effective_date
+         FROM product_rates WHERE product_id = $1 AND holding_capacity = $2`,
+        [productId, capacityInt]
+      );
+      const currentEffectiveDate = currentRes.rows[0]?.effective_date ?? null;
+      const currentRateUpdated = currentEffectiveDate === existing.effective_date;
+
+      if (currentRateUpdated) {
+        await client.query(
+          `UPDATE product_rates SET rate = $1, updated_at = CURRENT_TIMESTAMP
+           WHERE product_id = $2 AND holding_capacity = $3`,
+          [newRate, productId, capacityInt]
+        );
+      }
+
+      const updated = await productRateHistoryDAO.findById(historyId, client);
+      if (!updated) {
+        throw new Error('Failed to load rate history row after update');
+      }
+
+      logger.info('Product rate history point edited', {
+        productId,
+        historyId,
+        holdingCapacity: capacityInt,
+        newRate,
+        currentRateUpdated,
+      });
+
+      return { history: updated, currentRateUpdated };
     });
   }
 }

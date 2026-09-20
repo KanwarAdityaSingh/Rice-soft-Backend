@@ -4,6 +4,7 @@ import { Kaanta, CreateKaantaDTO, UpdateKaantaDTO, type BagType } from '../model
 import { logger } from '../utils/logger';
 import { BadRequestError } from '../utils/errors';
 import { resolveLotRiceFromSauda } from '../utils/lot-rice-from-sauda';
+import { assertCanDeleteSerialNumber } from '../utils/sequential-serial';
 import { saudaDAO } from './sauda.dao';
 import { inwardSlipPassDAO } from './inward-slip-pass.dao';
 import { CreateInwardSlipLotDTO } from '../models/inward-slip-lot.model';
@@ -233,38 +234,61 @@ async function syncKaantaLinkedLotAndInventory(
 }
 
 export class KaantaDAO {
-  async findAll(saudaId?: string, ispId?: string, godownId?: string): Promise<Kaanta[]> {
-    let query = `
-      SELECT id, kaanta_id, godown_id, sauda_id, inward_slip_pass_id, full_truck_weight, 
-             empty_truck_weight, kaanta_weight, said_sent_weight, bag_weight, no_of_bags, bag_type,
-             khaali_kaanta_parchi_url, bhara_kaanta_parchi_url, combined_kaanta_parchi_url,
-             ticket_number, parchi_vehicle_number, vehicle_number_mismatch,
-             created_at, updated_at, created_by, updated_by
-      FROM kaantas
-      WHERE 1=1
+  async findAll(
+    saudaId?: string,
+    ispId?: string,
+    godownId?: string,
+    pagination?: { limit: number; offset: number }
+  ): Promise<{ rows: Kaanta[]; total: number }> {
+    const selectCols = `
+      id, kaanta_id, godown_id, sauda_id, inward_slip_pass_id, full_truck_weight,
+      empty_truck_weight, kaanta_weight, said_sent_weight, bag_weight, no_of_bags, bag_type,
+      khaali_kaanta_parchi_url, bhara_kaanta_parchi_url, combined_kaanta_parchi_url,
+      ticket_number, parchi_vehicle_number, vehicle_number_mismatch,
+      created_at, updated_at, created_by, updated_by
     `;
-    
+    let where = ` WHERE 1=1`;
     const params: any[] = [];
     let paramCount = 1;
 
     if (saudaId) {
-      query += ` AND sauda_id = $${paramCount++}`;
+      where += ` AND sauda_id = $${paramCount++}`;
       params.push(saudaId);
     }
 
     if (ispId) {
-      query += ` AND inward_slip_pass_id = $${paramCount++}`;
+      where += ` AND inward_slip_pass_id = $${paramCount++}`;
       params.push(ispId);
     }
     if (godownId) {
-      query += ` AND godown_id = $${paramCount++}`;
+      where += ` AND godown_id = $${paramCount++}`;
       params.push(godownId);
     }
 
-    query += ` ORDER BY created_at DESC`;
+    const countResult = await db.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM kaantas${where}`,
+      params
+    );
+    const total = parseInt(countResult.rows[0]?.count ?? '0', 10);
 
-    const result = await db.query<Kaanta>(query, params);
-    return result.rows;
+    // Internal callers (e.g. payment advice metrics) omit pagination → return all matching rows.
+    if (!pagination) {
+      const result = await db.query<Kaanta>(
+        `SELECT ${selectCols} FROM kaantas${where} ORDER BY created_at DESC`,
+        params
+      );
+      return { rows: result.rows, total };
+    }
+
+    const result = await db.query<Kaanta>(
+      `SELECT ${selectCols}
+       FROM kaantas
+       ${where}
+       ORDER BY created_at DESC
+       LIMIT $${paramCount++} OFFSET $${paramCount}`,
+      [...params, pagination.limit, pagination.offset]
+    );
+    return { rows: result.rows, total };
   }
 
   async findById(id: string): Promise<Kaanta | null> {
@@ -358,12 +382,13 @@ export class KaantaDAO {
         created_by: createdKaanta.created_by || undefined,
       };
 
+      // serial_number assigned by BEFORE INSERT trigger (lowest unused)
       const lotQuery = `
         INSERT INTO inward_slip_lots (sauda_id, godown_id, lot_number, rice_category, rice_code_id, rice_type, rice_length_id,
                                      no_of_bags, bag_weight, bill_weight, received_weight,
                                      rate, inward_slip_pass_created_at, created_by)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-        RETURNING id, sauda_id, godown_id, lot_number, rice_category, rice_code_id, rice_type, rice_length_id,
+        RETURNING id, sauda_id, godown_id, serial_number, lot_number, rice_category, rice_code_id, rice_type, rice_length_id,
                   no_of_bags, bag_weight, total_weight, bill_weight, received_weight, rate, amount,
                   inward_slip_pass_created_at, created_at, updated_at, created_by, updated_by
       `;
@@ -390,6 +415,7 @@ export class KaantaDAO {
 
       logger.info('Lot auto-created from kaanta', { 
         lot_id: createdLot.id, 
+        serial_number: createdLot.serial_number,
         lot_number: createdLot.lot_number,
         kaanta_id: createdKaanta.kaanta_id,
         amount: createdLot.amount
@@ -556,31 +582,58 @@ export class KaantaDAO {
   }
 
   async delete(id: string): Promise<boolean> {
-    // Get kaanta details before deletion for logging and recalculation
     const kaanta = await this.findById(id);
-    
     if (!kaanta) {
       return false;
     }
-    
+
     const saudaId = kaanta.sauda_id;
-    
-    const query = `DELETE FROM kaantas WHERE id = $1`;
-    const result = await db.query(query, [id]);
-    const deleted = (result.rowCount || 0) > 0;
-    
-    if (deleted) {
-      logger.info('Kaanta deleted (cascade deletes associated lot)', { 
-        id, 
+    const lotNumber = `LOT-${kaanta.kaanta_id}`;
+    const client = await db.getClient();
+
+    try {
+      await client.query('BEGIN');
+
+      const lotRes = await client.query<{ id: string; serial_number: number }>(
+        `SELECT id, serial_number FROM inward_slip_lots
+         WHERE sauda_id = $1 AND lot_number = $2
+         FOR UPDATE`,
+        [saudaId, lotNumber]
+      );
+      if (lotRes.rows[0]) {
+        await assertCanDeleteSerialNumber(
+          'inward_slip_lots',
+          Number(lotRes.rows[0].serial_number),
+          client
+        );
+        await client.query(`DELETE FROM inward_slip_lots WHERE id = $1`, [lotRes.rows[0].id]);
+      }
+
+      const result = await client.query(`DELETE FROM kaantas WHERE id = $1`, [id]);
+      const deleted = (result.rowCount || 0) > 0;
+      if (!deleted) {
+        await client.query('ROLLBACK');
+        return false;
+      }
+
+      await client.query('COMMIT');
+      logger.info('Kaanta deleted (associated lot removed when present)', {
+        id,
         kaanta_id: kaanta.kaanta_id,
-        sauda_id: saudaId 
+        sauda_id: saudaId,
       });
-      
-      // Recalculate sauda's received_until_now and completion_percentage
       await saudaDAO.recalculateReceivedWeight(saudaId);
+      return true;
+    } catch (error) {
+      try {
+        await client.query('ROLLBACK');
+      } catch {
+        /* ignore */
+      }
+      throw error;
+    } finally {
+      client.release();
     }
-    
-    return deleted;
   }
 }
 

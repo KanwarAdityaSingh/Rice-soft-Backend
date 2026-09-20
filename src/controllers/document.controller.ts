@@ -1,6 +1,7 @@
 import { Response, NextFunction } from 'express';
 import { documentService } from '../services/document.service';
 import { ResponseHandler } from '../utils/response';
+import { parsePaginationQuery, toPaginatedResult } from '../utils/pagination';
 import { validate } from '../utils/validators';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { CreateDocumentDTO, UpdateDocumentDTO, DocumentResponse } from '../models/document.model';
@@ -45,10 +46,14 @@ export class DocumentController {
     try {
       const userId = req.query.user_id as string | undefined;
       const documentType = req.query.document_type as string | undefined;
+      const { page, limit, offset } = parsePaginationQuery(req.query);
 
-      const documents = await documentService.getAllDocuments(userId, documentType);
+      const { rows, total } = await documentService.getAllDocuments(userId, documentType, {
+        limit,
+        offset,
+      });
 
-      const documentResponses: DocumentResponse[] = documents.map((document) => ({
+      const items: DocumentResponse[] = rows.map((document) => ({
         id: document.id,
         user_id: document.user_id,
         document_type: document.document_type,
@@ -71,7 +76,7 @@ export class DocumentController {
         updated_by: document.updated_by,
       }));
 
-      return ResponseHandler.success(res, documentResponses);
+      return ResponseHandler.success(res, toPaginatedResult(items, total, page, limit));
     } catch (error) {
       next(error);
     }

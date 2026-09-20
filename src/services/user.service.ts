@@ -4,8 +4,13 @@ import { CreateUserDTO, UpdateUserDTO, User, CustomPermissions } from '../models
 import { logger } from '../utils/logger';
 
 export class UserService {
-  async getAllUsers(includeInactive: boolean, userType?: string): Promise<User[]> {
-    return await userDAO.findAll(includeInactive, userType);
+  async getAllUsers(
+    includeInactive: boolean,
+    userType?: string,
+    pagination?: { limit: number; offset: number }
+  ): Promise<{ items: User[]; total: number }> {
+    const { rows, total } = await userDAO.findAll(includeInactive, userType, pagination);
+    return { items: rows, total };
   }
 
   async getUserById(id: string): Promise<User> {

@@ -6,6 +6,8 @@ import { godownService } from '../services/godown.service';
 import { gstLookupService } from '../services/gst-lookup.service';
 import { ValidationError } from '../utils/errors';
 import type { CreateGodownDTO, UpdateGodownDTO, Godown } from '../models/godown.model';
+import { parsePaginationQuery, toPaginatedResult } from '../utils/pagination';
+import { parseSearchQuery } from '../utils/search';
 
 /** Avoid Joi's opaque `"value" must be a valid GUID` when :id is mistaken for a route like lookupGST. */
 function parseGodownIdParam(raw: string | undefined): string {
@@ -67,8 +69,13 @@ export class GodownController {
   async getAll(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const includeInactive = req.query.include_inactive === 'true';
-      const list = await godownService.list(includeInactive);
-      return ResponseHandler.success(res, list.map(toResponse));
+      const { page, limit, offset } = parsePaginationQuery(req.query);
+      const search = parseSearchQuery(req.query);
+      const { items, total } = await godownService.list(includeInactive, { limit, offset }, search);
+      return ResponseHandler.success(
+        res,
+        toPaginatedResult(items.map(toResponse), total, page, limit)
+      );
     } catch (error) {
       next(error);
     }

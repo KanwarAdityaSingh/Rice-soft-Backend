@@ -4,8 +4,12 @@ import { CreateDocumentDTO, UpdateDocumentDTO, Document } from '../models/docume
 import { logger } from '../utils/logger';
 
 export class DocumentService {
-  async getAllDocuments(userId?: string, documentType?: string): Promise<Document[]> {
-    return await documentDAO.findAll(userId, documentType);
+  async getAllDocuments(
+    userId?: string,
+    documentType?: string,
+    pagination?: { limit: number; offset: number }
+  ): Promise<{ rows: Document[]; total: number }> {
+    return await documentDAO.findAll(userId, documentType, pagination);
   }
 
   async getDocumentById(id: string): Promise<Document> {

@@ -13,6 +13,7 @@ import {
   resolveEntityIsActiveFromKyc,
 } from '../utils/kyc-verification';
 import { logger } from '../utils/logger';
+import { buildNormalizedSearchClause } from '../utils/search';
 
 const VENDOR_SELECT_COLUMNS = `
       id, business_name, contact_persons, contact_person, email, phone, address, business_details,
@@ -28,57 +29,94 @@ export interface VendorListFilters {
   bankVerified?: boolean;
   isVerified?: boolean;
   registrationType?: VendorRegistrationType;
+  search?: string;
+  limit: number;
+  offset: number;
 }
 
 export class VendorDAO {
-  async findAll(filters: VendorListFilters = {}): Promise<Vendor[]> {
+  async findAll(filters: VendorListFilters): Promise<{ rows: Vendor[]; total: number }> {
     const {
       includeInactive = false,
       type,
       bankVerified,
       isVerified,
       registrationType,
+      search,
+      limit,
+      offset,
     } = filters;
 
-    let query = `
-      SELECT ${VENDOR_SELECT_COLUMNS}
-      FROM vendors
-      WHERE 1=1
-    `;
-
+    let where = `WHERE 1=1`;
     const params: unknown[] = [];
     let paramCount = 1;
 
     if (!includeInactive) {
-      query += ` AND is_active = true`;
+      where += ` AND is_active = true`;
     }
 
     if (type) {
-      query += ` AND type = $${paramCount++}`;
+      where += ` AND type = $${paramCount++}`;
       params.push(type);
     }
 
     if (bankVerified === true) {
-      query += ` AND bank_details_verified_at IS NOT NULL`;
+      where += ` AND bank_details_verified_at IS NOT NULL`;
     } else if (bankVerified === false) {
-      query += ` AND bank_details_verified_at IS NULL`;
+      where += ` AND bank_details_verified_at IS NULL`;
     }
 
     if (isVerified === true) {
-      query += ` AND is_verified = true`;
+      where += ` AND is_verified = true`;
     } else if (isVerified === false) {
-      query += ` AND is_verified = false`;
+      where += ` AND is_verified = false`;
     }
 
     if (registrationType) {
-      query += ` AND registration_type = $${paramCount++}`;
+      where += ` AND registration_type = $${paramCount++}`;
       params.push(registrationType);
     }
 
-    query += ` ORDER BY business_name ASC`;
+    const searchClause = buildNormalizedSearchClause(
+      [
+        'business_name',
+        'email',
+        'phone',
+        'aadhar_number',
+        'contact_person',
+        'contact_persons::text',
+        `business_details->>'gst_number'`,
+        `business_details->>'pan_number'`,
+        'google_location_link',
+        'type',
+        'registration_type',
+      ],
+      search,
+      paramCount
+    );
+    where += searchClause.sql;
+    params.push(...searchClause.params);
+    paramCount = searchClause.nextParamIndex;
 
-    const result = await db.query<Vendor>(query, params);
-    return result.rows;
+    const countResult = await db.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM vendors ${where}`,
+      params
+    );
+    const total = parseInt(countResult.rows[0]?.count ?? '0', 10);
+
+    const limitIdx = paramCount++;
+    const offsetIdx = paramCount++;
+    params.push(limit, offset);
+
+    const result = await db.query<Vendor>(
+      `SELECT ${VENDOR_SELECT_COLUMNS}
+       FROM vendors
+       ${where}
+       ORDER BY business_name ASC
+       LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
+      params
+    );
+    return { rows: result.rows, total };
   }
 
   async findById(id: string): Promise<Vendor | null> {

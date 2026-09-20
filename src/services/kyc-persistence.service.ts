@@ -58,6 +58,10 @@ function entityKycKeyForVerification(
       return 'bank';
     case 'email':
       return 'emails';
+    case 'mobile_to_name':
+      return 'mobiles';
+    case 'telecom_hlr':
+      return 'telecom_hlr';
     case 'driving_license':
       return 'driving_license';
     default:
@@ -86,7 +90,8 @@ export class KycPersistenceService {
     entityId: string,
     verificationKey: KycVerificationKey,
     envelope: SurepassApiEnvelope<TMapped>,
-    email?: string
+    email?: string,
+    mobile?: string
   ): Promise<void> {
     const table = ENTITY_KYC_TABLES[entityType];
     const kycKey = entityKycKeyForVerification(verificationKey);
@@ -105,7 +110,8 @@ export class KycPersistenceService {
       parseEntityKycDetails(existingResult.rows[0].kyc_verification_details),
       kycKey,
       snapshot,
-      email
+      email,
+      mobile
     );
 
     await db.query(
@@ -353,6 +359,7 @@ export class KycPersistenceService {
           entity_id?: string;
           verification_key: KycVerificationKey;
           email?: string;
+          mobile?: string;
         }
       | undefined,
     envelope: SurepassApiEnvelope<TMapped>
@@ -361,7 +368,7 @@ export class KycPersistenceService {
       return;
     }
 
-    const { entity_type, entity_id, verification_key, email } = options;
+    const { entity_type, entity_id, verification_key, email, mobile } = options;
 
     if (entity_type === 'driver') {
       await this.saveDriverVerification(
@@ -379,7 +386,14 @@ export class KycPersistenceService {
       return;
     }
 
-    await this.saveEntityVerification(entity_type, entity_id, verification_key, envelope, email);
+    await this.saveEntityVerification(
+      entity_type,
+      entity_id,
+      verification_key,
+      envelope,
+      email,
+      mobile
+    );
   }
 }
 

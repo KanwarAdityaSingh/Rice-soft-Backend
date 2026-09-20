@@ -92,38 +92,53 @@ export class ParameterDAO {
     return result.rows;
   }
 
-  async findAll(filters: {
-    sauda_id?: string;
-    batch_id?: string;
-    product_id?: string;
-    inward_slip_pass_id?: string;
-  }): Promise<Parameter[]> {
-    let query = `
-      SELECT ${PARAMETER_COLUMNS}
-      FROM parameters
-      WHERE 1=1
-    `;
+  async findAll(
+    filters: {
+      sauda_id?: string;
+      batch_id?: string;
+      product_id?: string;
+      inward_slip_pass_id?: string;
+    },
+    pagination?: { limit: number; offset: number }
+  ): Promise<{ rows: Parameter[]; total: number }> {
+    let where = `WHERE 1=1`;
     const params: unknown[] = [];
     let n = 1;
     if (filters.sauda_id) {
-      query += ` AND sauda_id = $${n++}`;
+      where += ` AND sauda_id = $${n++}`;
       params.push(filters.sauda_id);
     }
     if (filters.batch_id) {
-      query += ` AND batch_id = $${n++}`;
+      where += ` AND batch_id = $${n++}`;
       params.push(filters.batch_id);
     }
     if (filters.product_id) {
-      query += ` AND product_id = $${n++}`;
+      where += ` AND product_id = $${n++}`;
       params.push(filters.product_id);
     }
     if (filters.inward_slip_pass_id) {
-      query += ` AND inward_slip_pass_id = $${n++}`;
+      where += ` AND inward_slip_pass_id = $${n++}`;
       params.push(filters.inward_slip_pass_id);
     }
-    query += ` ORDER BY created_at DESC`;
+
+    const countResult = await db.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM parameters ${where}`,
+      params
+    );
+    const total = parseInt(countResult.rows[0]?.count ?? '0', 10);
+
+    let query = `
+      SELECT ${PARAMETER_COLUMNS}
+      FROM parameters
+      ${where}
+      ORDER BY created_at DESC
+    `;
+    if (pagination) {
+      params.push(pagination.limit, pagination.offset);
+      query += ` LIMIT $${n++} OFFSET $${n}`;
+    }
     const result = await db.query<Parameter>(query, params);
-    return result.rows;
+    return { rows: result.rows, total };
   }
 
   async upsertForSauda(

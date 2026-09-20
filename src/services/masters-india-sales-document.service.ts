@@ -2,8 +2,11 @@ import { appConfig } from '../config/app.config';
 import {
   gstStateCodeFromGstin,
   isInterStateSupply,
+  isRegisteredGstin,
+  normalizeBuyerGstin,
   resolveGstStateCode,
   resolveGstStateName,
+  UNREGISTERED_PARTY_GSTIN,
 } from '../constants/gst-state-codes';
 import { godownDAO } from '../dao/godown.dao';
 import { invoiceDispatchDAO } from '../dao/invoice-dispatch.dao';
@@ -20,6 +23,9 @@ import type { Address } from '../models/vendor.model';
 import type { SalesSaudaDiscountType } from '../models/sales-sauda-line.model';
 import { BadRequestError, NotFoundError } from '../utils/errors';
 import { calculateSalesLineFinancials } from '../utils/sales-line-financials';
+import { roundToNearestRupee } from '../utils/money';
+import { LOT_SALE_HSN_CODE } from '../constants/sales-lot-sale';
+import { inwardSlipLotDAO } from '../dao/inward-slip-lot.dao';
 
 export interface SalesDocumentContext {
   dispatch: NonNullable<Awaited<ReturnType<typeof invoiceDispatchDAO.findById>>>;
@@ -43,7 +49,14 @@ export interface SalesDocumentContext {
     cgst: number;
     sgst: number;
     igst: number;
-    /** taxable + tax (no round-off) */
+    /** Sum of line finals before nearest-rupee round-off */
+    invoiceValueBeforeRoundOff: number;
+    /**
+     * Signed adjustment so invoiceValue = invoiceValueBeforeRoundOff + roundOff.
+     * Half-up: 90.4 → −0.4 (to 90), 90.5 → +0.5 (to 91).
+     */
+    roundOff: number;
+    /** Nearest whole rupee (half-up) — final invoice total */
     invoiceValue: number;
   };
   itemRows: Array<{
@@ -161,15 +174,13 @@ export async function loadSalesDocumentContext(
 
   const sellerGstin =
     (godown.gst_number || appConfig.apis.mastersIndia.sellerGstin || '').trim().toUpperCase();
-  const buyerGstin = (dispatch.party_gst_number || salesParty.business_details?.gst_number || '')
-    .trim()
-    .toUpperCase();
+  // Unregistered / missing buyer GSTIN → URP (B2C). Real GSTINs are kept as-is.
+  const buyerGstin = normalizeBuyerGstin(
+    dispatch.party_gst_number || salesParty.business_details?.gst_number
+  );
 
   if (!sellerGstin || sellerGstin.length !== 15) {
     throw new BadRequestError('Seller GSTIN is required on godown (or MASTERS_INDIA_SELLER_GSTIN)');
-  }
-  if (!buyerGstin || buyerGstin.length !== 15) {
-    throw new BadRequestError('Buyer GSTIN is required for B2B e-invoice / e-way bill');
   }
 
   const fallbackHsn = appConfig.apis.mastersIndia.defaultHsnCode;
@@ -184,12 +195,26 @@ export async function loadSalesDocumentContext(
 
   for (const line of lines) {
     const saudaLine = line.sales_sauda_line_id ? saudaLineById.get(line.sales_sauda_line_id) : null;
-    const product = await productDAO.findById(line.product_id);
+    const isLotLine = Boolean(line.lot_id || saudaLine?.line_type === 'lot');
+
+    const lot = line.lot_id
+      ? await inwardSlipLotDAO.findById(line.lot_id)
+      : saudaLine?.lot_id
+        ? await inwardSlipLotDAO.findById(saudaLine.lot_id)
+        : null;
+
+    const product =
+      !isLotLine && line.product_id ? await productDAO.findById(line.product_id) : null;
 
     const packagingId = line.packaging_id || saudaLine?.packaging_id || null;
     const packaging = packagingId ? await packagingDAO.findById(packagingId) : null;
-    const bagWeight =
+    const bagWeightFromPackaging =
       packaging?.holding_capacity != null ? `${Number(packaging.holding_capacity)} Kg` : null;
+    const bagWeightFromLot =
+      isLotLine && (line.bag_weight != null || saudaLine?.bag_weight != null)
+        ? `${Number(line.bag_weight ?? saudaLine?.bag_weight)} Kg`
+        : null;
+    const bagWeight = bagWeightFromPackaging || bagWeightFromLot;
 
     const quantity = parseFloat(String(line.quantity));
     const rate = parseFloat(String(line.rate));
@@ -221,21 +246,35 @@ export async function loadSalesDocumentContext(
     }
 
     const productHsn = product?.hsn_code?.trim() || '';
-    const hsn = productHsn || fallbackHsn;
+    const hsn = isLotLine ? LOT_SALE_HSN_CODE : productHsn || fallbackHsn;
     if (!hsn) {
       throw new BadRequestError(
         `HSN code is required on product${product?.name ? ` "${product.name}"` : ''} for e-invoice / e-way bill`
       );
     }
 
+    // Prefer snapshotted alias on dispatch line, then sauda line, then product master.
+    const alias =
+      (line.product_alias != null && String(line.product_alias).trim()) ||
+      (saudaLine?.product_alias != null && String(saudaLine.product_alias).trim()) ||
+      '';
+    const description = isLotLine
+      ? `Lot ${lot?.lot_number ?? line.lot_id ?? ''}`.trim()
+      : alias || product?.name || 'Rice product';
+
     const unit = line.quantity_unit === 'packets' ? 'PCS' : 'KGS';
-    const bags =
+    const bagsFromPackets =
       line.packet_count != null && Number(line.packet_count) > 0
         ? Number(line.packet_count)
         : null;
+    const bagsFromLot =
+      isLotLine && (line.no_of_bags != null || saudaLine?.no_of_bags != null)
+        ? Number(line.no_of_bags ?? saudaLine?.no_of_bags)
+        : null;
+    const bags = bagsFromPackets ?? bagsFromLot;
 
     itemRows.push({
-      description: product?.name || 'Rice product',
+      description,
       brand: product?.brand ?? null,
       bagWeight,
       hsn,
@@ -292,6 +331,10 @@ export async function loadSalesDocumentContext(
     );
   }
 
+  const invoiceValueBeforeRoundOff = round2(invoiceValue);
+  const invoiceValueRounded = roundToNearestRupee(invoiceValueBeforeRoundOff);
+  const roundOff = round2(invoiceValueRounded - invoiceValueBeforeRoundOff);
+
   return {
     dispatch,
     godown,
@@ -311,7 +354,9 @@ export async function loadSalesDocumentContext(
       cgst: round2(cgst),
       sgst: round2(sgst),
       igst: round2(igst),
-      invoiceValue: round2(invoiceValue),
+      invoiceValueBeforeRoundOff,
+      roundOff,
+      invoiceValue: invoiceValueRounded,
     },
     itemRows,
     transporter,
@@ -327,7 +372,8 @@ export function buildEInvoicePayload(ctx: SalesDocumentContext): Record<string, 
   return {
     user_gstin: ctx.sellerGstin,
     transaction_details: {
-      supply_type: 'B2B',
+      // URP / missing buyer GSTIN → B2C; otherwise B2B
+      supply_type: isRegisteredGstin(ctx.buyerGstin) ? 'B2B' : 'B2C',
     },
     document_details: {
       document_type: 'INV',
@@ -345,14 +391,19 @@ export function buildEInvoicePayload(ctx: SalesDocumentContext): Record<string, 
       email: appConfig.apis.mastersIndia.notificationEmail,
     },
     buyer_details: {
-      gstin: ctx.buyerGstin,
+      gstin: ctx.buyerGstin || UNREGISTERED_PARTY_GSTIN,
       legal_name: ctx.salesParty.business_name,
-      place_of_supply: gstStateCodeFromGstin(ctx.buyerGstin),
+      place_of_supply: isRegisteredGstin(ctx.buyerGstin)
+        ? gstStateCodeFromGstin(ctx.buyerGstin)
+        : resolveGstStateCode(buyerAddr.stateName, null),
       address1: buyerAddr.address1,
       address2: buyerAddr.address2,
       location: buyerAddr.place,
       pincode: buyerAddr.pincode,
-      state_code: resolveGstStateName(buyerAddr.stateName, ctx.buyerGstin),
+      state_code: resolveGstStateName(
+        buyerAddr.stateName,
+        isRegisteredGstin(ctx.buyerGstin) ? ctx.buyerGstin : null
+      ),
       phone_number: (ctx.salesParty.contact_persons?.[0]?.phones?.[0] || '').replace(/\D/g, '').slice(-10) || undefined,
     },
     value_details: {
@@ -360,7 +411,7 @@ export function buildEInvoicePayload(ctx: SalesDocumentContext): Record<string, 
       total_cgst_value: ctx.totals.cgst,
       total_sgst_value: ctx.totals.sgst,
       total_igst_value: ctx.totals.igst,
-      round_off_amount: 0,
+      round_off_amount: ctx.totals.roundOff,
       total_invoice_value: ctx.totals.invoiceValue,
     },
     item_list: ctx.itemRows.map((item, index) => ({
@@ -407,16 +458,22 @@ export function buildEWayBillPayload(
     pincode_of_consignor: Number(sellerAddr.pincode) || sellerAddr.pincode,
     state_of_consignor: resolveGstStateName(sellerAddr.stateName, ctx.sellerGstin),
     actual_from_state_name: resolveGstStateName(sellerAddr.stateName, ctx.sellerGstin),
-    gstin_of_consignee: ctx.buyerGstin,
+    gstin_of_consignee: ctx.buyerGstin || UNREGISTERED_PARTY_GSTIN,
     legal_name_of_consignee: ctx.salesParty.business_name,
     address1_of_consignee: buyerAddr.address1,
     address2_of_consignee: buyerAddr.address2,
     place_of_consignee: buyerAddr.place,
     pincode_of_consignee: Number(buyerAddr.pincode) || buyerAddr.pincode,
-    state_of_supply: resolveGstStateName(buyerAddr.stateName, ctx.buyerGstin),
-    actual_to_state_name: resolveGstStateName(buyerAddr.stateName, ctx.buyerGstin),
+    state_of_supply: resolveGstStateName(
+      buyerAddr.stateName,
+      isRegisteredGstin(ctx.buyerGstin) ? ctx.buyerGstin : null
+    ),
+    actual_to_state_name: resolveGstStateName(
+      buyerAddr.stateName,
+      isRegisteredGstin(ctx.buyerGstin) ? ctx.buyerGstin : null
+    ),
     transaction_type: 1,
-    other_value: 0,
+    other_value: ctx.totals.roundOff,
     total_invoice_value: ctx.totals.invoiceValue,
     taxable_amount: ctx.totals.taxable,
     cgst_amount: ctx.totals.cgst,

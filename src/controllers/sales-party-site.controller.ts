@@ -15,6 +15,7 @@ import {
   SalesPartySiteResponse,
 } from '../models/sales-party-site.model';
 import { AuthRequest } from '../middleware/auth.middleware';
+import { parsePaginationQuery, toPaginatedResult } from '../utils/pagination';
 
 function toResponse(site: {
   id: string;
@@ -41,6 +42,7 @@ function toResponse(site: {
 export class SalesPartySiteController {
   async getAll(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
+      const { page, limit, offset } = parsePaginationQuery(req.query);
       const salesPartyIdRaw = req.query.sales_party_id as string | undefined;
       if (!salesPartyIdRaw) {
         throw new ValidationError('sales_party_id query parameter is required');
@@ -53,8 +55,15 @@ export class SalesPartySiteController {
         throw new NotFoundError('Sales party not found');
       }
 
-      const sites = await salesPartySiteDAO.findBySalesPartyId(salesPartyId, includeInactive);
-      return ResponseHandler.success(res, sites.map(toResponse));
+      const { rows, total } = await salesPartySiteDAO.findBySalesPartyId(salesPartyId, {
+        includeInactive,
+        limit,
+        offset,
+      });
+      return ResponseHandler.success(
+        res,
+        toPaginatedResult(rows.map(toResponse), total, page, limit)
+      );
     } catch (error) {
       next(error);
     }

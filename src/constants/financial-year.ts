@@ -40,6 +40,28 @@ export function formatFinancialYearLabel(startYear: number): string {
   return `${startYear}-${startYear + 1}`;
 }
 
+const INDIA_TZ = 'Asia/Kolkata';
+
+/** Business calendar day (YYYY-MM-DD) in Asia/Kolkata. */
+export function indiaCalendarYmd(value: Date = new Date()): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: INDIA_TZ,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(value);
+}
+
+/** First YYYY-MM-DD from an ISO date/datetime, or IST calendar day for Date. */
+export function toCalendarYmd(value: Date | string | null | undefined): string | null {
+  if (value == null || value === '') return null;
+  if (typeof value === 'string') {
+    const match = value.trim().match(/^(\d{4}-\d{2}-\d{2})/);
+    return match ? match[1] : null;
+  }
+  return indiaCalendarYmd(value);
+}
+
 export function financialYearFromDate(value: Date | string): {
   startYear: number;
   label: string;

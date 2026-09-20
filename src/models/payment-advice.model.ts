@@ -1,6 +1,7 @@
 import { CreatePaymentAdviceChargeDTO, PaymentAdviceChargeResponse } from './payment-advice-charge.model';
 import type { PurchaseSummary } from './purchase-summary.model';
 import type { CalculationPolicyId } from '../constants/calculation-policies';
+import type { PaymentAdviceWeightVariance } from './sauda-weight-variance.model';
 
 export type PaymentAdviceStatus = 'pending' | 'completed' | 'failed';
 
@@ -141,6 +142,11 @@ export interface PaymentAdviceResponse {
   updated_at: string;
   charges?: PaymentAdviceChargeResponse[];
   net_payable?: number;
+  /**
+   * Ex-Godown only: set when kanta_weight differs from bill_weight for the linked sauda(s).
+   * Informational — does not affect `amount`. Omitted entirely for FOR saudas or when no variance.
+   */
+  weight_variance?: PaymentAdviceWeightVariance | null;
 }
 
 /** Consolidated payload for PA create/edit preview (same rules as save). */
@@ -151,6 +157,8 @@ export interface PaymentAdvicePreviewResponse {
   kanta_weight: number | null;
   dana_deduction: number | null;
   final_weight: number | null;
+  /** Ex-Godown only: set when kanta_weight differs from bill_weight. Informational only. */
+  weight_variance?: PaymentAdviceWeightVariance | null;
   total_bags: number;
   total_weight: number;
   /** Floored purchase-summary final_total_amount (PA amount before charges). */

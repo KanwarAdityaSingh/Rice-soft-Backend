@@ -12,6 +12,7 @@ import {
   resolveSalesPartyIsActive,
 } from '../utils/kyc-verification';
 import { logger } from '../utils/logger';
+import { buildNormalizedSearchClause } from '../utils/search';
 
 const COLUMNS = `
   id, business_name, contact_persons, contact_person, email, phone, address, business_details,
@@ -23,39 +24,81 @@ export interface SalesPartyListFilters {
   includeInactive?: boolean;
   isVerified?: boolean;
   registrationType?: SalesPartyRegistrationType;
+  search?: string;
+  limit: number;
+  offset: number;
 }
 
 export class SalesPartyDAO {
-  async findAll(filters: SalesPartyListFilters = {}): Promise<SalesParty[]> {
-    const { includeInactive = false, isVerified, registrationType } = filters;
+  async findAll(filters: SalesPartyListFilters): Promise<{ rows: SalesParty[]; total: number }> {
+    const {
+      includeInactive = false,
+      isVerified,
+      registrationType,
+      search,
+      limit,
+      offset,
+    } = filters;
 
-    let query = `
-      SELECT ${COLUMNS}
-      FROM sales_parties
-      WHERE 1=1
-    `;
+    let where = `WHERE 1=1`;
     const params: unknown[] = [];
     let paramCount = 1;
 
     if (!includeInactive) {
-      query += ` AND is_active = true`;
+      where += ` AND is_active = true`;
     }
 
     if (isVerified === true) {
-      query += ` AND is_verified = true`;
+      where += ` AND is_verified = true`;
     } else if (isVerified === false) {
-      query += ` AND is_verified = false`;
+      where += ` AND is_verified = false`;
     }
 
     if (registrationType) {
-      query += ` AND registration_type = $${paramCount++}`;
+      where += ` AND registration_type = $${paramCount++}`;
       params.push(registrationType);
     }
 
-    query += ` ORDER BY business_name ASC`;
+    const searchClause = buildNormalizedSearchClause(
+      [
+        'business_name',
+        'email',
+        'phone',
+        'aadhar_number',
+        'contact_person',
+        'contact_persons::text',
+        `business_details->>'gst_number'`,
+        `business_details->>'pan_number'`,
+        'customer_type',
+        'registration_type',
+        'google_location_link',
+      ],
+      search,
+      paramCount
+    );
+    where += searchClause.sql;
+    params.push(...searchClause.params);
+    paramCount = searchClause.nextParamIndex;
 
-    const result = await db.query<SalesParty>(query, params);
-    return result.rows;
+    const countResult = await db.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM sales_parties ${where}`,
+      params
+    );
+    const total = parseInt(countResult.rows[0]?.count ?? '0', 10);
+
+    const limitIdx = paramCount++;
+    const offsetIdx = paramCount++;
+    params.push(limit, offset);
+
+    const result = await db.query<SalesParty>(
+      `SELECT ${COLUMNS}
+       FROM sales_parties
+       ${where}
+       ORDER BY business_name ASC
+       LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
+      params
+    );
+    return { rows: result.rows, total };
   }
 
   async findById(id: string): Promise<SalesParty | null> {

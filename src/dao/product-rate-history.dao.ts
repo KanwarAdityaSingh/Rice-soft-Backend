@@ -63,6 +63,28 @@ export class ProductRateHistoryDAO {
     );
   }
 
+  async findById(id: string, client?: PoolClient): Promise<ProductRateHistoryJoinedRow | null> {
+    const query = `
+      SELECT
+        h.id, h.product_id, h.holding_capacity, h.rate,
+        to_char(h.effective_date, 'YYYY-MM-DD') AS effective_date,
+        h.created_at, h.created_by,
+        u.full_name AS created_by_full_name
+      FROM product_rate_history h
+      LEFT JOIN users u ON u.id = h.created_by
+      WHERE h.id = $1
+    `;
+    const result = client
+      ? await client.query<ProductRateHistoryJoinedRow>(query, [id])
+      : await db.query<ProductRateHistoryJoinedRow>(query, [id]);
+    return result.rows[0] ?? null;
+  }
+
+  /** Update only the rate on an existing history row (effective_date/capacity/product stay fixed). */
+  async updateRate(client: PoolClient, id: string, rate: number): Promise<void> {
+    await client.query(`UPDATE product_rate_history SET rate = $1 WHERE id = $2`, [rate, id]);
+  }
+
   /**
    * History for one product, oldest effective_date first (chart-friendly).
    */

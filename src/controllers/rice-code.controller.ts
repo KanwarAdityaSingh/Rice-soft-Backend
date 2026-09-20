@@ -15,6 +15,8 @@ import {
   type RiceCategory,
 } from '../constants/rice-categories';
 import { ValidationError } from '../utils/errors';
+import { parsePaginationQuery, toPaginatedResult } from '../utils/pagination';
+import { parseSearchQuery } from '../utils/search';
 
 export class RiceCodeController {
   async getAll(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
@@ -27,8 +29,13 @@ export class RiceCodeController {
         throw new ValidationError('category must be basmati or non_basmati');
       }
 
-      const riceCodes = await riceCodeService.getAllRiceCodes(category);
-      return ResponseHandler.success(res, riceCodes.map(toRiceCodeResponse));
+      const { page, limit, offset } = parsePaginationQuery(req.query);
+      const search = parseSearchQuery(req.query);
+      const { items, total } = await riceCodeService.getAllRiceCodes(category, { limit, offset }, search);
+      return ResponseHandler.success(
+        res,
+        toPaginatedResult(items.map(toRiceCodeResponse), total, page, limit)
+      );
     } catch (error) {
       next(error);
     }

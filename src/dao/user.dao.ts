@@ -5,32 +5,46 @@ import bcrypt from 'bcrypt';
 import { appConfig } from '../config/app.config';
 
 export class UserDAO {
-  async findAll(includeInactive = false, userType?: string): Promise<User[]> {
+  async findAll(
+    includeInactive = false,
+    userType?: string,
+    pagination?: { limit: number; offset: number }
+  ): Promise<{ rows: User[]; total: number }> {
+    let where = `WHERE 1=1`;
+    const params: unknown[] = [];
+    let paramCount = 1;
+
+    if (!includeInactive) {
+      where += ` AND is_active = true`;
+    }
+
+    if (userType) {
+      where += ` AND user_type = $${paramCount++}`;
+      params.push(userType);
+    }
+
+    const countResult = await db.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM users ${where}`,
+      params
+    );
+    const total = parseInt(countResult.rows[0]?.count ?? '0', 10);
+
     let query = `
       SELECT 
         id, username, email, password_hash, full_name, phone, user_type,
         is_active, last_login, created_at, updated_at, created_by, updated_by,
         custom_permissions, active_session_id
       FROM users
-      WHERE 1=1
+      ${where}
+      ORDER BY created_at DESC
     `;
-    
-    const params: any[] = [];
-    let paramCount = 1;
-
-    if (!includeInactive) {
-      query += ` AND is_active = true`;
+    if (pagination) {
+      params.push(pagination.limit, pagination.offset);
+      query += ` LIMIT $${paramCount++} OFFSET $${paramCount}`;
     }
-
-    if (userType) {
-      query += ` AND user_type = $${paramCount++}`;
-      params.push(userType);
-    }
-
-    query += ` ORDER BY created_at DESC`;
 
     const result = await db.query<User>(query, params);
-    return result.rows;
+    return { rows: result.rows, total };
   }
 
   async findById(id: string): Promise<User | null> {

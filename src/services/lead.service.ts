@@ -16,14 +16,22 @@ const vendorDAO = new VendorDAO();
 const userDAO = new UserDAO();
 
 export class LeadService {
-  async getAllLeads(filters: any): Promise<Lead[]> {
-    return await leadDAO.findAll(
-      false,
-      filters.leadStatus,
-      filters.assignedTo,
-      filters.priority,
-      filters.isExistingCustomer
-    );
+  async getAllLeads(filters: {
+    leadStatus?: LeadStatus;
+    assignedTo?: string;
+    priority?: string;
+    isExistingCustomer?: boolean;
+    limit: number;
+    offset: number;
+  }): Promise<{ rows: Lead[]; total: number }> {
+    return await leadDAO.findAll({
+      leadStatus: filters.leadStatus,
+      assignedTo: filters.assignedTo,
+      priority: filters.priority as any,
+      isExistingCustomer: filters.isExistingCustomer,
+      limit: filters.limit,
+      offset: filters.offset,
+    });
   }
 
   async getLeadById(id: string): Promise<Lead> {

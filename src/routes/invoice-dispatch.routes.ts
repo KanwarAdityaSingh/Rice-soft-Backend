@@ -9,6 +9,22 @@ import { documentUpload } from '../middleware/upload.middleware';
 const router = Router();
 
 router.get('/', authenticate, invoiceDispatchController.getAll.bind(invoiceDispatchController));
+router.get(
+  '/next-bill-eligibility',
+  authenticate,
+  invoiceDispatchController.getNextBillEligibility.bind(invoiceDispatchController)
+);
+router.post(
+  '/extract-lr',
+  authenticate,
+  documentUpload.single('file'),
+  invoiceDispatchController.extractLr.bind(invoiceDispatchController)
+);
+router.post(
+  '/e-way-bills/lookup',
+  authenticate,
+  eWayBillController.lookupLatest.bind(eWayBillController)
+);
 router.get('/:id/e-invoice', authenticate, eInvoiceController.getByDispatchId.bind(eInvoiceController));
 router.get('/:id/e-way-bill', authenticate, eWayBillController.getByDispatchId.bind(eWayBillController));
 router.get('/:id', authenticate, invoiceDispatchController.getById.bind(invoiceDispatchController));
@@ -73,6 +89,12 @@ router.post(
   '/:id/e-way-bill/preview',
   authenticate,
   eWayBillController.preview.bind(eWayBillController)
+);
+router.post(
+  '/:id/e-way-bill/cancel',
+  authenticate,
+  auditLog('UPDATE', 'e_way_bills'),
+  eWayBillController.cancel.bind(eWayBillController)
 );
 router.post(
   '/:id/e-way-bill',

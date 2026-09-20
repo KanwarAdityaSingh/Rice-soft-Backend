@@ -55,50 +55,66 @@ export class LeadDAO {
       contact_persons: this.transformContactPersons(lead.contact_persons || lead.contact_person)
     };
   }
-  async findAll(
-    _includeInactive = false,
-    leadStatus?: LeadStatus,
-    assignedTo?: string,
-    priority?: Priority,
-    isExistingCustomer?: boolean
-  ): Promise<Lead[]> {
-    let query = `
-      SELECT id, company_name, contact_persons, email, phone, address, business_details,
-             is_existing_customer, lead_status, customer_status, assigned_to, broker_id, rice_code_id,
-             rice_type, created_by, updated_by, created_at, updated_at, notes, priority,
-             source, estimated_value, expected_close_date, revenue, salesman_latitude, salesman_longitude,
-             google_location_link
-      FROM leads
-      WHERE 1=1
-    `;
-    
-    const params: any[] = [];
+  async findAll(filters: {
+    leadStatus?: LeadStatus;
+    assignedTo?: string;
+    priority?: Priority;
+    isExistingCustomer?: boolean;
+    limit: number;
+    offset: number;
+  }): Promise<{ rows: Lead[]; total: number }> {
+    const { leadStatus, assignedTo, priority, isExistingCustomer, limit, offset } = filters;
+
+    let where = `WHERE 1=1`;
+    const params: unknown[] = [];
     let paramCount = 1;
 
     if (leadStatus) {
-      query += ` AND lead_status = $${paramCount++}`;
+      where += ` AND lead_status = $${paramCount++}`;
       params.push(leadStatus);
     }
 
     if (assignedTo) {
-      query += ` AND assigned_to = $${paramCount++}`;
+      where += ` AND assigned_to = $${paramCount++}`;
       params.push(assignedTo);
     }
 
     if (priority) {
-      query += ` AND priority = $${paramCount++}`;
+      where += ` AND priority = $${paramCount++}`;
       params.push(priority);
     }
 
     if (isExistingCustomer !== undefined) {
-      query += ` AND is_existing_customer = $${paramCount++}`;
+      where += ` AND is_existing_customer = $${paramCount++}`;
       params.push(isExistingCustomer);
     }
 
-    query += ` ORDER BY created_at DESC`;
+    const countResult = await db.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM leads ${where}`,
+      params
+    );
+    const total = parseInt(countResult.rows[0]?.count ?? '0', 10);
 
-    const result = await db.query<any>(query, params);
-    return result.rows.map(row => this.transformLead(row));
+    const limitIdx = paramCount++;
+    const offsetIdx = paramCount++;
+    params.push(limit, offset);
+
+    const result = await db.query(
+      `SELECT id, company_name, contact_persons, email, phone, address, business_details,
+              is_existing_customer, lead_status, customer_status, assigned_to, broker_id, rice_code_id,
+              rice_type, created_by, updated_by, created_at, updated_at, notes, priority,
+              source, estimated_value, expected_close_date, revenue, salesman_latitude, salesman_longitude,
+              google_location_link
+       FROM leads
+       ${where}
+       ORDER BY created_at DESC
+       LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
+      params
+    );
+    return {
+      rows: result.rows.map((row) => this.transformLead(row)),
+      total,
+    };
   }
 
   async findById(id: string): Promise<Lead | null> {

@@ -1,6 +1,11 @@
 import { PoolClient } from 'pg';
 import { db } from '../database/connection';
-import { CouponBatch, CreateCouponBatchDTO, CouponBatchStats } from '../models/coupon.model';
+import {
+  CouponBatch,
+  CouponBatchListFilters,
+  CreateCouponBatchDTO,
+  CouponBatchStats,
+} from '../models/coupon.model';
 import type { CouponBatchStatus } from '../constants/coupon-status';
 import { COUPON_BATCH_MAX_SERIES_PER_DAY } from '../constants/coupon-status';
 import {
@@ -8,6 +13,7 @@ import {
   getIndiaCalendarParts,
 } from '../utils/coupon.helpers';
 import { BadRequestError } from '../utils/errors';
+import { buildNormalizedSearchClause } from '../utils/search';
 
 export class CouponBatchDAO {
   /**
@@ -79,15 +85,46 @@ export class CouponBatchDAO {
     return result.rows[0] || null;
   }
 
-  async findAll(page = 1, limit = 50): Promise<{ rows: CouponBatch[]; total: number }> {
+  async findAll(
+    filters: CouponBatchListFilters = {}
+  ): Promise<{ rows: CouponBatch[]; total: number }> {
+    const page = filters.page ?? 1;
+    const limit = filters.limit ?? 50;
     const offset = (page - 1) * limit;
+    let where = 'WHERE 1=1';
+    const values: unknown[] = [];
+    let paramIndex = 1;
+
+    if (filters.status) {
+      where += ` AND status = $${paramIndex++}`;
+      values.push(filters.status);
+    }
+    if (filters.isLocked !== undefined) {
+      where += ` AND is_locked = $${paramIndex++}`;
+      values.push(filters.isLocked);
+    }
+
+    const searchClause = buildNormalizedSearchClause(
+      ['batch_code', 'description', 'status', 'face_value_paise::text', 'total_count::text'],
+      filters.search,
+      paramIndex
+    );
+    where += searchClause.sql;
+    values.push(...searchClause.params);
+    paramIndex = searchClause.nextParamIndex;
+
     const countResult = await db.query<{ count: string }>(
-      `SELECT COUNT(*)::text AS count FROM coupon_batches`
+      `SELECT COUNT(*)::text AS count FROM coupon_batches ${where}`,
+      values
     );
     const total = parseInt(countResult.rows[0]?.count ?? '0', 10);
+
+    values.push(limit, offset);
     const result = await db.query<CouponBatch>(
-      `SELECT * FROM coupon_batches ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
-      [limit, offset]
+      `SELECT * FROM coupon_batches ${where}
+       ORDER BY created_at DESC
+       LIMIT $${paramIndex++} OFFSET $${paramIndex}`,
+      values
     );
     return { rows: result.rows, total };
   }
@@ -136,16 +173,37 @@ export class CouponBatchDAO {
     return result.rows[0] || null;
   }
 
-  async getStats(batchId: string, client?: PoolClient): Promise<CouponBatchStats> {
+  /**
+   * Per-status counts for a batch. Optional `fromSequence`/`toSequence` scopes the
+   * buckets to a serial range so the UI can filter status chips by serials entered.
+   */
+  async getStats(
+    batchId: string,
+    options?: {
+      fromSequence?: number;
+      toSequence?: number;
+      from_serial?: string | null;
+      to_serial?: string | null;
+      client?: PoolClient;
+    }
+  ): Promise<CouponBatchStats> {
+    const client = options?.client;
+    const values: unknown[] = [batchId];
+    let where = 'WHERE coupon_batch_id = $1';
+    if (options?.fromSequence != null && options?.toSequence != null) {
+      where += ' AND batch_sequence BETWEEN $2 AND $3';
+      values.push(options.fromSequence, options.toSequence);
+    }
+
     const query = `
       SELECT status, COUNT(*)::int AS count
       FROM coupons
-      WHERE coupon_batch_id = $1
+      ${where}
       GROUP BY status
     `;
     const result = client
-      ? await client.query<{ status: string; count: number }>(query, [batchId])
-      : await db.query<{ status: string; count: number }>(query, [batchId]);
+      ? await client.query<{ status: string; count: number }>(query, values)
+      : await db.query<{ status: string; count: number }>(query, values);
 
     const stats: CouponBatchStats = {
       created: 0,
@@ -158,7 +216,10 @@ export class CouponBatchDAO {
     };
 
     for (const row of result.rows) {
-      const key = row.status as keyof Omit<CouponBatchStats, 'redemption_rate'>;
+      const key = row.status as keyof Pick<
+        CouponBatchStats,
+        'created' | 'printed' | 'allotted' | 'redeemed' | 'expired' | 'void'
+      >;
       if (key in stats) {
         stats[key] = row.count;
       }
@@ -166,6 +227,17 @@ export class CouponBatchDAO {
 
     const inMarket = stats.allotted + stats.redeemed;
     stats.redemption_rate = inMarket > 0 ? Math.round((stats.redeemed / inMarket) * 1000) / 10 : 0;
+    stats.scoped_count =
+      stats.created +
+      stats.printed +
+      stats.allotted +
+      stats.redeemed +
+      stats.expired +
+      stats.void;
+    if (options?.fromSequence != null) {
+      stats.from_serial = options.from_serial ?? null;
+      stats.to_serial = options.to_serial ?? null;
+    }
 
     return stats;
   }

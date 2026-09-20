@@ -15,6 +15,7 @@ import {
   VendorSiteResponse,
 } from '../models/vendor-site.model';
 import { AuthRequest } from '../middleware/auth.middleware';
+import { parsePaginationQuery, toPaginatedResult } from '../utils/pagination';
 
 function toResponse(site: {
   id: string;
@@ -41,6 +42,7 @@ function toResponse(site: {
 export class VendorSiteController {
   async getAll(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
+      const { page, limit, offset } = parsePaginationQuery(req.query);
       const vendorIdRaw = req.query.vendor_id as string | undefined;
       if (!vendorIdRaw) {
         throw new ValidationError('vendor_id query parameter is required');
@@ -53,8 +55,15 @@ export class VendorSiteController {
         throw new NotFoundError('Vendor not found');
       }
 
-      const sites = await vendorSiteDAO.findByVendorId(vendorId, includeInactive);
-      return ResponseHandler.success(res, sites.map(toResponse));
+      const { rows, total } = await vendorSiteDAO.findByVendorId(vendorId, {
+        includeInactive,
+        limit,
+        offset,
+      });
+      return ResponseHandler.success(
+        res,
+        toPaginatedResult(rows.map(toResponse), total, page, limit)
+      );
     } catch (error) {
       next(error);
     }

@@ -1,3 +1,4 @@
+import { PoolClient } from 'pg';
 import { db } from '../database/connection';
 import { 
   LotInventoryAudit, 
@@ -11,12 +12,25 @@ import {
 } from '../models/inventory-audit.model';
 import { logger } from '../utils/logger';
 
+type Pagination = { limit: number; offset: number };
+
+async function countRows(table: string, whereSql: string, params: unknown[]): Promise<number> {
+  const result = await db.query<{ count: string }>(
+    `SELECT COUNT(*)::text AS count FROM ${table} ${whereSql}`,
+    params
+  );
+  return parseInt(result.rows[0]?.count ?? '0', 10);
+}
+
 // =====================================================
 // LOT INVENTORY AUDIT DAO
 // =====================================================
 
 export class LotInventoryAuditDAO {
-  async create(data: CreateLotInventoryAuditDTO): Promise<LotInventoryAudit> {
+  async create(
+    data: CreateLotInventoryAuditDTO,
+    client?: PoolClient
+  ): Promise<LotInventoryAudit> {
     const query = `
       INSERT INTO lot_inventory_audit (
         lot_inventory_id, lot_id, operation_type, quantity_change,
@@ -44,7 +58,11 @@ export class LotInventoryAuditDAO {
     ];
 
     try {
-      const result = await db.query<LotInventoryAudit>(query, values);
+      // Must use the same client when called inside a txn that holds FOR UPDATE on
+      // lot_inventory — a separate pool connection deadlocks on the FK check.
+      const result = client
+        ? await client.query<LotInventoryAudit>(query, values)
+        : await db.query<LotInventoryAudit>(query, values);
       logger.info('Lot inventory audit created', { 
         id: result.rows[0].id, 
         lot_id: data.lot_id,
@@ -57,66 +75,57 @@ export class LotInventoryAuditDAO {
     }
   }
 
-  async findByLotId(lotId: string, limit = 100): Promise<LotInventoryAudit[]> {
-    const query = `
+  private async findWithJoins(
+    whereSql: string,
+    whereParams: unknown[],
+    pagination?: Pagination
+  ): Promise<{ rows: LotInventoryAudit[]; total: number }> {
+    const total = await countRows('lot_inventory_audit lia', whereSql, whereParams);
+
+    let query = `
       SELECT lia.*, 
              l.lot_number, l.rice_code_id, l.rice_type,
              u.full_name as user_name
       FROM lot_inventory_audit lia
       LEFT JOIN inward_slip_lots l ON lia.lot_id = l.id
       LEFT JOIN users u ON lia.created_by = u.id
-      WHERE lia.lot_id = $1
+      ${whereSql}
       ORDER BY lia.created_at DESC
-      LIMIT $2
     `;
-    const result = await db.query<LotInventoryAudit>(query, [lotId, limit]);
-    return result.rows;
+    const params = [...whereParams];
+    if (pagination) {
+      params.push(pagination.limit, pagination.offset);
+      query += ` LIMIT $${params.length - 1} OFFSET $${params.length}`;
+    }
+    const result = await db.query<LotInventoryAudit>(query, params);
+    return { rows: result.rows, total };
   }
 
-  async findByLotInventoryId(lotInventoryId: string, limit = 100): Promise<LotInventoryAudit[]> {
-    const query = `
-      SELECT lia.*, 
-             l.lot_number, l.rice_code_id, l.rice_type,
-             u.full_name as user_name
-      FROM lot_inventory_audit lia
-      LEFT JOIN inward_slip_lots l ON lia.lot_id = l.id
-      LEFT JOIN users u ON lia.created_by = u.id
-      WHERE lia.lot_inventory_id = $1
-      ORDER BY lia.created_at DESC
-      LIMIT $2
-    `;
-    const result = await db.query<LotInventoryAudit>(query, [lotInventoryId, limit]);
-    return result.rows;
+  async findByLotId(
+    lotId: string,
+    pagination?: Pagination
+  ): Promise<{ rows: LotInventoryAudit[]; total: number }> {
+    return this.findWithJoins('WHERE lia.lot_id = $1', [lotId], pagination);
   }
 
-  async findByBatchId(batchId: string): Promise<LotInventoryAudit[]> {
-    const query = `
-      SELECT lia.*, 
-             l.lot_number, l.rice_code_id, l.rice_type,
-             u.full_name as user_name
-      FROM lot_inventory_audit lia
-      LEFT JOIN inward_slip_lots l ON lia.lot_id = l.id
-      LEFT JOIN users u ON lia.created_by = u.id
-      WHERE lia.batch_id = $1
-      ORDER BY lia.created_at DESC
-    `;
-    const result = await db.query<LotInventoryAudit>(query, [batchId]);
-    return result.rows;
+  async findByLotInventoryId(
+    lotInventoryId: string,
+    pagination?: Pagination
+  ): Promise<{ rows: LotInventoryAudit[]; total: number }> {
+    return this.findWithJoins('WHERE lia.lot_inventory_id = $1', [lotInventoryId], pagination);
   }
 
-  async findRecent(limit = 100): Promise<LotInventoryAudit[]> {
-    const query = `
-      SELECT lia.*, 
-             l.lot_number, l.rice_code_id, l.rice_type,
-             u.full_name as user_name
-      FROM lot_inventory_audit lia
-      LEFT JOIN inward_slip_lots l ON lia.lot_id = l.id
-      LEFT JOIN users u ON lia.created_by = u.id
-      ORDER BY lia.created_at DESC
-      LIMIT $1
-    `;
-    const result = await db.query<LotInventoryAudit>(query, [limit]);
-    return result.rows;
+  async findByBatchId(
+    batchId: string,
+    pagination?: Pagination
+  ): Promise<{ rows: LotInventoryAudit[]; total: number }> {
+    return this.findWithJoins('WHERE lia.batch_id = $1', [batchId], pagination);
+  }
+
+  async findRecent(
+    pagination?: Pagination
+  ): Promise<{ rows: LotInventoryAudit[]; total: number }> {
+    return this.findWithJoins('', [], pagination);
   }
 }
 
@@ -125,7 +134,10 @@ export class LotInventoryAuditDAO {
 // =====================================================
 
 export class PacketsInventoryAuditDAO {
-  async create(data: CreatePacketsInventoryAuditDTO): Promise<PacketsInventoryAudit> {
+  async create(
+    data: CreatePacketsInventoryAuditDTO,
+    client?: PoolClient
+  ): Promise<PacketsInventoryAudit> {
     const query = `
       INSERT INTO packets_inventory_audit (
         packets_inventory_id, packaging_id, operation_type, quantity_change,
@@ -153,7 +165,9 @@ export class PacketsInventoryAuditDAO {
     ];
 
     try {
-      const result = await db.query<PacketsInventoryAudit>(query, values);
+      const result = client
+        ? await client.query<PacketsInventoryAudit>(query, values)
+        : await db.query<PacketsInventoryAudit>(query, values);
       logger.info('Packets inventory audit created', { 
         id: result.rows[0].id, 
         packaging_id: data.packaging_id,
@@ -166,66 +180,57 @@ export class PacketsInventoryAuditDAO {
     }
   }
 
-  async findByPackagingId(packagingId: string, limit = 100): Promise<PacketsInventoryAudit[]> {
-    const query = `
+  private async findWithJoins(
+    whereSql: string,
+    whereParams: unknown[],
+    pagination?: Pagination
+  ): Promise<{ rows: PacketsInventoryAudit[]; total: number }> {
+    const total = await countRows('packets_inventory_audit pia', whereSql, whereParams);
+
+    let query = `
       SELECT pia.*, 
              p.holding_capacity, p.packet_type,
              u.full_name as user_name
       FROM packets_inventory_audit pia
       LEFT JOIN packaging p ON pia.packaging_id = p.id
       LEFT JOIN users u ON pia.created_by = u.id
-      WHERE pia.packaging_id = $1
+      ${whereSql}
       ORDER BY pia.created_at DESC
-      LIMIT $2
     `;
-    const result = await db.query<PacketsInventoryAudit>(query, [packagingId, limit]);
-    return result.rows;
+    const params = [...whereParams];
+    if (pagination) {
+      params.push(pagination.limit, pagination.offset);
+      query += ` LIMIT $${params.length - 1} OFFSET $${params.length}`;
+    }
+    const result = await db.query<PacketsInventoryAudit>(query, params);
+    return { rows: result.rows, total };
   }
 
-  async findByPacketsInventoryId(packetsInventoryId: string, limit = 100): Promise<PacketsInventoryAudit[]> {
-    const query = `
-      SELECT pia.*, 
-             p.holding_capacity, p.packet_type,
-             u.full_name as user_name
-      FROM packets_inventory_audit pia
-      LEFT JOIN packaging p ON pia.packaging_id = p.id
-      LEFT JOIN users u ON pia.created_by = u.id
-      WHERE pia.packets_inventory_id = $1
-      ORDER BY pia.created_at DESC
-      LIMIT $2
-    `;
-    const result = await db.query<PacketsInventoryAudit>(query, [packetsInventoryId, limit]);
-    return result.rows;
+  async findByPackagingId(
+    packagingId: string,
+    pagination?: Pagination
+  ): Promise<{ rows: PacketsInventoryAudit[]; total: number }> {
+    return this.findWithJoins('WHERE pia.packaging_id = $1', [packagingId], pagination);
   }
 
-  async findByBatchId(batchId: string): Promise<PacketsInventoryAudit[]> {
-    const query = `
-      SELECT pia.*, 
-             p.holding_capacity, p.packet_type,
-             u.full_name as user_name
-      FROM packets_inventory_audit pia
-      LEFT JOIN packaging p ON pia.packaging_id = p.id
-      LEFT JOIN users u ON pia.created_by = u.id
-      WHERE pia.batch_id = $1
-      ORDER BY pia.created_at DESC
-    `;
-    const result = await db.query<PacketsInventoryAudit>(query, [batchId]);
-    return result.rows;
+  async findByPacketsInventoryId(
+    packetsInventoryId: string,
+    pagination?: Pagination
+  ): Promise<{ rows: PacketsInventoryAudit[]; total: number }> {
+    return this.findWithJoins('WHERE pia.packets_inventory_id = $1', [packetsInventoryId], pagination);
   }
 
-  async findRecent(limit = 100): Promise<PacketsInventoryAudit[]> {
-    const query = `
-      SELECT pia.*, 
-             p.holding_capacity, p.packet_type,
-             u.full_name as user_name
-      FROM packets_inventory_audit pia
-      LEFT JOIN packaging p ON pia.packaging_id = p.id
-      LEFT JOIN users u ON pia.created_by = u.id
-      ORDER BY pia.created_at DESC
-      LIMIT $1
-    `;
-    const result = await db.query<PacketsInventoryAudit>(query, [limit]);
-    return result.rows;
+  async findByBatchId(
+    batchId: string,
+    pagination?: Pagination
+  ): Promise<{ rows: PacketsInventoryAudit[]; total: number }> {
+    return this.findWithJoins('WHERE pia.batch_id = $1', [batchId], pagination);
+  }
+
+  async findRecent(
+    pagination?: Pagination
+  ): Promise<{ rows: PacketsInventoryAudit[]; total: number }> {
+    return this.findWithJoins('', [], pagination);
   }
 }
 
@@ -280,8 +285,14 @@ export class BagsInventoryAuditDAO {
     }
   }
 
-  async findByBagsInventoryId(bagsInventoryId: string, limit = 100): Promise<BagsInventoryAudit[]> {
-    const query = `
+  private async findWithJoins(
+    whereSql: string,
+    whereParams: unknown[],
+    pagination?: Pagination
+  ): Promise<{ rows: BagsInventoryAudit[]; total: number }> {
+    const total = await countRows('bags_inventory_audit bia', whereSql, whereParams);
+
+    let query = `
       SELECT bia.*, 
              u.full_name as user_name,
              k.kaanta_id as kaanta_number,
@@ -290,81 +301,55 @@ export class BagsInventoryAuditDAO {
       FROM bags_inventory_audit bia
       LEFT JOIN users u ON bia.created_by = u.id
       LEFT JOIN kaantas k ON bia.kaanta_id = k.id
-      WHERE bia.bags_inventory_id = $1
+      ${whereSql}
       ORDER BY bia.created_at DESC
-      LIMIT $2
     `;
-    const result = await db.query<BagsInventoryAudit>(query, [bagsInventoryId, limit]);
-    return result.rows;
+    const params = [...whereParams];
+    if (pagination) {
+      params.push(pagination.limit, pagination.offset);
+      query += ` LIMIT $${params.length - 1} OFFSET $${params.length}`;
+    }
+    const result = await db.query<BagsInventoryAudit>(query, params);
+    return { rows: result.rows, total };
   }
 
-  async findByBagTypeAndCapacity(bagType: string, bagCapacity: number, limit = 100): Promise<BagsInventoryAudit[]> {
-    const query = `
-      SELECT bia.*, 
-             u.full_name as user_name,
-             k.kaanta_id as kaanta_number,
-             k.sauda_id as kaanta_sauda_id,
-             k.inward_slip_pass_id as kaanta_isp_id
-      FROM bags_inventory_audit bia
-      LEFT JOIN users u ON bia.created_by = u.id
-      LEFT JOIN kaantas k ON bia.kaanta_id = k.id
-      WHERE bia.bag_type = $1 AND bia.bag_capacity = $2
-      ORDER BY bia.created_at DESC
-      LIMIT $3
-    `;
-    const result = await db.query<BagsInventoryAudit>(query, [bagType, bagCapacity, limit]);
-    return result.rows;
+  async findByBagsInventoryId(
+    bagsInventoryId: string,
+    pagination?: Pagination
+  ): Promise<{ rows: BagsInventoryAudit[]; total: number }> {
+    return this.findWithJoins('WHERE bia.bags_inventory_id = $1', [bagsInventoryId], pagination);
   }
 
-  async findByBatchId(batchId: string): Promise<BagsInventoryAudit[]> {
-    const query = `
-      SELECT bia.*, 
-             u.full_name as user_name,
-             k.kaanta_id as kaanta_number,
-             k.sauda_id as kaanta_sauda_id,
-             k.inward_slip_pass_id as kaanta_isp_id
-      FROM bags_inventory_audit bia
-      LEFT JOIN users u ON bia.created_by = u.id
-      LEFT JOIN kaantas k ON bia.kaanta_id = k.id
-      WHERE bia.batch_id = $1
-      ORDER BY bia.created_at DESC
-    `;
-    const result = await db.query<BagsInventoryAudit>(query, [batchId]);
-    return result.rows;
+  async findByBagTypeAndCapacity(
+    bagType: string,
+    bagCapacity: number,
+    pagination?: Pagination
+  ): Promise<{ rows: BagsInventoryAudit[]; total: number }> {
+    return this.findWithJoins(
+      'WHERE bia.bag_type = $1 AND bia.bag_capacity = $2',
+      [bagType, bagCapacity],
+      pagination
+    );
   }
 
-  async findByKaantaId(kaantaId: string): Promise<BagsInventoryAudit[]> {
-    const query = `
-      SELECT bia.*, 
-             u.full_name as user_name,
-             k.kaanta_id as kaanta_number,
-             k.sauda_id as kaanta_sauda_id,
-             k.inward_slip_pass_id as kaanta_isp_id
-      FROM bags_inventory_audit bia
-      LEFT JOIN users u ON bia.created_by = u.id
-      LEFT JOIN kaantas k ON bia.kaanta_id = k.id
-      WHERE bia.kaanta_id = $1
-      ORDER BY bia.created_at DESC
-    `;
-    const result = await db.query<BagsInventoryAudit>(query, [kaantaId]);
-    return result.rows;
+  async findByBatchId(
+    batchId: string,
+    pagination?: Pagination
+  ): Promise<{ rows: BagsInventoryAudit[]; total: number }> {
+    return this.findWithJoins('WHERE bia.batch_id = $1', [batchId], pagination);
   }
 
-  async findRecent(limit = 100): Promise<BagsInventoryAudit[]> {
-    const query = `
-      SELECT bia.*, 
-             u.full_name as user_name,
-             k.kaanta_id as kaanta_number,
-             k.sauda_id as kaanta_sauda_id,
-             k.inward_slip_pass_id as kaanta_isp_id
-      FROM bags_inventory_audit bia
-      LEFT JOIN users u ON bia.created_by = u.id
-      LEFT JOIN kaantas k ON bia.kaanta_id = k.id
-      ORDER BY bia.created_at DESC
-      LIMIT $1
-    `;
-    const result = await db.query<BagsInventoryAudit>(query, [limit]);
-    return result.rows;
+  async findByKaantaId(
+    kaantaId: string,
+    pagination?: Pagination
+  ): Promise<{ rows: BagsInventoryAudit[]; total: number }> {
+    return this.findWithJoins('WHERE bia.kaanta_id = $1', [kaantaId], pagination);
+  }
+
+  async findRecent(
+    pagination?: Pagination
+  ): Promise<{ rows: BagsInventoryAudit[]; total: number }> {
+    return this.findWithJoins('', [], pagination);
   }
 }
 
@@ -419,8 +404,14 @@ export class FinishedGoodsInventoryAuditDAO {
     }
   }
 
-  async findByProductId(productId: string, limit = 100): Promise<FinishedGoodsInventoryAudit[]> {
-    const query = `
+  private async findWithJoins(
+    whereSql: string,
+    whereParams: unknown[],
+    pagination?: Pagination
+  ): Promise<{ rows: FinishedGoodsInventoryAudit[]; total: number }> {
+    const total = await countRows('finished_goods_inventory_audit fgia', whereSql, whereParams);
+
+    let query = `
       SELECT fgia.*, 
              pr.name as product_name,
              p.holding_capacity, p.packet_type,
@@ -429,64 +420,47 @@ export class FinishedGoodsInventoryAuditDAO {
       LEFT JOIN products pr ON fgia.product_id = pr.id
       LEFT JOIN packaging p ON fgia.packaging_id = p.id
       LEFT JOIN users u ON fgia.created_by = u.id
-      WHERE fgia.product_id = $1
+      ${whereSql}
       ORDER BY fgia.created_at DESC
-      LIMIT $2
     `;
-    const result = await db.query<FinishedGoodsInventoryAudit>(query, [productId, limit]);
-    return result.rows;
+    const params = [...whereParams];
+    if (pagination) {
+      params.push(pagination.limit, pagination.offset);
+      query += ` LIMIT $${params.length - 1} OFFSET $${params.length}`;
+    }
+    const result = await db.query<FinishedGoodsInventoryAudit>(query, params);
+    return { rows: result.rows, total };
   }
 
-  async findByBatchId(batchId: string): Promise<FinishedGoodsInventoryAudit[]> {
-    const query = `
-      SELECT fgia.*, 
-             pr.name as product_name,
-             p.holding_capacity, p.packet_type,
-             u.full_name as user_name
-      FROM finished_goods_inventory_audit fgia
-      LEFT JOIN products pr ON fgia.product_id = pr.id
-      LEFT JOIN packaging p ON fgia.packaging_id = p.id
-      LEFT JOIN users u ON fgia.created_by = u.id
-      WHERE fgia.batch_id = $1
-      ORDER BY fgia.created_at DESC
-    `;
-    const result = await db.query<FinishedGoodsInventoryAudit>(query, [batchId]);
-    return result.rows;
+  async findByProductId(
+    productId: string,
+    pagination?: Pagination
+  ): Promise<{ rows: FinishedGoodsInventoryAudit[]; total: number }> {
+    return this.findWithJoins('WHERE fgia.product_id = $1', [productId], pagination);
   }
 
-  async findByFinishedGoodsInventoryId(fgInventoryId: string, limit = 100): Promise<FinishedGoodsInventoryAudit[]> {
-    const query = `
-      SELECT fgia.*, 
-             pr.name as product_name,
-             p.holding_capacity, p.packet_type,
-             u.full_name as user_name
-      FROM finished_goods_inventory_audit fgia
-      LEFT JOIN products pr ON fgia.product_id = pr.id
-      LEFT JOIN packaging p ON fgia.packaging_id = p.id
-      LEFT JOIN users u ON fgia.created_by = u.id
-      WHERE fgia.finished_goods_inventory_id = $1
-      ORDER BY fgia.created_at DESC
-      LIMIT $2
-    `;
-    const result = await db.query<FinishedGoodsInventoryAudit>(query, [fgInventoryId, limit]);
-    return result.rows;
+  async findByBatchId(
+    batchId: string,
+    pagination?: Pagination
+  ): Promise<{ rows: FinishedGoodsInventoryAudit[]; total: number }> {
+    return this.findWithJoins('WHERE fgia.batch_id = $1', [batchId], pagination);
   }
 
-  async findRecent(limit = 100): Promise<FinishedGoodsInventoryAudit[]> {
-    const query = `
-      SELECT fgia.*, 
-             pr.name as product_name,
-             p.holding_capacity, p.packet_type,
-             u.full_name as user_name
-      FROM finished_goods_inventory_audit fgia
-      LEFT JOIN products pr ON fgia.product_id = pr.id
-      LEFT JOIN packaging p ON fgia.packaging_id = p.id
-      LEFT JOIN users u ON fgia.created_by = u.id
-      ORDER BY fgia.created_at DESC
-      LIMIT $1
-    `;
-    const result = await db.query<FinishedGoodsInventoryAudit>(query, [limit]);
-    return result.rows;
+  async findByFinishedGoodsInventoryId(
+    fgInventoryId: string,
+    pagination?: Pagination
+  ): Promise<{ rows: FinishedGoodsInventoryAudit[]; total: number }> {
+    return this.findWithJoins(
+      'WHERE fgia.finished_goods_inventory_id = $1',
+      [fgInventoryId],
+      pagination
+    );
+  }
+
+  async findRecent(
+    pagination?: Pagination
+  ): Promise<{ rows: FinishedGoodsInventoryAudit[]; total: number }> {
+    return this.findWithJoins('', [], pagination);
   }
 }
 
@@ -495,4 +469,3 @@ export const lotInventoryAuditDAO = new LotInventoryAuditDAO();
 export const packetsInventoryAuditDAO = new PacketsInventoryAuditDAO();
 export const bagsInventoryAuditDAO = new BagsInventoryAuditDAO();
 export const finishedGoodsInventoryAuditDAO = new FinishedGoodsInventoryAuditDAO();
-

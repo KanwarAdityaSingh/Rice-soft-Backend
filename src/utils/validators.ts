@@ -11,6 +11,7 @@ import {
 import {
   SALESMAN_COMMISSION_TYPES,
 } from '../constants/salesman-commission-types';
+import { E_WAY_BILL_CANCEL_REASONS } from '../constants/e-way-bill';
 import { normalizeDriverDobForSurepass } from './driver-license';
 
 export const validate = <T>(schema: Joi.Schema, data: any): T => {
@@ -200,6 +201,10 @@ const surepassVerificationSnapshotSchema = Joi.object({
   mapped: Joi.any().optional(),
 }).unknown(true);
 
+const surepassSnapshotByKeySchema = Joi.object()
+  .pattern(Joi.string(), surepassVerificationSnapshotSchema)
+  .optional();
+
 /** Partial KYC snapshots merged into entity JSONB on create/update. */
 export const kycVerificationDetailsSchema = Joi.object({
   pan: surepassVerificationSnapshotSchema.optional(),
@@ -211,10 +216,16 @@ export const kycVerificationDetailsSchema = Joi.object({
   aadhaar: surepassVerificationSnapshotSchema.optional(),
   bank: surepassVerificationSnapshotSchema.optional(),
   driving_license: surepassVerificationSnapshotSchema.optional(),
-  emails: Joi.object()
-    .pattern(Joi.string(), surepassVerificationSnapshotSchema)
-    .optional(),
+  emails: surepassSnapshotByKeySchema,
+  mobiles: surepassSnapshotByKeySchema,
+  telecom_hlr: surepassSnapshotByKeySchema,
 }).optional();
+
+/** Same KYC patch with required bank snapshot (verify_bank quick-create). */
+export const kycVerificationDetailsWithRequiredBankSchema =
+  kycVerificationDetailsSchema.keys({
+    bank: surepassVerificationSnapshotSchema.required(),
+  });
 
 export const vehicleVerificationDetailsSchema = Joi.object({
   rc: surepassVerificationSnapshotSchema.optional(),
@@ -840,9 +851,17 @@ export const updateSaudaSchema = Joi.object({
 
 // Sales Sauda validation schemas
 const salesSaudaLineItemSchema = Joi.object({
-  product_id: Joi.string().required().uuid(),
+  line_type: Joi.string().optional().valid('product', 'lot').default('product'),
+  product_id: Joi.string().optional().uuid().allow(null),
+  /** Optional invoice display name for product lines; empty/null → product master name */
+  product_alias: Joi.string().optional().trim().max(255).allow(null, ''),
+  lot_id: Joi.string().optional().uuid().allow(null),
   packaging_id: Joi.string().optional().uuid().allow(null),
   packet_count: Joi.number().optional().integer().min(1),
+  /** Lot lines: optional bag count (not required to match quantity) */
+  no_of_bags: Joi.number().optional().integer().min(1).allow(null),
+  /** Lot lines: optional kg/bag (defaults from lot master in service if omitted with bags) */
+  bag_weight: Joi.number().optional().min(0.001).precision(2).allow(null),
   quantity: Joi.number().optional().min(0.001).precision(3),
   quantity_unit: Joi.string().optional().valid('kg', 'packets').default('kg'),
   rate: Joi.number().required().min(0).precision(2),
@@ -854,7 +873,54 @@ const salesSaudaLineItemSchema = Joi.object({
   gst_amount: Joi.any().forbidden(),
   final_amount: Joi.any().forbidden(),
   sort_order: Joi.number().optional().integer().min(0),
-}).or('quantity', 'packet_count');
+})
+  .custom((value, helpers) => {
+    const lineType = value.line_type ?? 'product';
+    if (lineType === 'lot') {
+      if (!value.lot_id) {
+        return helpers.error('any.custom', { message: 'lot_id is required when line_type is lot' });
+      }
+      if (value.product_id) {
+        return helpers.error('any.custom', {
+          message: 'product_id is not allowed when line_type is lot',
+        });
+      }
+      if (value.product_alias != null && String(value.product_alias).trim() !== '') {
+        return helpers.error('any.custom', {
+          message: 'product_alias is not allowed when line_type is lot',
+        });
+      }
+      if (value.packaging_id || value.packet_count != null) {
+        return helpers.error('any.custom', {
+          message: 'packaging_id and packet_count are not allowed on lot lines',
+        });
+      }
+      // quantity OR no_of_bags (service may derive qty from bags × bag_weight). No hard match.
+      if (value.quantity == null && value.no_of_bags == null) {
+        return helpers.error('any.custom', {
+          message: 'quantity or no_of_bags is required when line_type is lot',
+        });
+      }
+    } else {
+      if (value.no_of_bags != null || value.bag_weight != null) {
+        return helpers.error('any.custom', {
+          message: 'no_of_bags and bag_weight are only allowed on lot lines',
+        });
+      }
+      if (!value.product_id) {
+        return helpers.error('any.custom', {
+          message: 'product_id is required when line_type is product',
+        });
+      }
+      if (value.quantity == null && value.packet_count == null) {
+        return helpers.error('any.custom', {
+          message: 'quantity or packet_count is required when line_type is product',
+        });
+      }
+    }
+    return value;
+  })
+  .messages({ 'any.custom': '{{#message}}' });
 
 export const createSalesSaudaSchema = Joi.object({
   /** Optional for godown_transfer — server resolves from to_godown_id */
@@ -865,6 +931,12 @@ export const createSalesSaudaSchema = Joi.object({
     .allow(null)
     .valid(...SALESMAN_COMMISSION_TYPES),
   salesman_commission_config: Joi.object().optional().allow(null),
+  broker_id: Joi.string().optional().uuid().allow(null),
+  broker_commission: Joi.number().optional().min(0).precision(2).allow(null),
+  broker_commission_type: Joi.string()
+    .optional()
+    .allow(null)
+    .valid('rupees', 'percentage', 'weight'),
   sauda_type: Joi.string()
     .required()
     .valid(...SALES_SAUDA_TYPES),
@@ -887,6 +959,7 @@ export const createSalesSaudaSchema = Joi.object({
   created_by: Joi.string().optional().uuid(),
 })
   .and('salesman_commission_type', 'salesman_commission_config')
+  .and('broker_commission', 'broker_commission_type')
   .custom((value, helpers) => {
     const movement = value.movement_type ?? 'sale';
     if (movement === 'sale') {
@@ -896,6 +969,14 @@ export const createSalesSaudaSchema = Joi.object({
       if (value.from_godown_id || value.to_godown_id) {
         return helpers.error('any.custom', {
           message: 'from_godown_id and to_godown_id are only allowed for godown_transfer',
+        });
+      }
+      if (
+        (value.broker_commission != null || value.broker_commission_type != null) &&
+        !value.broker_id
+      ) {
+        return helpers.error('any.custom', {
+          message: 'broker_id is required when broker commission is set',
         });
       }
     } else if (movement === 'godown_transfer') {
@@ -914,6 +995,15 @@ export const createSalesSaudaSchema = Joi.object({
           message: 'Commission is not allowed for godown_transfer',
         });
       }
+      if (
+        value.broker_id != null ||
+        value.broker_commission != null ||
+        value.broker_commission_type != null
+      ) {
+        return helpers.error('any.custom', {
+          message: 'Broker commission is not allowed for godown_transfer',
+        });
+      }
     }
     return value;
   })
@@ -927,6 +1017,12 @@ export const updateSalesSaudaSchema = Joi.object({
     .allow(null)
     .valid(...SALESMAN_COMMISSION_TYPES),
   salesman_commission_config: Joi.object().optional().allow(null),
+  broker_id: Joi.string().optional().uuid().allow(null),
+  broker_commission: Joi.number().optional().min(0).precision(2).allow(null),
+  broker_commission_type: Joi.string()
+    .optional()
+    .allow(null)
+    .valid('rupees', 'percentage', 'weight'),
   sauda_type: Joi.string()
     .optional()
     .valid(...SALES_SAUDA_TYPES),
@@ -949,6 +1045,7 @@ export const updateSalesSaudaSchema = Joi.object({
   updated_by: Joi.string().optional().uuid(),
 })
   .and('salesman_commission_type', 'salesman_commission_config')
+  .and('broker_commission', 'broker_commission_type')
   .min(1);
 
 // Invoice Dispatch validation schemas
@@ -991,7 +1088,10 @@ export const createInvoiceDispatchSchema = Joi.object({
         sales_sauda_line_id: Joi.string().required().uuid(),
         quantity: Joi.number().positive().optional(),
         packet_count: Joi.number().integer().positive().optional(),
-      }).or('quantity', 'packet_count')
+        /** Lot lines: optional override; not required to match quantity */
+        no_of_bags: Joi.number().integer().min(1).optional().allow(null),
+        bag_weight: Joi.number().min(0.001).precision(2).optional().allow(null),
+      }).or('quantity', 'packet_count', 'no_of_bags')
     )
     .min(1)
     .optional(),
@@ -1036,6 +1136,19 @@ export const generateEWayBillSchema = Joi.object({
   lr_number: Joi.string().optional().allow(null, '').trim().max(100),
 });
 
+/** Body for POST /invoice-dispatches/:id/e-way-bill/cancel */
+export const cancelEWayBillSchema = Joi.object({
+  reason_of_cancel: Joi.string()
+    .valid(...E_WAY_BILL_CANCEL_REASONS)
+    .required(),
+  cancel_remark: Joi.string().required().trim().min(2).max(500),
+});
+
+/** Body for POST /invoice-dispatches/e-way-bills/lookup */
+export const lookupEWayBillsSchema = Joi.object({
+  ids: Joi.array().items(Joi.string().uuid()).min(1).max(200).required(),
+});
+
 /** Body for POST /invoice-dispatches/:id/cancel */
 export const cancelInvoiceDispatchSchema = Joi.object({
   reason: Joi.string().required().trim().min(1).max(2000),
@@ -1044,18 +1157,79 @@ export const cancelInvoiceDispatchSchema = Joi.object({
 // Credit Note validation schemas
 const creditNoteLineSchema = Joi.object({
   invoice_dispatch_line_id: Joi.string().required().uuid(),
-  product_id: Joi.string().required().uuid(),
-  quantity_returned: Joi.number().required().min(0.001).precision(3),
+  product_id: Joi.string().optional().uuid().allow(null),
+  product_alias: Joi.string().optional().trim().max(255).allow(null, ''),
+  brand: Joi.string().optional().trim().max(255).allow(null, ''),
+  hsn_code: Joi.string().optional().trim().max(20).allow(null, ''),
+  quantity_returned: Joi.number().optional().min(0).precision(3),
+  quantity_credited: Joi.number().optional().min(0).precision(3),
+  quantity_actual_returned: Joi.number().optional().min(0).precision(3).allow(null),
+  quantity_verified: Joi.number().optional().min(0).precision(3).allow(null),
+  corrected_rate: Joi.number().optional().min(0).precision(4).allow(null),
+  credit_taxable_input: Joi.number().optional().min(0).precision(2).allow(null),
 });
+
+const creditNoteTypeSchema = Joi.string().valid(
+  'rate_difference',
+  'commercial_discount',
+  'other',
+  'sales_return_full',
+  'sales_return_partial',
+  'short_quantity',
+  'quality_issue',
+  'damaged_goods'
+);
+
+const creditNoteCouponStatusSchema = Joi.string().valid(
+  'returned_with_goods',
+  'already_given',
+  'already_redeemed',
+  'not_applicable'
+);
+
+const creditNoteMaterialConditionSchema = Joi.string().valid(
+  'saleable',
+  'broken_bag',
+  'damaged_reprocess',
+  'scrap',
+  'destroy'
+);
 
 export const createCreditNoteSchema = Joi.object({
   invoice_dispatch_id: Joi.string().required().uuid(),
-  sales_sauda_id: Joi.string().required().uuid(),
-  credit_note_number: Joi.string().required().max(100),
+  credit_note_type: creditNoteTypeSchema.required(),
   credit_note_date: Joi.string().optional().allow(null, '').isoDate(),
-  reason: Joi.string().optional().allow(null, '').max(2000),
-  lines: Joi.array().items(creditNoteLineSchema).required().min(1),
+  reason: Joi.string().required().trim().min(1).max(2000),
+  coupon_status: creditNoteCouponStatusSchema.optional(),
+  material_condition: creditNoteMaterialConditionSchema.optional().allow(null),
+  receiving_godown_id: Joi.string().optional().uuid().allow(null),
+  lines: Joi.array().items(creditNoteLineSchema).optional(),
 });
+
+export const updateCreditNoteSchema = Joi.object({
+  credit_note_type: creditNoteTypeSchema.optional(),
+  credit_note_date: Joi.string().optional().allow(null, '').isoDate(),
+  reason: Joi.string().optional().trim().min(1).max(2000),
+  coupon_status: creditNoteCouponStatusSchema.optional(),
+  material_condition: creditNoteMaterialConditionSchema.optional().allow(null),
+  receiving_godown_id: Joi.string().optional().uuid().allow(null),
+  edit_reason: Joi.string().required().trim().min(1).max(2000),
+  lines: Joi.array().items(creditNoteLineSchema).optional(),
+});
+
+export const cancelCreditNoteSchema = Joi.object({
+  reason: Joi.string().required().trim().min(1).max(2000),
+});
+
+export const creditNoteAttachmentTypeSchema = Joi.string().valid(
+  'customer_letter',
+  'lr_copy',
+  'return_receipt',
+  'weighbridge_slip',
+  'goods_photo',
+  'credit_note_pdf',
+  'other'
+);
 
 // Inward Slip Pass validation schemas
 export const createLotSchema = Joi.object({
@@ -1418,29 +1592,121 @@ export const recipeCostPreviewByRecipeIdSchema = Joi.object({
   quantity_kg: Joi.number().required().min(0.001).precision(3),
 });
 
-// Product validation schemas
+// Product validation schemas (clean Product Master + sales-safe dual fields)
 export const createProductSchema = Joi.object({
   name: Joi.string().required().min(1).max(255),
   description: Joi.string().optional().allow(null, ''),
-  brand: Joi.string().optional().valid('Tamara', 'Hariom').allow(null, ''),
-  rice_type: Joi.string().optional().valid('basmati', 'non_basmati', 'parboiled', 'raw', 'raw_basmati', 'steam_basmati', 'white_sella', 'golden_sella').allow(null, ''),
+  brand_id: Joi.string().required().uuid(),
+  rice_category: Joi.string().required().valid('basmati', 'non_basmati'),
+  rice_variant: Joi.string()
+    .required()
+    .when('rice_category', {
+      is: 'basmati',
+      then: Joi.valid(...BASMATI_VARIANT_VALUES),
+      otherwise: Joi.valid(...NON_BASMATI_VARIANT_VALUES),
+    }),
   hsn_code: Joi.string()
     .optional()
     .valid(...HSN_CODES)
     .allow(null, ''),
+  bag_image_url: Joi.string().required().uri().max(2000),
+  status: Joi.string().optional().valid('active', 'inactive', 'discontinued'),
+  /** Legacy optional — ignored when brand_id / rice_category present */
+  brand: Joi.string().optional().allow(null, ''),
+  rice_type: Joi.string().optional().valid('basmati', 'non_basmati', 'parboiled', 'raw', 'raw_basmati', 'steam_basmati', 'white_sella', 'golden_sella').allow(null, ''),
   created_by: Joi.string().optional().uuid(),
 });
 
 export const updateProductSchema = Joi.object({
   name: Joi.string().optional().min(1).max(255),
   description: Joi.string().optional().allow(null, ''),
-  brand: Joi.string().optional().valid('Tamara', 'Hariom').allow(null, ''),
-  rice_type: Joi.string().optional().valid('basmati', 'non_basmati', 'parboiled', 'raw', 'raw_basmati', 'steam_basmati', 'white_sella', 'golden_sella').allow(null, ''),
+  brand_id: Joi.string().optional().uuid(),
+  rice_category: Joi.string().optional().valid('basmati', 'non_basmati'),
+  rice_variant: Joi.string()
+    .optional()
+    .valid(...BASMATI_VARIANT_VALUES, ...NON_BASMATI_VARIANT_VALUES),
   hsn_code: Joi.string()
     .optional()
     .valid(...HSN_CODES)
     .allow(null, ''),
+  bag_image_url: Joi.string().optional().uri().max(2000).allow(null, ''),
+  status: Joi.string().optional().valid('active', 'inactive', 'discontinued'),
+  brand: Joi.string().optional().allow(null, ''),
+  rice_type: Joi.string().optional().valid('basmati', 'non_basmati', 'parboiled', 'raw', 'raw_basmati', 'steam_basmati', 'white_sella', 'golden_sella').allow(null, ''),
   updated_by: Joi.string().optional().uuid(),
+}).min(1);
+
+export const productSuggestQuerySchema = Joi.object({
+  brand_id: Joi.string().optional().uuid(),
+  q: Joi.string().required().min(2).max(255),
+});
+
+export const createBrandSchema = Joi.object({
+  name: Joi.string().required().min(1).max(100),
+  code_prefix: Joi.string().required().min(1).max(20).pattern(/^[A-Za-z0-9]+$/),
+  status: Joi.string().optional().valid('active', 'inactive'),
+  created_by: Joi.string().optional().uuid(),
+});
+
+export const updateBrandSchema = Joi.object({
+  name: Joi.string().optional().min(1).max(100),
+  code_prefix: Joi.string().optional().min(1).max(20).pattern(/^[A-Za-z0-9]+$/),
+  status: Joi.string().optional().valid('active', 'inactive'),
+  updated_by: Joi.string().optional().uuid(),
+}).min(1);
+
+export const createPackagingMaterialSchema = Joi.object({
+  name: Joi.string().required().min(1).max(255),
+  status: Joi.string().optional().valid('active', 'inactive'),
+  created_by: Joi.string().optional().uuid(),
+});
+
+export const updatePackagingMaterialSchema = Joi.object({
+  name: Joi.string().optional().min(1).max(255),
+  status: Joi.string().optional().valid('active', 'inactive'),
+  updated_by: Joi.string().optional().uuid(),
+}).min(1);
+
+export const createPackagingMaterialPurchaseSchema = Joi.object({
+  vendor_id: Joi.string().required().uuid(),
+  packaging_id: Joi.string().required().uuid(),
+  purchase_date: Joi.string().required().pattern(/^\d{4}-\d{2}-\d{2}$/),
+  invoice_number: Joi.string().required().min(1).max(50),
+  invoice_date: Joi.string().required().pattern(/^\d{4}-\d{2}-\d{2}$/),
+  quantity_kg: Joi.number().required().greater(0).precision(3).max(99999999.999),
+  empty_bag_weight_kg: Joi.number().required().greater(0).precision(4),
+  gsm: Joi.number().optional().allow(null).min(20).max(500).precision(2),
+  rate_per_kg: Joi.number().required().greater(0).precision(2),
+  gst_percent: Joi.number().required().min(0).max(100).precision(2),
+  godown_id: Joi.string().required().uuid(),
+  batch_lot_number: Joi.string().optional().allow(null, '').max(100),
+  invoice_document_url: Joi.string().optional().allow(null, '').uri().max(2000),
+  notes: Joi.string().optional().allow(null, '').max(1000),
+  created_by: Joi.string().optional().uuid(),
+});
+
+export const updatePackagingMaterialPurchaseSchema = Joi.object({
+  vendor_id: Joi.string().optional().uuid(),
+  packaging_id: Joi.string().optional().uuid(),
+  purchase_date: Joi.string().optional().pattern(/^\d{4}-\d{2}-\d{2}$/),
+  invoice_number: Joi.string().optional().min(1).max(50),
+  invoice_date: Joi.string().optional().pattern(/^\d{4}-\d{2}-\d{2}$/),
+  quantity_kg: Joi.number().optional().greater(0).precision(3).max(99999999.999),
+  empty_bag_weight_kg: Joi.number().optional().greater(0).precision(4),
+  gsm: Joi.number().optional().allow(null).min(20).max(500).precision(2),
+  rate_per_kg: Joi.number().optional().greater(0).precision(2),
+  gst_percent: Joi.number().optional().min(0).max(100).precision(2),
+  godown_id: Joi.string().optional().uuid(),
+  batch_lot_number: Joi.string().optional().allow(null, '').max(100),
+  invoice_document_url: Joi.string().optional().allow(null, '').uri().max(2000),
+  notes: Joi.string().optional().allow(null, '').max(1000),
+  updated_by: Joi.string().optional().uuid(),
+  serial_number: Joi.forbidden(),
+  bag_count: Joi.forbidden(),
+  rate_per_bag: Joi.forbidden(),
+  taxable_amount: Joi.forbidden(),
+  gst_amount: Joi.forbidden(),
+  total_amount: Joi.forbidden(),
 }).min(1);
 
 /** Body for PUT /products/:id/rates — set suggested rates per holding capacity as of a date */
@@ -1461,6 +1727,11 @@ export const setProductRatesSchema = Joi.object({
     )
     .required()
     .min(1),
+});
+
+/** Body for PATCH /products/:id/rates/history/:historyId — correct one historical rate value */
+export const updateProductRateHistorySchema = Joi.object({
+  rate: Joi.number().required().min(0).precision(2),
 });
 
 /** Query for GET /products/:id/rates/history — from/to filter on effective_date */
@@ -1484,86 +1755,160 @@ export const suggestedRateQuerySchema = Joi.object({
   packaging_id: Joi.string().required().uuid(),
 });
 
-// Packaging validation schemas
+// Packaging Master — fixed specification only (purchase fields rejected)
 export const createPackagingSchema = Joi.object({
   product_id: Joi.string().required().uuid(),
   holding_capacity: Joi.number().required().valid(5, 10, 25, 26, 30, 50),
-  packet_type: Joi.string().required().min(1).max(255),
-  packaging_vendor_id: Joi.string().optional().uuid().allow(null, ''),
-  ordered_weight: Joi.number().optional().min(0).precision(2).allow(null, ''),
-  initial_packets: Joi.number().optional().integer().min(0).allow(null), // Optional: initial number of empty packets
-  godown_id: Joi.when('initial_packets', {
-    is: Joi.number().greater(0),
-    then: Joi.string().required().uuid(),
-    otherwise: Joi.string().optional().uuid().allow(null, ''),
-  }),
-  empty_bag_weight_kg: Joi.when('initial_packets', {
-    is: Joi.number().greater(0),
-    then: Joi.number().required().greater(0).precision(4),
-    otherwise: Joi.number().optional().allow(null).precision(4),
-  }),
-  empty_bag_rate_per_kg: Joi.when('initial_packets', {
-    is: Joi.number().greater(0),
-    then: Joi.number().required().min(0).precision(4),
-    otherwise: Joi.number().optional().allow(null).precision(4),
-  }),
-  empty_bag_gst_percent: Joi.when('initial_packets', {
-    is: Joi.number().greater(0),
-    then: Joi.number().required().min(0).max(100).precision(2),
-    otherwise: Joi.number().optional().allow(null).min(0).max(100).precision(2),
-  }),
-  bill_number: Joi.string().optional().allow(null, '').max(255),
-  bill_date: Joi.alternatives()
-    .try(Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/), Joi.valid(null, ''))
-    .optional(),
-  packaging_bill_url: Joi.string().optional().allow(null, '').uri(),
+  packaging_material_id: Joi.string().required().uuid(),
+  remarks: Joi.string().optional().allow(null, '').max(500),
+  status: Joi.string().optional().valid('active', 'inactive'),
   created_by: Joi.string().optional().uuid(),
+  // Rejected legacy fields — use Purchase Packaging Material instead
+  packet_type: Joi.forbidden(),
+  packaging_vendor_id: Joi.forbidden(),
+  ordered_weight: Joi.forbidden(),
+  initial_packets: Joi.forbidden(),
+  godown_id: Joi.forbidden(),
+  empty_bag_weight_kg: Joi.forbidden(),
+  empty_bag_rate_per_kg: Joi.forbidden(),
+  empty_bag_gst_percent: Joi.forbidden(),
+  bill_number: Joi.forbidden(),
+  bill_date: Joi.forbidden(),
+  packaging_bill_url: Joi.forbidden(),
 });
 
 export const updatePackagingSchema = Joi.object({
   holding_capacity: Joi.number().optional().valid(5, 10, 25, 26, 30, 50),
-  packet_type: Joi.string().optional().min(1).max(255),
-  packaging_vendor_id: Joi.string().optional().uuid().allow(null, ''),
-  ordered_weight: Joi.number().optional().min(0).precision(2).allow(null, ''),
-  empty_bag_weight_kg: Joi.number().optional().positive().precision(4),
-  empty_bag_rate_per_kg: Joi.number().optional().min(0).precision(4),
-  empty_bag_gst_percent: Joi.number().optional().min(0).max(100).precision(2),
-  bill_number: Joi.string().optional().allow(null, '').max(255),
-  bill_date: Joi.alternatives()
-    .try(Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/), Joi.valid(null, ''))
-    .optional(),
-  packaging_bill_url: Joi.string().optional().allow(null, '').uri(),
+  packaging_material_id: Joi.string().optional().uuid(),
+  remarks: Joi.string().optional().allow(null, '').max(500),
+  status: Joi.string().optional().valid('active', 'inactive'),
   updated_by: Joi.string().optional().uuid(),
+  packet_type: Joi.forbidden(),
+  packaging_vendor_id: Joi.forbidden(),
+  ordered_weight: Joi.forbidden(),
+  empty_bag_weight_kg: Joi.forbidden(),
+  empty_bag_rate_per_kg: Joi.forbidden(),
+  empty_bag_gst_percent: Joi.forbidden(),
+  bill_number: Joi.forbidden(),
+  bill_date: Joi.forbidden(),
+  packaging_bill_url: Joi.forbidden(),
 }).min(1);
 
-// Packaging Vendor validation schemas
-export const createPackagingVendorSchema = Joi.object({
-  name: Joi.string().required().min(1).max(255),
-  contact_persons: Joi.array().items(
+// Master Vendor (packaging suppliers) — sales-party-like KYC + enhancements
+function validateMasterVendorRegistrationFields(
+  value: {
+    registration_type?: string;
+    business_details?: { pan_number?: string; gst_number?: string };
+    gst_number?: string;
+  },
+  helpers: Joi.CustomHelpers
+) {
+  const registrationType = value.registration_type;
+  if (!registrationType) {
+    return value;
+  }
+
+  const hasPan = Boolean(value.business_details?.pan_number?.trim());
+  const hasGst = Boolean(
+    value.business_details?.gst_number?.trim() || value.gst_number?.trim()
+  );
+
+  if (registrationType === 'consumer') {
+    return value;
+  }
+
+  if (registrationType === 'unregistered') {
+    if (!hasPan) {
+      return helpers.error('custom.masterVendorPanRequired');
+    }
+    return value;
+  }
+
+  // registered → GST and PAN mandatory
+  if (!hasGst || !hasPan) {
+    return helpers.error('custom.masterVendorGstAndPanRequired');
+  }
+
+  return value;
+}
+
+const masterVendorRegistrationMessages = {
+  'custom.masterVendorGstAndPanRequired':
+    'Registered master vendors require both GST and PAN in business_details',
+  'custom.masterVendorPanRequired':
+    'Unregistered master vendors require PAN in business_details',
+};
+
+const masterVendorContactPersonsSchema = Joi.array()
+  .items(
     Joi.object({
       name: Joi.string().required().min(2).max(255),
       phones: Joi.array().items(Joi.string().max(20)).required().min(1),
-      emails: Joi.array().items(Joi.string().email().allow('', null)).optional()
+      emails: Joi.array().items(Joi.string().email().allow('', null)).optional(),
     })
-  ).required().min(1),
+  )
+  .min(1);
+
+export const createMasterVendorSchema = Joi.object({
+  business_name: Joi.string().optional().min(2).max(255),
+  /** Legacy alias for business_name */
+  name: Joi.string().optional().min(2).max(255),
+  contact_persons: masterVendorContactPersonsSchema.required(),
   address: addressSchema.required(),
+  business_details: businessDetailsSchema.required(),
   gst_number: Joi.string().optional().allow(null, '').max(50),
+  registration_type: Joi.string()
+    .required()
+    .valid('registered', 'unregistered', 'consumer'),
+  bank_details: bankDetailsSchema.optional(),
+  status: Joi.string().optional().valid('active', 'inactive', 'blacklisted'),
+  is_active: Joi.boolean().optional(),
+  is_verified: Joi.boolean().optional(),
+  verified_at: Joi.string().optional().allow(null, ''),
+  kyc_verification_details: kycVerificationDetailsSchema,
+  credit_period_days: Joi.number().integer().min(0).optional().allow(null),
+  credit_limit: Joi.number().min(0).optional().allow(null),
+  opening_balance: Joi.number().optional().allow(null),
+  address_locked: Joi.boolean().optional(),
+  google_location_link: Joi.string().optional().allow(null, '').max(500),
   created_by: Joi.string().optional().uuid(),
-});
+})
+  .or('business_name', 'name')
+  .custom(validateMasterVendorRegistrationFields)
+  .messages(masterVendorRegistrationMessages);
 
-export const updatePackagingVendorSchema = Joi.object({
-  name: Joi.string().optional().min(1).max(255),
-  contact_persons: Joi.array().items(
-    Joi.object({
-      name: Joi.string().required().min(2).max(255),
-      phones: Joi.array().items(Joi.string().max(20)).required().min(1),
-      emails: Joi.array().items(Joi.string().email().allow('', null)).optional()
-    })
-  ).optional().min(1),
+export const updateMasterVendorSchema = Joi.object({
+  business_name: Joi.string().optional().min(2).max(255),
+  name: Joi.string().optional().min(2).max(255),
+  contact_persons: masterVendorContactPersonsSchema.optional(),
   address: addressSchema.optional(),
+  business_details: businessDetailsSchema.optional(),
   gst_number: Joi.string().optional().allow(null, '').max(50),
+  registration_type: Joi.string()
+    .optional()
+    .valid('registered', 'unregistered', 'consumer'),
+  bank_details: bankDetailsSchema.optional(),
+  status: Joi.string().optional().valid('active', 'inactive', 'blacklisted'),
+  is_active: Joi.boolean().optional(),
+  is_verified: Joi.boolean().optional(),
+  verified_at: Joi.string().optional().allow(null, ''),
+  kyc_verification_details: kycVerificationDetailsSchema,
+  credit_period_days: Joi.number().integer().min(0).optional().allow(null),
+  credit_limit: Joi.number().min(0).optional().allow(null),
+  opening_balance: Joi.number().optional().allow(null),
+  address_locked: Joi.boolean().optional(),
+  force_address_update: Joi.boolean().optional(),
+  google_location_link: Joi.string().optional().allow(null, '').max(500),
   updated_by: Joi.string().optional().uuid(),
-}).min(1);
+})
+  .custom(validateMasterVendorRegistrationFields)
+  .messages(masterVendorRegistrationMessages)
+  .min(1);
+
+/** @deprecated Use createMasterVendorSchema */
+export const createPackagingVendorSchema = createMasterVendorSchema;
+/** @deprecated Use updateMasterVendorSchema */
+export const updatePackagingVendorSchema = updateMasterVendorSchema;
 
 // Godown validation schemas (contact_persons matches vendors)
 export const createGodownSchema = Joi.object({
@@ -1855,6 +2200,104 @@ export const updateDriverSchema = Joi.object({
   verified_at: Joi.string().optional().allow(null, ''),
   verification_details: Joi.any().optional().allow(null),
   is_active: Joi.boolean().optional(),
+}).min(1);
+
+// =====================================================
+// Expense Module Validation Schemas
+// =====================================================
+
+// Expense Category schemas
+export const createExpenseCategorySchema = Joi.object({
+  name: Joi.string().required().min(1).max(100),
+  code: Joi.string().optional().min(1).max(10).uppercase().pattern(/^[A-Z0-9]+$/), // Optional - auto-generated from name
+  description: Joi.string().optional().allow(null, ''),
+});
+
+export const updateExpenseCategorySchema = Joi.object({
+  name: Joi.string().optional().min(1).max(100),
+  code: Joi.string().optional().min(1).max(10).uppercase().pattern(/^[A-Z0-9]+$/),
+  description: Joi.string().optional().allow(null, ''),
+  is_active: Joi.boolean().optional(),
+}).min(1);
+
+// Expense Line schema
+const expenseLineSchema = Joi.object({
+  line_number: Joi.number().integer().positive().required(),
+  description: Joi.string().required().min(1),
+  quantity: Joi.number().optional().allow(null),
+  unit: Joi.string().optional().allow(null, '').max(20),
+  rate: Joi.number().optional().allow(null),
+  amount: Joi.number().required().min(0),
+  reference_number: Joi.string().optional().allow(null, '').max(100),
+  reference_date: Joi.string().optional().allow(null, '').isoDate(),
+  vehicle_number: Joi.string().optional().allow(null, '').max(50),
+  from_location: Joi.string().optional().allow(null, '').max(100),
+  to_location: Joi.string().optional().allow(null, '').max(100),
+});
+
+// Expense Overhead schema
+const expenseOverheadSchema = Joi.object({
+  charge_name: Joi.string().required().min(1).max(100),
+  charge_amount: Joi.number().required().min(0),
+});
+
+// Expense Entity Link schema
+const expenseEntityLinkSchema = Joi.object({
+  entity_type: Joi.string().required().min(1).max(50),
+  entity_id: Joi.string().uuid().required(),
+});
+
+// Create Expense schema
+export const createExpenseSchema = Joi.object({
+  expense_category_id: Joi.string().uuid().required(),
+  financial_year: Joi.string().optional().allow(null, '').max(10),
+  expense_date: Joi.string().isoDate().required(),
+  
+  payee_type: Joi.string().required().valid('vendor', 'broker', 'transporter', 'employee', 'other'),
+  payee_id: Joi.string().uuid().optional().allow(null, ''),
+  payee_name: Joi.string().required().min(1).max(200),
+  payee_gst_number: Joi.string().optional().allow(null, '').max(15),
+  payee_bank_name: Joi.string().optional().allow(null, '').max(100),
+  payee_account_number: Joi.string().optional().allow(null, '').max(50),
+  payee_ifsc: Joi.string().optional().allow(null, '').max(11),
+  payee_branch: Joi.string().optional().allow(null, '').max(100),
+  
+  taxable_amount: Joi.number().optional().allow(null).min(0),
+  cgst_amount: Joi.number().optional().allow(null).min(0),
+  sgst_amount: Joi.number().optional().allow(null).min(0),
+  igst_amount: Joi.number().optional().allow(null).min(0),
+  
+  notes: Joi.string().optional().allow(null, ''),
+  
+  lines: Joi.array().items(expenseLineSchema).optional(),
+  overheads: Joi.array().items(expenseOverheadSchema).optional(),
+  entity_links: Joi.array().items(expenseEntityLinkSchema).optional(),
+});
+
+// Update Expense schema
+export const updateExpenseSchema = Joi.object({
+  expense_category_id: Joi.string().uuid().optional(),
+  expense_date: Joi.string().isoDate().optional(),
+  
+  payee_type: Joi.string().optional().valid('vendor', 'broker', 'transporter', 'employee', 'other'),
+  payee_id: Joi.string().uuid().optional().allow(null, ''),
+  payee_name: Joi.string().optional().min(1).max(200),
+  payee_gst_number: Joi.string().optional().allow(null, '').max(15),
+  payee_bank_name: Joi.string().optional().allow(null, '').max(100),
+  payee_account_number: Joi.string().optional().allow(null, '').max(50),
+  payee_ifsc: Joi.string().optional().allow(null, '').max(11),
+  payee_branch: Joi.string().optional().allow(null, '').max(100),
+  
+  taxable_amount: Joi.number().optional().allow(null).min(0),
+  cgst_amount: Joi.number().optional().allow(null).min(0),
+  sgst_amount: Joi.number().optional().allow(null).min(0),
+  igst_amount: Joi.number().optional().allow(null).min(0),
+  
+  notes: Joi.string().optional().allow(null, ''),
+  
+  lines: Joi.array().items(expenseLineSchema).optional(),
+  overheads: Joi.array().items(expenseOverheadSchema).optional(),
+  entity_links: Joi.array().items(expenseEntityLinkSchema).optional(),
 }).min(1);
 
 

@@ -1,3 +1,18 @@
+/** Masters India / NIC sentinel for unregistered (no GSTIN) buyers. */
+export const UNREGISTERED_PARTY_GSTIN = 'URP';
+
+/** True when value is a real 15-char GSTIN (not blank / URP). */
+export function isRegisteredGstin(gstin: string | null | undefined): boolean {
+  const g = (gstin || '').trim().toUpperCase();
+  return g.length === 15 && g !== UNREGISTERED_PARTY_GSTIN;
+}
+
+/** Normalize buyer GSTIN: blank / missing → URP. */
+export function normalizeBuyerGstin(gstin: string | null | undefined): string {
+  const g = (gstin || '').trim().toUpperCase();
+  return isRegisteredGstin(g) ? g : UNREGISTERED_PARTY_GSTIN;
+}
+
 /** GST state numeric code → full name (India). */
 export const GST_STATE_CODE_TO_NAME: Record<string, string> = {
   '01': 'Jammu and Kashmir',
@@ -64,8 +79,8 @@ export function resolveGstStateName(stateOrCode: string | null | undefined, gsti
     }
     return raw;
   }
-  if (gstin && gstin.length >= 2) {
-    return gstStateNameFromCode(gstStateCodeFromGstin(gstin));
+  if (isRegisteredGstin(gstin)) {
+    return gstStateNameFromCode(gstStateCodeFromGstin(gstin!));
   }
   return 'Unknown';
 }
@@ -79,14 +94,14 @@ export function resolveGstStateCode(stateOrCode: string | null | undefined, gsti
     const code = NAME_TO_CODE[raw.toLowerCase()];
     if (code) return code;
   }
-  if (gstin && gstin.length >= 2) {
-    return gstStateCodeFromGstin(gstin);
+  if (isRegisteredGstin(gstin)) {
+    return gstStateCodeFromGstin(gstin!);
   }
   return '00';
 }
 
 export function isInterStateSupply(sellerGstin: string, buyerGstin: string): boolean {
-  if (!sellerGstin || !buyerGstin || sellerGstin.length < 2 || buyerGstin.length < 2) {
+  if (!isRegisteredGstin(sellerGstin) || !isRegisteredGstin(buyerGstin)) {
     return false;
   }
   return gstStateCodeFromGstin(sellerGstin) !== gstStateCodeFromGstin(buyerGstin);

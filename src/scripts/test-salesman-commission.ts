@@ -470,8 +470,7 @@ async function main() {
         if (dLine?.id) {
           const cnCreate = await request('POST', '/credit-notes', token, {
             invoice_dispatch_id: dispatchId,
-            sales_sauda_id: saudaId,
-            credit_note_number: `CN-COMM-${suffix}`,
+            credit_note_type: 'sales_return_partial',
             credit_note_date: new Date().toISOString().slice(0, 10),
             reason: 'Commission module test return',
             lines: [

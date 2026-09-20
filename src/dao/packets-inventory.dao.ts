@@ -1,6 +1,18 @@
+import { PoolClient, QueryResult, QueryResultRow } from 'pg';
 import { db } from '../database/connection';
 import { PacketsInventory, CreatePacketsInventoryDTO, UpdatePacketsInventoryDTO } from '../models/packets-inventory.model';
 import { logger } from '../utils/logger';
+
+async function queryExec<T extends QueryResultRow>(
+  client: PoolClient | undefined,
+  text: string,
+  params?: unknown[]
+): Promise<QueryResult<T>> {
+  if (client) {
+    return client.query<T>(text, params);
+  }
+  return db.query<T>(text, params);
+}
 
 /** Join row for enriching packaging GET responses (packets_inventory + godowns). */
 export interface PackagingGodownInventoryRow {
@@ -57,18 +69,22 @@ export class PacketsInventoryDAO {
     }));
   }
 
-  async findByPackagingId(packagingId: string, godownId?: string): Promise<PacketsInventory | null> {
+  async findByPackagingId(
+    packagingId: string,
+    godownId?: string,
+    client?: PoolClient
+  ): Promise<PacketsInventory | null> {
     const query = `
       SELECT id, godown_id, packaging_id, available_quantity, created_at, updated_at, created_by, updated_by
       FROM packets_inventory
       WHERE packaging_id = $1
       AND ($2::uuid IS NULL OR godown_id = $2)
     `;
-    const result = await db.query<PacketsInventory>(query, [packagingId, godownId ?? null]);
+    const result = await queryExec<PacketsInventory>(client, query, [packagingId, godownId ?? null]);
     return result.rows[0] || null;
   }
 
-  async create(inventoryData: CreatePacketsInventoryDTO): Promise<PacketsInventory> {
+  async create(inventoryData: CreatePacketsInventoryDTO, client?: PoolClient): Promise<PacketsInventory> {
     const query = `
       INSERT INTO packets_inventory (godown_id, packaging_id, available_quantity, created_by)
       VALUES ($1, $2, $3, $4)
@@ -77,11 +93,11 @@ export class PacketsInventoryDAO {
                     updated_at = CURRENT_TIMESTAMP
       RETURNING id, godown_id, packaging_id, available_quantity, created_at, updated_at, created_by, updated_by
     `;
-    
+
     const effectiveGodownId =
       inventoryData.godown_id ??
       (
-        await db.query<{ id: string }>('SELECT id FROM godowns ORDER BY created_at ASC LIMIT 1')
+        await queryExec<{ id: string }>(client, 'SELECT id FROM godowns ORDER BY created_at ASC LIMIT 1')
       ).rows[0]?.id;
 
     const values = [
@@ -92,7 +108,7 @@ export class PacketsInventoryDAO {
     ];
 
     try {
-      const result = await db.query<PacketsInventory>(query, values);
+      const result = await queryExec<PacketsInventory>(client, query, values);
       logger.info('Packets inventory created/updated', { id: result.rows[0].id });
       return result.rows[0];
     } catch (error) {
@@ -142,13 +158,18 @@ export class PacketsInventoryDAO {
     }
   }
 
-  async decrementQuantity(packagingId: string, quantity: number, godownId?: string): Promise<boolean> {
+  async decrementQuantity(
+    packagingId: string,
+    quantity: number,
+    godownId?: string,
+    client?: PoolClient
+  ): Promise<boolean> {
     const query = `
       UPDATE packets_inventory
       SET available_quantity = available_quantity - $1, updated_at = CURRENT_TIMESTAMP
       WHERE packaging_id = $2 AND ($3::uuid IS NULL OR godown_id = $3) AND available_quantity >= $1
     `;
-    const result = await db.query(query, [quantity, packagingId, godownId ?? null]);
+    const result = await queryExec(client, query, [quantity, packagingId, godownId ?? null]);
     return (result.rowCount || 0) > 0;
   }
 

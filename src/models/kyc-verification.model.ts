@@ -17,6 +17,8 @@ export type KycVerificationKey =
   | 'pan'
   | 'pan_comprehensive'
   | 'pan_contact'
+  | 'mobile_to_name'
+  | 'telecom_hlr'
   | 'gst'
   | 'gst_advanced'
   | 'gstin_by_pan'
@@ -48,6 +50,10 @@ export interface EntityKycVerificationDetails {
   driving_license?: SurepassVerificationSnapshot;
   /** Keyed by normalized email address. */
   emails?: Record<string, SurepassVerificationSnapshot>;
+  /** Keyed by normalized 10-digit Indian mobile. */
+  mobiles?: Record<string, SurepassVerificationSnapshot>;
+  /** Keyed by normalized 10-digit Indian mobile. */
+  telecom_hlr?: Record<string, SurepassVerificationSnapshot>;
 }
 
 /** Stored on vehicles (JSONB column). */
@@ -71,4 +77,5 @@ export interface PersistKycOptions {
   entity_id: string;
   verification_key: KycVerificationKey;
   email?: string;
+  mobile?: string;
 }

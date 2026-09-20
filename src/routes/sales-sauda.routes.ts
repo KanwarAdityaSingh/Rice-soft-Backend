@@ -22,6 +22,12 @@ router.put(
   salesSaudaController.update.bind(salesSaudaController)
 );
 router.post(
+  '/:id/clone',
+  authenticate,
+  auditLog('CREATE', 'sales_saudas'),
+  salesSaudaController.clone.bind(salesSaudaController)
+);
+router.post(
   '/:id/finalize',
   authenticate,
   auditLog('UPDATE', 'sales_saudas'),

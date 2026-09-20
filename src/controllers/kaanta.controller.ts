@@ -12,6 +12,7 @@ import {
 } from '../utils/validators';
 import { NotFoundError, ValidationError } from '../utils/errors';
 import { ResponseHandler } from '../utils/response';
+import { parsePaginationQuery, toPaginatedResult } from '../utils/pagination';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { uploadToS3, validateFileSize, validateFileType } from '../utils/s3-upload';
 import { appConfig } from '../config/app.config';
@@ -65,16 +66,20 @@ export class KaantaController {
     try {
       const { sauda_id, inward_slip_pass_id } = req.query;
       const godownId = req.query.godown_id as string | undefined;
+      const { page, limit, offset } = parsePaginationQuery(req.query);
 
-      const kaantas = await kaantaDAO.findAll(
+      const { rows, total } = await kaantaDAO.findAll(
         sauda_id as string | undefined,
         inward_slip_pass_id as string | undefined,
-        godownId
+        godownId,
+        { limit, offset }
       );
 
-      const kaantaResponses: KaantaResponse[] = kaantas.map(toKaantaResponse);
-
-      return ResponseHandler.success(res, kaantaResponses, 'Kaantas retrieved successfully');
+      return ResponseHandler.success(
+        res,
+        toPaginatedResult(rows.map(toKaantaResponse), total, page, limit),
+        'Kaantas retrieved successfully'
+      );
     } catch (error) {
       next(error);
     }

@@ -28,6 +28,8 @@ import { SALESMAN_COMMISSION_TYPE_OPTIONS } from '../constants/salesman-commissi
 import { AuthRequest } from '../middleware/auth.middleware';
 import { resolveOrCreateEntityUser, allocateUsername } from '../utils/resolve-entity-user';
 import { parseEntityKycDetails } from '../utils/kyc-verification';
+import { parsePaginationQuery, toPaginatedResult } from '../utils/pagination';
+import { parseSearchQuery } from '../utils/search';
 import { applyBankVerificationFromSnapshot } from '../utils/apply-bank-verification-from-snapshot';
 import {
   isBankVerificationSuccess,
@@ -133,9 +135,24 @@ export class SalesmanController {
 
   async getAll(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
+      const { page, limit, offset } = parsePaginationQuery(req.query);
+      const search = parseSearchQuery(req.query);
       const includeInactive = req.query.include_inactive === 'true';
-      const salesmen = await salesmanService.getAllSalesmen(includeInactive);
-      return ResponseHandler.success(res, salesmen.map((s) => toResponse(s)));
+      const { rows, total } = await salesmanService.getAllSalesmen({
+        includeInactive,
+        search,
+        limit,
+        offset,
+      });
+      return ResponseHandler.success(
+        res,
+        toPaginatedResult(
+          rows.map((s) => toResponse(s)),
+          total,
+          page,
+          limit
+        )
+      );
     } catch (error) {
       next(error);
     }

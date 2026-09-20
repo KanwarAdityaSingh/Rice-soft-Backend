@@ -2,6 +2,7 @@ import { db } from '../database/connection';
 import { Broker, CreateBrokerDTO, UpdateBrokerDTO, BrokerType, ContactPerson } from '../models/broker.model';
 import { parseEntityKycDetails, mergeEntityKycDetailsPatch } from '../utils/kyc-verification';
 import { logger } from '../utils/logger';
+import { buildNormalizedSearchClause } from '../utils/search';
 
 const BROKER_SELECT_COLUMNS = `
       id, business_name, contact_persons, email, phone, address, business_details,
@@ -70,35 +71,82 @@ export class BrokerDAO {
   /**
    * @param bankVerified - true: only brokers with confirmed bank; false: only never confirmed; undefined: all
    */
-  async findAll(includeInactive = false, type?: BrokerType, bankVerified?: boolean): Promise<Broker[]> {
-    let query = `
-      SELECT ${BROKER_SELECT_COLUMNS}
-      FROM brokers
-      WHERE 1=1
-    `;
-    
-    const params: any[] = [];
+  async findAll(filters: {
+    includeInactive?: boolean;
+    type?: BrokerType;
+    bankVerified?: boolean;
+    search?: string;
+    limit: number;
+    offset: number;
+  }): Promise<{ rows: Broker[]; total: number }> {
+    const {
+      includeInactive = false,
+      type,
+      bankVerified,
+      search,
+      limit,
+      offset,
+    } = filters;
+
+    let where = `WHERE 1=1`;
+    const params: unknown[] = [];
     let paramCount = 1;
 
     if (!includeInactive) {
-      query += ` AND is_active = true`;
+      where += ` AND is_active = true`;
     }
 
     if (type) {
-      query += ` AND type = $${paramCount++}`;
+      where += ` AND type = $${paramCount++}`;
       params.push(type);
     }
 
     if (bankVerified === true) {
-      query += ` AND bank_details_verified_at IS NOT NULL`;
+      where += ` AND bank_details_verified_at IS NOT NULL`;
     } else if (bankVerified === false) {
-      query += ` AND bank_details_verified_at IS NULL`;
+      where += ` AND bank_details_verified_at IS NULL`;
     }
 
-    query += ` ORDER BY business_name ASC`;
+    const searchClause = buildNormalizedSearchClause(
+      [
+        'business_name',
+        'email',
+        'phone',
+        'contact_persons::text',
+        `business_details->>'gst_number'`,
+        `business_details->>'pan_number'`,
+        'type',
+        'broker_details::text',
+      ],
+      search,
+      paramCount
+    );
+    where += searchClause.sql;
+    params.push(...searchClause.params);
+    paramCount = searchClause.nextParamIndex;
 
-    const result = await db.query<any>(query, params);
-    return result.rows.map(row => this.transformBroker(row));
+    const countResult = await db.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM brokers ${where}`,
+      params
+    );
+    const total = parseInt(countResult.rows[0]?.count ?? '0', 10);
+
+    const limitIdx = paramCount++;
+    const offsetIdx = paramCount++;
+    params.push(limit, offset);
+
+    const result = await db.query(
+      `SELECT ${BROKER_SELECT_COLUMNS}
+       FROM brokers
+       ${where}
+       ORDER BY business_name ASC
+       LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
+      params
+    );
+    return {
+      rows: result.rows.map((row) => this.transformBroker(row)),
+      total,
+    };
   }
 
   async findById(id: string): Promise<Broker | null> {

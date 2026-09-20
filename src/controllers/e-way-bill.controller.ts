@@ -1,7 +1,14 @@
 import { Response, NextFunction } from 'express';
 import { eWayBillService } from '../services/e-way-bill.service';
 import { ResponseHandler } from '../utils/response';
-import { validate, uuidSchema, generateEWayBillSchema } from '../utils/validators';
+import {
+  validate,
+  uuidSchema,
+  generateEWayBillSchema,
+  cancelEWayBillSchema,
+  lookupEWayBillsSchema,
+} from '../utils/validators';
+import type { EWayBillCancelReason } from '../constants/e-way-bill';
 import { AuthRequest } from '../middleware/auth.middleware';
 
 export class EWayBillController {
@@ -9,6 +16,17 @@ export class EWayBillController {
     try {
       const id = validate<string>(uuidSchema, req.params.id);
       const payload = await eWayBillService.getByInvoiceDispatchId(id);
+      return ResponseHandler.success(res, payload);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /** POST /invoice-dispatches/e-way-bills/lookup — { ids } → map id → latest EWB | null */
+  async lookupLatest(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const body = validate<{ ids: string[] }>(lookupEWayBillsSchema, req.body);
+      const payload = await eWayBillService.lookupLatestByInvoiceDispatchIds(body.ids);
       return ResponseHandler.success(res, payload);
     } catch (error) {
       next(error);
@@ -56,6 +74,23 @@ export class EWayBillController {
         lr_number: body.lr_number,
       });
       return ResponseHandler.success(res, payload, 'E-Way Bill generated successfully');
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async cancel(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const id = validate<string>(uuidSchema, req.params.id);
+      const body = validate<{
+        reason_of_cancel: EWayBillCancelReason;
+        cancel_remark: string;
+      }>(cancelEWayBillSchema, req.body || {});
+      const payload = await eWayBillService.cancelForDispatch(id, {
+        reason_of_cancel: body.reason_of_cancel,
+        cancel_remark: body.cancel_remark,
+      });
+      return ResponseHandler.success(res, payload, 'E-Way Bill cancelled successfully');
     } catch (error) {
       next(error);
     }

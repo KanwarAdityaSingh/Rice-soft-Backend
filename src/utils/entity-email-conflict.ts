@@ -1,6 +1,6 @@
 import { ConflictError } from './errors';
 
-export type EntityEmailModule = 'sales party' | 'vendor' | 'transporter';
+export type EntityEmailModule = 'sales party' | 'vendor' | 'transporter' | 'master vendor';
 
 interface EmailConflictEntity {
   id: string;

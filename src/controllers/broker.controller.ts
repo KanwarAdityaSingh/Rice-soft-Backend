@@ -8,6 +8,8 @@ import {
   updateBrokerSchema,
   uuidSchema,
   brokerBrokerageCommissionSummaryQuerySchema,
+  kycVerificationDetailsSchema,
+  kycVerificationDetailsWithRequiredBankSchema,
 } from '../utils/validators';
 import {
   NotFoundError,
@@ -28,6 +30,8 @@ import { AuthRequest } from '../middleware/auth.middleware';
 import { gstLookupService } from '../services/gst-lookup.service';
 import { kycPersistenceService } from '../services/kyc-persistence.service';
 import { parseEntityKycDetails } from '../utils/kyc-verification';
+import { parsePaginationQuery, toPaginatedResult } from '../utils/pagination';
+import { parseSearchQuery } from '../utils/search';
 import { applyBankVerificationFromSnapshot } from '../utils/apply-bank-verification-from-snapshot';
 import { resolveOrCreateEntityUser } from '../utils/resolve-entity-user';
 import {
@@ -86,6 +90,8 @@ function toBrokerResponse(broker: Broker): BrokerResponse {
 export class BrokerController {
   async getAll(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
+      const { page, limit, offset } = parsePaginationQuery(req.query);
+      const search = parseSearchQuery(req.query);
       const includeInactive = req.query.include_inactive === 'true';
       const type = req.query.type as BrokerType | undefined;
       const bankVerifiedRaw = req.query.bank_verified as string | undefined;
@@ -96,11 +102,18 @@ export class BrokerController {
         bankVerified = false;
       }
 
-      const brokers = await brokerDAO.findAll(includeInactive, type, bankVerified);
+      const { rows, total } = await brokerDAO.findAll({
+        includeInactive,
+        type,
+        bankVerified,
+        search,
+        limit,
+        offset,
+      });
 
-      const brokerResponses: BrokerResponse[] = brokers.map(toBrokerResponse);
+      const brokerResponses: BrokerResponse[] = rows.map(toBrokerResponse);
 
-      return ResponseHandler.success(res, brokerResponses);
+      return ResponseHandler.success(res, toPaginatedResult(brokerResponses, total, page, limit));
     } catch (error) {
       next(error);
     }
@@ -622,10 +635,8 @@ export class BrokerController {
         }),
         kyc_verification_details: Joi.when('verify_bank', {
           is: true,
-          then: Joi.object({
-            bank: Joi.object().required(),
-          }).required(),
-          otherwise: Joi.object().optional(),
+          then: kycVerificationDetailsWithRequiredBankSchema.required(),
+          otherwise: kycVerificationDetailsSchema,
         }),
       });
 
@@ -816,10 +827,8 @@ export class BrokerController {
         }),
         kyc_verification_details: Joi.when('verify_bank', {
           is: true,
-          then: Joi.object({
-            bank: Joi.object().required(),
-          }).required(),
-          otherwise: Joi.object().optional(),
+          then: kycVerificationDetailsWithRequiredBankSchema.required(),
+          otherwise: kycVerificationDetailsSchema,
         }),
       });
 

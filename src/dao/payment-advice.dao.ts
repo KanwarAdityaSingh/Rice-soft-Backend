@@ -1,6 +1,7 @@
 import { db } from '../database/connection';
 import { PaymentAdvice, CreatePaymentAdviceDTO, UpdatePaymentAdviceDTO, PaymentAdviceStatus } from '../models/payment-advice.model';
 import { logger } from '../utils/logger';
+import { buildNormalizedSearchClause } from '../utils/search';
 
 const PAYMENT_ADVICE_SELECT = `
   id, sauda_id, inward_slip_pass_id, payer_id, recipient_id, sr_number, party_name, party_address,
@@ -12,35 +13,74 @@ const PAYMENT_ADVICE_SELECT = `
 `;
 
 export class PaymentAdviceDAO {
-  async findAll(saudaId?: string, ispId?: string, status?: PaymentAdviceStatus): Promise<PaymentAdvice[]> {
-    let query = `
-      SELECT ${PAYMENT_ADVICE_SELECT}
-      FROM payment_advices
-      WHERE 1=1
-    `;
-    
+  async findAll(
+    saudaId?: string,
+    ispId?: string,
+    status?: PaymentAdviceStatus,
+    pagination?: { limit: number; offset: number },
+    search?: string
+  ): Promise<{ rows: PaymentAdvice[]; total: number }> {
+    let where = ` WHERE 1=1`;
     const params: any[] = [];
     let paramCount = 1;
 
     if (saudaId) {
-      query += ` AND sauda_id = $${paramCount++}`;
+      where += ` AND sauda_id = $${paramCount++}`;
       params.push(saudaId);
     }
 
     if (ispId) {
-      query += ` AND inward_slip_pass_id = $${paramCount++}`;
+      where += ` AND inward_slip_pass_id = $${paramCount++}`;
       params.push(ispId);
     }
 
     if (status) {
-      query += ` AND status = $${paramCount++}`;
+      where += ` AND status = $${paramCount++}`;
       params.push(status);
     }
 
-    query += ` ORDER BY date_of_payment DESC, created_at DESC`;
+    const searchClause = buildNormalizedSearchClause(
+      [
+        'sr_number',
+        'party_name',
+        'broker_name',
+        'invoice_number',
+        'bill_number',
+        'truck_number',
+        'item',
+        'transaction_id',
+        'notes',
+        'party_address',
+        'financial_year',
+        'status',
+        'rate',
+        'amount',
+        'total_bags',
+      ],
+      search,
+      paramCount
+    );
+    where += searchClause.sql;
+    params.push(...searchClause.params);
+    paramCount = searchClause.nextParamIndex;
 
-    const result = await db.query<PaymentAdvice>(query, params);
-    return result.rows;
+    const countResult = await db.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM payment_advices${where}`,
+      params
+    );
+    const total = parseInt(countResult.rows[0]?.count ?? '0', 10);
+
+    const limit = pagination?.limit ?? 50;
+    const offset = pagination?.offset ?? 0;
+    const result = await db.query<PaymentAdvice>(
+      `SELECT ${PAYMENT_ADVICE_SELECT}
+       FROM payment_advices
+       ${where}
+       ORDER BY date_of_payment DESC, created_at DESC
+       LIMIT $${paramCount++} OFFSET $${paramCount}`,
+      [...params, limit, offset]
+    );
+    return { rows: result.rows, total };
   }
 
   /** Pending payment advices linked to a sauda and/or inward slip pass (kaanta sync). */

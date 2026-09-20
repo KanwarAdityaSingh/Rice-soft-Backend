@@ -4,18 +4,32 @@ import { inwardSlipLotDAO } from '../dao/inward-slip-lot.dao';
 import { purchaseSummaryDAO } from '../dao/purchase-summary.dao';
 import { paymentAdviceDAO } from '../dao/payment-advice.dao';
 import { PaymentAdvice, UpdatePaymentAdviceDTO, PaymentAdvicePreviewResponse } from '../models/payment-advice.model';
-import { computeKaantaPricingNetWeight, floorToMoneyStep } from '../utils/money';
+import type { PaymentAdviceWeightVariance } from '../models/sauda-weight-variance.model';
+import { computeKaantaPricingNetWeight, floorToMoneyStep, type KaantaWeightVariance } from '../utils/money';
 import { logger } from '../utils/logger';
 import { ValidationError } from '../utils/errors';
 import type { CalculationPolicyId } from '../constants/calculation-policies';
 import { calculationContextService } from './calculation-context.service';
 import type { PurchaseSummaryQueryOptions } from '../dao/purchase-summary.dao';
+import { saudaWeightVarianceService } from './sauda-weight-variance.service';
+
+/** Per-sauda variance detail kept alongside the aggregated metrics, used to write the audit ledger. */
+export type SaudaWeightVarianceDetail = {
+  saudaId: string;
+  brokerId: string | null;
+  purchaserId: string | null;
+  variance: KaantaWeightVariance;
+};
 
 export type PaymentAdviceKaantaMetrics = {
   bill_weight: number | null;
   kanta_weight: number | null;
   dana_deduction: number | null;
   final_weight: number | null;
+  /** Aggregated, frontend-facing note. Only ever set for Ex-Godown saudas with a detected variance. */
+  weight_variance: PaymentAdviceWeightVariance | null;
+  /** Internal: one entry per Ex-Godown sauda with a variance, used to write sauda_weight_variance_records. */
+  variance_details: SaudaWeightVarianceDetail[];
 };
 
 type KaantaWeightFields = {
@@ -49,8 +63,9 @@ export class PaymentAdviceService {
   private async computeKaantaMetricsForSauda(saudaId: string): Promise<PaymentAdviceKaantaMetrics | null> {
     const sauda = await saudaDAO.findById(saudaId);
     const shouldCalculateDana = sauda?.is_dana_required ?? false;
+    const isExGodown = sauda?.sauda_type === 'exgodown';
 
-    const kaantas = await kaantaDAO.findAll(saudaId);
+    const { rows: kaantas } = await kaantaDAO.findAll(saudaId);
     if (kaantas.length === 0) {
       return null;
     }
@@ -64,18 +79,33 @@ export class PaymentAdviceService {
       totalBillWeight,
       totalSaidSentWeight,
       isDanaRequired: shouldCalculateDana,
+      useBillWeightOnly: isExGodown,
     });
+
+    const varianceDetails: SaudaWeightVarianceDetail[] = [];
+    let weightVariance: PaymentAdviceWeightVariance | null = null;
+    if (pricing.weightVariance) {
+      weightVariance = saudaWeightVarianceService.toResponseVariance(pricing.weightVariance);
+      varianceDetails.push({
+        saudaId,
+        brokerId: sauda?.broker_id ?? null,
+        purchaserId: sauda?.purchaser_id ?? null,
+        variance: pricing.weightVariance,
+      });
+    }
 
     return {
       bill_weight: totalSaidSentWeight > 0 ? totalSaidSentWeight : null,
       kanta_weight: totalKaantaWeight > 0 ? totalKaantaWeight : null,
       dana_deduction: pricing.danaDeductionKg > 0 ? pricing.danaDeductionKg : null,
       final_weight: pricing.netWeightForPricing > 0 ? pricing.netWeightForPricing : null,
+      weight_variance: weightVariance,
+      variance_details: varianceDetails,
     };
   }
 
   private async computeKaantaMetricsForIsp(ispId: string): Promise<PaymentAdviceKaantaMetrics | null> {
-    const kaantas = await kaantaDAO.findAll(undefined, ispId);
+    const { rows: kaantas } = await kaantaDAO.findAll(undefined, ispId);
     if (kaantas.length === 0) {
       return null;
     }
@@ -96,15 +126,32 @@ export class PaymentAdviceService {
     const saudaIds = Array.from(kaantasBySauda.keys());
     const saudas = await Promise.all(saudaIds.map((id) => saudaDAO.findById(id)));
 
-    const saudaMap = new Map<string, boolean>();
+    const saudaMap = new Map<
+      string,
+      { isDanaRequired: boolean; isExGodown: boolean; brokerId: string | null; purchaserId: string | null }
+    >();
     saudas.forEach((sauda, index) => {
       if (sauda) {
-        saudaMap.set(saudaIds[index], sauda.is_dana_required ?? false);
+        saudaMap.set(saudaIds[index], {
+          isDanaRequired: sauda.is_dana_required ?? false,
+          isExGodown: sauda.sauda_type === 'exgodown',
+          brokerId: sauda.broker_id ?? null,
+          purchaserId: sauda.purchaser_id ?? null,
+        });
       }
     });
 
+    // Net (not absolute) sum across Ex-Godown saudas in this ISP, so an aggregated note still
+    // makes sense when an ISP spans multiple Ex-Godown saudas.
+    let exGodownKaantaTotal = 0;
+    let exGodownBillTotal = 0;
+    let hasExGodownVariance = false;
+    const varianceDetails: SaudaWeightVarianceDetail[] = [];
+
     for (const [saudaId, saudaKaantas] of kaantasBySauda.entries()) {
-      const isDanaRequired = saudaMap.get(saudaId) ?? false;
+      const saudaInfo = saudaMap.get(saudaId);
+      const isDanaRequired = saudaInfo?.isDanaRequired ?? false;
+      const isExGodown = saudaInfo?.isExGodown ?? false;
       const saudaKaantaWeight = saudaKaantas.reduce((sum, k) => sum + Number(k.kaanta_weight ?? 0), 0);
       const saudaSaidSentWeight = saudaKaantas.reduce((sum, k) => sum + Number(k.said_sent_weight ?? 0), 0);
 
@@ -117,9 +164,32 @@ export class PaymentAdviceService {
         totalBillWeight,
         totalSaidSentWeight: saudaSaidSentWeight,
         isDanaRequired,
+        useBillWeightOnly: isExGodown,
       });
       totalDanaDeduction += pricing.danaDeductionKg;
       totalNetPricingWeight += pricing.netWeightForPricing;
+
+      if (pricing.weightVariance) {
+        hasExGodownVariance = true;
+        exGodownKaantaTotal += pricing.weightVariance.kantaWeight;
+        exGodownBillTotal += pricing.weightVariance.billWeight;
+        varianceDetails.push({
+          saudaId,
+          brokerId: saudaInfo?.brokerId ?? null,
+          purchaserId: saudaInfo?.purchaserId ?? null,
+          variance: pricing.weightVariance,
+        });
+      }
+    }
+
+    let weightVariance: PaymentAdviceWeightVariance | null = null;
+    if (hasExGodownVariance && Math.abs(exGodownKaantaTotal - exGodownBillTotal) > 1e-9) {
+      weightVariance = saudaWeightVarianceService.toResponseVariance({
+        direction: exGodownKaantaTotal < exGodownBillTotal ? 'short' : 'excess',
+        varianceKg: Math.abs(exGodownKaantaTotal - exGodownBillTotal),
+        billWeight: exGodownBillTotal,
+        kantaWeight: exGodownKaantaTotal,
+      });
     }
 
     return {
@@ -127,6 +197,8 @@ export class PaymentAdviceService {
       kanta_weight: totalKaantaWeight > 0 ? totalKaantaWeight : null,
       dana_deduction: totalDanaDeduction > 0 ? totalDanaDeduction : null,
       final_weight: totalNetPricingWeight > 0 ? totalNetPricingWeight : null,
+      weight_variance: weightVariance,
+      variance_details: varianceDetails,
     };
   }
 
@@ -188,6 +260,7 @@ export class PaymentAdviceService {
       kanta_weight: metrics?.kanta_weight ?? null,
       dana_deduction: metrics?.dana_deduction ?? null,
       final_weight: metrics?.final_weight ?? null,
+      weight_variance: metrics?.weight_variance ?? null,
       total_bags: summary.total_bags,
       total_weight: summary.total_weight,
       amount,
@@ -197,6 +270,33 @@ export class PaymentAdviceService {
       calculation_policy_id: calculationContext.policyId,
       summary,
     };
+  }
+
+  /**
+   * Persist ledger rows for any Ex-Godown weight variances found on this metrics computation.
+   * Safe to call unconditionally — no-op when `metrics` has no variance details.
+   * Call after the payment advice row exists (create/update/sync), since the ledger FKs to it.
+   */
+  async recordWeightVariances(
+    metrics: PaymentAdviceKaantaMetrics | null,
+    paymentAdviceId: string,
+    inwardSlipPassId?: string | null,
+    createdBy?: string | null
+  ): Promise<void> {
+    if (!metrics || metrics.variance_details.length === 0) {
+      return;
+    }
+    for (const detail of metrics.variance_details) {
+      await saudaWeightVarianceService.recordIfChanged({
+        saudaId: detail.saudaId,
+        paymentAdviceId,
+        inwardSlipPassId: inwardSlipPassId ?? null,
+        brokerId: detail.brokerId,
+        purchaserId: detail.purchaserId,
+        variance: detail.variance,
+        createdBy: createdBy ?? null,
+      });
+    }
   }
 
   /** Apply computed kaanta metrics onto create/update DTOs (overwrites weight fields). */
@@ -282,6 +382,7 @@ export class PaymentAdviceService {
     }
 
     await paymentAdviceDAO.update(advice.id, updateData);
+    await this.recordWeightVariances(metrics, advice.id, advice.inward_slip_pass_id, updatedBy);
   }
 }
 

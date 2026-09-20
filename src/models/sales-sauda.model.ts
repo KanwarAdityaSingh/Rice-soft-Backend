@@ -5,6 +5,7 @@ import type {
   SalesmanCommissionConfig,
   SalesmanCommissionType,
 } from '../constants/salesman-commission-types';
+import type { BrokerCommissionType } from './sauda.model';
 
 export type SalesSaudaStatus = 'draft' | 'order' | 'cancelled';
 export type { SalesSaudaType, SalesMovementType };
@@ -19,6 +20,12 @@ export interface SalesSauda {
   salesman_commission_type: SalesmanCommissionType | null;
   /** Applied commission rate values snapshot. */
   salesman_commission_config: SalesmanCommissionConfig | null;
+  /** Optional sales broker */
+  broker_id: string | null;
+  /** Joined from brokers when selected */
+  broker_name?: string | null;
+  broker_commission: number | null;
+  broker_commission_type: BrokerCommissionType | null;
   sauda_type: SalesSaudaType | null;
   /** sale (default) or godown_transfer */
   movement_type: SalesMovementType;
@@ -51,6 +58,9 @@ export interface CreateSalesSaudaDTO {
   salesman_id?: string | null;
   salesman_commission_type?: SalesmanCommissionType | null;
   salesman_commission_config?: SalesmanCommissionConfig | null;
+  broker_id?: string | null;
+  broker_commission?: number | null;
+  broker_commission_type?: BrokerCommissionType | null;
   sauda_type: SalesSaudaType;
   movement_type?: SalesMovementType;
   from_godown_id?: string | null;
@@ -75,6 +85,9 @@ export interface UpdateSalesSaudaDTO {
   salesman_id?: string | null;
   salesman_commission_type?: SalesmanCommissionType | null;
   salesman_commission_config?: SalesmanCommissionConfig | null;
+  broker_id?: string | null;
+  broker_commission?: number | null;
+  broker_commission_type?: BrokerCommissionType | null;
   sauda_type?: SalesSaudaType;
   movement_type?: SalesMovementType;
   from_godown_id?: string | null;
@@ -106,6 +119,12 @@ export interface SalesSaudaResponse {
   salesman_commission_config: SalesmanCommissionConfig | null;
   /** Preview only — not persisted. */
   salesman_commission_preview?: number | null;
+  broker_id: string | null;
+  broker_name: string | null;
+  broker_commission: number | null;
+  broker_commission_type: BrokerCommissionType | null;
+  /** Preview only — not persisted. */
+  broker_commission_preview?: number | null;
   sauda_type: SalesSaudaType | null;
   movement_type: SalesMovementType;
   from_godown_id: string | null;

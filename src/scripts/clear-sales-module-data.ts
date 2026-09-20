@@ -14,6 +14,8 @@ async function clearSalesModuleData() {
     await client.query('BEGIN');
 
     // Order respects foreign keys: children first, then parents
+    logger.info('Deleting credit_note_attachments...');
+    await client.query('DELETE FROM credit_note_attachments');
     logger.info('Deleting credit_note_lines...');
     await client.query('DELETE FROM credit_note_lines');
     logger.info('Deleting credit_notes...');

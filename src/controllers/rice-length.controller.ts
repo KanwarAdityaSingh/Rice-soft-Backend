@@ -9,13 +9,18 @@ import {
 } from '../utils/validators';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { CreateRiceLengthDTO, UpdateRiceLengthDTO } from '../models/rice-length.model';
+import { parsePaginationQuery, toPaginatedResult } from '../utils/pagination';
 
 export class RiceLengthController {
   async getAll(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const includeInactive = req.query.include_inactive === 'true';
-      const rows = await riceLengthService.getAll(includeInactive);
-      return ResponseHandler.success(res, rows.map(toRiceLengthResponse));
+      const { page, limit, offset } = parsePaginationQuery(req.query);
+      const { items, total } = await riceLengthService.getAll(includeInactive, { limit, offset });
+      return ResponseHandler.success(
+        res,
+        toPaginatedResult(items.map(toRiceLengthResponse), total, page, limit)
+      );
     } catch (error) {
       next(error);
     }

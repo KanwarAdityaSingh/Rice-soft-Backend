@@ -13,6 +13,8 @@ import { AuthRequest } from '../middleware/auth.middleware';
 import { salesPartyService } from '../services/sales-party.service';
 import { ValidationError } from '../utils/errors';
 import { parseEntityKycDetails } from '../utils/kyc-verification';
+import { parsePaginationQuery, toPaginatedResult } from '../utils/pagination';
+import { parseSearchQuery } from '../utils/search';
 
 const SALES_PARTY_REGISTRATION_TYPES: SalesPartyRegistrationType[] = [
   'registered',
@@ -108,6 +110,8 @@ function assertSalesPartyRegistrationOnUpdate(existing: SalesParty, update: Upda
 export class SalesPartyController {
   async getAll(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
+      const { page, limit, offset } = parsePaginationQuery(req.query);
+      const search = parseSearchQuery(req.query);
       const includeInactive = req.query.include_inactive === 'true';
 
       let isVerified: boolean | undefined;
@@ -127,12 +131,18 @@ export class SalesPartyController {
         );
       }
 
-      const list = await salesPartyService.list({
+      const { rows, total } = await salesPartyService.list({
         includeInactive,
         isVerified,
         registrationType,
+        search,
+        limit,
+        offset,
       });
-      return ResponseHandler.success(res, list.map(toResponse));
+      return ResponseHandler.success(
+        res,
+        toPaginatedResult(rows.map(toResponse), total, page, limit)
+      );
     } catch (error) {
       next(error);
     }

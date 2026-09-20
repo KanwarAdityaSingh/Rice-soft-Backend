@@ -5,6 +5,8 @@ import { saudaDAO } from '../dao/sauda.dao';
 import { inwardSlipPassDAO } from '../dao/inward-slip-pass.dao';
 import { vendorDAO } from '../dao/vendor.dao';
 import { ResponseHandler } from '../utils/response';
+import { parsePaginationQuery, toPaginatedResult } from '../utils/pagination';
+import { parseSearchQuery } from '../utils/search';
 import {
   validate,
   createPaymentAdviceSchema,
@@ -19,18 +21,22 @@ import {
 } from '../utils/errors';
 import { CreatePaymentAdviceDTO, UpdatePaymentAdviceDTO, PaymentAdviceResponse, PaymentAdviceStatus, PaymentAdvice } from '../models/payment-advice.model';
 import { CreatePaymentAdviceChargeDTO, PaymentAdviceChargeResponse } from '../models/payment-advice-charge.model';
+import type { PaymentAdviceWeightVariance } from '../models/sauda-weight-variance.model';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { uploadToS3, validateFileSize, validateFileType } from '../utils/s3-upload';
 import { appConfig } from '../config/app.config';
 import { floorToMoneyStep } from '../utils/money';
 import { paymentAdviceService } from '../services/payment-advice.service';
+import { saudaWeightVarianceDAO } from '../dao/sauda-weight-variance.dao';
+import { saudaWeightVarianceService } from '../services/sauda-weight-variance.service';
 import { calculationContextService } from '../services/calculation-context.service';
 import { isCalculationPolicyId, type CalculationPolicyId } from '../constants/calculation-policies';
 
 function mapPaymentAdviceToResponse(
   paymentAdvice: PaymentAdvice,
   charges: PaymentAdviceChargeResponse[],
-  netPayable: number
+  netPayable: number,
+  weightVariance?: PaymentAdviceWeightVariance | null
 ): PaymentAdviceResponse {
   return {
     id: paymentAdvice.id,
@@ -66,6 +72,7 @@ function mapPaymentAdviceToResponse(
     updated_at: paymentAdvice.updated_at.toISOString(),
     charges,
     net_payable: netPayable,
+    ...(weightVariance ? { weight_variance: weightVariance } : {}),
   };
 }
 
@@ -75,27 +82,51 @@ export class PaymentAdviceController {
       const saudaId = req.query.sauda_id as string | undefined;
       const ispId = req.query.inward_slip_pass_id as string | undefined;
       const status = req.query.status as PaymentAdviceStatus | undefined;
-      
-      const paymentAdvices = await paymentAdviceDAO.findAll(saudaId, ispId, status);
+      const { page, limit, offset } = parsePaginationQuery(req.query);
+      const search = parseSearchQuery(req.query);
 
-      const responses: PaymentAdviceResponse[] = await Promise.all(
-        paymentAdvices.map(async (advice) => {
-          const charges = await paymentAdviceChargeDAO.findByPaymentAdviceId(advice.id);
-          const netPayable = await paymentAdviceChargeDAO.calculateNetPayable(advice.id);
-          const chargeResponses: PaymentAdviceChargeResponse[] = charges.map(charge => ({
-            id: charge.id,
-            payment_advice_id: charge.payment_advice_id,
-            charge_name: charge.charge_name,
-            charge_value: parseFloat(charge.charge_value.toString()),
-            charge_type: charge.charge_type,
-            created_at: charge.created_at.toISOString(),
-            updated_at: charge.updated_at.toISOString(),
-          }));
-          return mapPaymentAdviceToResponse(advice, chargeResponses, netPayable);
-        })
+      const { rows, total } = await paymentAdviceDAO.findAll(
+        saudaId,
+        ispId,
+        status,
+        { limit, offset },
+        search
       );
 
-      return ResponseHandler.success(res, responses);
+      const chargesByAdvice = await paymentAdviceChargeDAO.findByPaymentAdviceIds(
+        rows.map((advice) => advice.id)
+      );
+      // Latest recorded Ex-Godown variance per PA (from the ledger, written at save/sync time).
+      // Cheaper than recomputing kaanta metrics for every row in a list; see getById for the
+      // always-fresh single-item variant.
+      const varianceByAdvice = await saudaWeightVarianceDAO.findLatestByPaymentAdviceIds(
+        rows.map((advice) => advice.id)
+      );
+
+      const items: PaymentAdviceResponse[] = rows.map((advice) => {
+        const charges = chargesByAdvice.get(advice.id) ?? [];
+        const chargeResponses: PaymentAdviceChargeResponse[] = charges.map((charge) => ({
+          id: charge.id,
+          payment_advice_id: charge.payment_advice_id,
+          charge_name: charge.charge_name,
+          charge_value: parseFloat(charge.charge_value.toString()),
+          charge_type: charge.charge_type,
+          created_at: charge.created_at.toISOString(),
+          updated_at: charge.updated_at.toISOString(),
+        }));
+        const totalCharges = charges.reduce(
+          (sum, charge) => sum + floorToMoneyStep(parseFloat(charge.charge_value.toString())),
+          0
+        );
+        const netPayable = floorToMoneyStep(
+          parseFloat(advice.amount.toString()) - totalCharges
+        );
+        const varianceRecord = varianceByAdvice.get(advice.id);
+        const weightVariance = varianceRecord ? saudaWeightVarianceService.fromRecord(varianceRecord) : null;
+        return mapPaymentAdviceToResponse(advice, chargeResponses, netPayable, weightVariance);
+      });
+
+      return ResponseHandler.success(res, toPaginatedResult(items, total, page, limit));
     } catch (error) {
       next(error);
     }
@@ -154,7 +185,17 @@ export class PaymentAdviceController {
         updated_at: charge.updated_at.toISOString(),
       }));
 
-      return ResponseHandler.success(res, mapPaymentAdviceToResponse(paymentAdvice, chargeResponses, netPayable));
+      // Single-item fetch: recompute live so the note always reflects the current kaanta state
+      // (cheaper to just recompute than to reason about ledger staleness for one row).
+      const kaantaMetrics = await paymentAdviceService.computeKaantaMetrics(
+        paymentAdvice.sauda_id,
+        paymentAdvice.inward_slip_pass_id
+      );
+
+      return ResponseHandler.success(
+        res,
+        mapPaymentAdviceToResponse(paymentAdvice, chargeResponses, netPayable, kaantaMetrics?.weight_variance)
+      );
     } catch (error) {
       next(error);
     }
@@ -257,9 +298,17 @@ export class PaymentAdviceController {
         updated_at: charge.updated_at.toISOString(),
       }));
 
+      // Ex-Godown only: log any bill-vs-kaanta weight variance for later review (does not affect amount).
+      await paymentAdviceService.recordWeightVariances(
+        kaantaMetrics,
+        paymentAdvice.id,
+        paymentAdvice.inward_slip_pass_id,
+        req.user?.userId
+      );
+
       return ResponseHandler.created(
         res,
-        mapPaymentAdviceToResponse(paymentAdvice, chargeResponses, netPayable),
+        mapPaymentAdviceToResponse(paymentAdvice, chargeResponses, netPayable, kaantaMetrics?.weight_variance),
         'Payment advice created successfully'
       );
     } catch (error) {
@@ -307,6 +356,7 @@ export class PaymentAdviceController {
         calculationPolicyId = calculationContext.policyId;
       }
 
+      let kaantaMetrics = null as Awaited<ReturnType<typeof paymentAdviceService.computeKaantaMetrics>>;
       if (saudaId || ispId) {
         if (paFields.amount === undefined) {
           const amount = await paymentAdviceService.resolveAmountFromSummary(
@@ -319,7 +369,7 @@ export class PaymentAdviceController {
           }
         }
 
-        const kaantaMetrics = await paymentAdviceService.computeKaantaMetrics(saudaId, ispId);
+        kaantaMetrics = await paymentAdviceService.computeKaantaMetrics(saudaId, ispId);
         paymentAdviceService.applyKaantaMetricsToDto(paFields, kaantaMetrics);
       }
 
@@ -341,6 +391,14 @@ export class PaymentAdviceController {
         await paymentAdviceChargeDAO.replaceAllForPaymentAdvice(id, chargesPayload);
       }
 
+      // Ex-Godown only: log any bill-vs-kaanta weight variance for later review (does not affect amount).
+      await paymentAdviceService.recordWeightVariances(
+        kaantaMetrics,
+        paymentAdvice.id,
+        paymentAdvice.inward_slip_pass_id,
+        req.user?.userId
+      );
+
       const charges = await paymentAdviceChargeDAO.findByPaymentAdviceId(id);
       const netPayable = await paymentAdviceChargeDAO.calculateNetPayable(id);
       const chargeResponses: PaymentAdviceChargeResponse[] = charges.map(charge => ({
@@ -355,7 +413,7 @@ export class PaymentAdviceController {
 
       return ResponseHandler.success(
         res,
-        mapPaymentAdviceToResponse(paymentAdvice, chargeResponses, netPayable),
+        mapPaymentAdviceToResponse(paymentAdvice, chargeResponses, netPayable, kaantaMetrics?.weight_variance),
         'Payment advice updated successfully'
       );
     } catch (error) {

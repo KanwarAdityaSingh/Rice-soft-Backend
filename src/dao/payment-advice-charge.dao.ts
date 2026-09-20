@@ -15,6 +15,28 @@ export class PaymentAdviceChargeDAO {
     return result.rows;
   }
 
+  async findByPaymentAdviceIds(
+    paymentAdviceIds: string[]
+  ): Promise<Map<string, PaymentAdviceCharge[]>> {
+    const map = new Map<string, PaymentAdviceCharge[]>();
+    if (paymentAdviceIds.length === 0) return map;
+
+    const result = await db.query<PaymentAdviceCharge>(
+      `SELECT id, payment_advice_id, charge_name, charge_value, charge_type, created_at, updated_at
+       FROM payment_advice_charges
+       WHERE payment_advice_id = ANY($1::uuid[])
+       ORDER BY created_at ASC`,
+      [paymentAdviceIds]
+    );
+
+    for (const row of result.rows) {
+      const list = map.get(row.payment_advice_id) ?? [];
+      list.push(row);
+      map.set(row.payment_advice_id, list);
+    }
+    return map;
+  }
+
   async findById(id: string): Promise<PaymentAdviceCharge | null> {
     const query = `
       SELECT id, payment_advice_id, charge_name, charge_value, charge_type, created_at, updated_at

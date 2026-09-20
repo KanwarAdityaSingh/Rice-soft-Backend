@@ -80,6 +80,30 @@ router.get(
 );
 
 /**
+ * @route   GET /api/v1/kyc/mobile/name
+ * @desc    Lookup registered name for a mobile via Surepass Mobile-to-Name
+ * @access  Private
+ * @query   mobile_number: string (10-digit Indian mobile), entity_type?, entity_id? (optional persist)
+ */
+router.get(
+  '/mobile/name',
+  authenticate,
+  kycController.lookupMobileToName.bind(kycController)
+);
+
+/**
+ * @route   GET /api/v1/kyc/telecom/hlr
+ * @desc    Lookup telecom HLR (operator, circle, porting) via Surepass
+ * @access  Private
+ * @query   mobile_number: string (10-digit or 91 + 10-digit), entity_type?, entity_id? (optional persist)
+ */
+router.get(
+  '/telecom/hlr',
+  authenticate,
+  kycController.lookupTelecomHlr.bind(kycController)
+);
+
+/**
  * @route   GET /api/v1/kyc/gstin/advanced
  * @desc    Lookup GSTIN via Surepass Advanced API
  * @access  Private

@@ -10,13 +10,18 @@ import {
 } from '../utils/validators';
 import { CreateUserDTO, UpdateUserDTO, UserResponse, CustomPermissions } from '../models/user.model';
 import { AuthRequest } from '../middleware/auth.middleware';
+import { parsePaginationQuery, toPaginatedResult } from '../utils/pagination';
 
 export class UserController {
   async getAll(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const includeInactive = req.query.include_inactive === 'true';
       const userType = req.query.user_type as string;
-      const users = await userService.getAllUsers(includeInactive, userType);
+      const { page, limit, offset } = parsePaginationQuery(req.query);
+      const { items: users, total } = await userService.getAllUsers(includeInactive, userType, {
+        limit,
+        offset,
+      });
 
       const userResponses: UserResponse[] = users.map((user) => ({
         id: user.id,
@@ -31,7 +36,10 @@ export class UserController {
         updated_at: user.updated_at.toISOString(),
       }));
 
-      return ResponseHandler.success(res, userResponses);
+      return ResponseHandler.success(
+        res,
+        toPaginatedResult(userResponses, total, page, limit)
+      );
     } catch (error) {
       next(error);
     }

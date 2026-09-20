@@ -5,8 +5,14 @@ import { gstLookupService } from './gst-lookup.service';
 import { logger } from '../utils/logger';
 
 export class BrokerService {
-  async getAllBrokers(includeInactive: boolean, type?: BrokerType): Promise<Broker[]> {
-    return await brokerDAO.findAll(includeInactive, type);
+  async getAllBrokers(filters: {
+    includeInactive?: boolean;
+    type?: BrokerType;
+    bankVerified?: boolean;
+    limit: number;
+    offset: number;
+  }): Promise<{ rows: Broker[]; total: number }> {
+    return await brokerDAO.findAll(filters);
   }
 
   async getBrokerById(id: string): Promise<Broker> {

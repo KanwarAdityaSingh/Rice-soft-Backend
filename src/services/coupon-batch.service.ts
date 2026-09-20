@@ -3,7 +3,7 @@ import { PoolClient } from 'pg';
 import { CouponBatchDAO } from '../dao/coupon-batch.dao';
 import { CouponDAO } from '../dao/coupon.dao';
 import { CouponStatusHistoryDAO } from '../dao/coupon-status-history.dao';
-import { CreateCouponBatchDTO, CouponBatch } from '../models/coupon.model';
+import { CouponBatch, CouponBatchListFilters, CreateCouponBatchDTO } from '../models/coupon.model';
 import { BadRequestError, ConflictError, NotFoundError, ValidationError } from '../utils/errors';
 import {
   generateCouponCodeChunk,
@@ -91,15 +91,47 @@ export class CouponBatchService {
     });
   }
 
-  async getBatchById(batchId: string) {
+  async getBatchById(
+    batchId: string,
+    serialScope?: { from_serial: string; to_serial: string }
+  ) {
     const batch = await this.batchDAO.findById(batchId);
     if (!batch) throw new NotFoundError('Coupon batch not found');
-    const stats = await this.batchDAO.getStats(batchId);
+
+    let statsOptions:
+      | {
+          fromSequence: number;
+          toSequence: number;
+          from_serial: string;
+          to_serial: string;
+        }
+      | undefined;
+
+    if (serialScope) {
+      const fromSeq = parseCouponSerialSequence(serialScope.from_serial, batch.batch_code);
+      const toSeq = parseCouponSerialSequence(serialScope.to_serial, batch.batch_code);
+      if (fromSeq == null || toSeq == null) {
+        throw new ValidationError(
+          `Serial numbers must belong to this batch (${batch.batch_code}-NNNNNN)`
+        );
+      }
+      if (fromSeq > toSeq) {
+        throw new ValidationError('from_serial must be less than or equal to to_serial');
+      }
+      statsOptions = {
+        fromSequence: fromSeq,
+        toSequence: toSeq,
+        from_serial: serialScope.from_serial.trim().toUpperCase(),
+        to_serial: serialScope.to_serial.trim().toUpperCase(),
+      };
+    }
+
+    const stats = await this.batchDAO.getStats(batchId, statsOptions);
     return { batch, stats };
   }
 
-  async getAllBatches(page = 1, limit = 50) {
-    return this.batchDAO.findAll(page, limit);
+  async getAllBatches(filters: CouponBatchListFilters = {}) {
+    return this.batchDAO.findAll(filters);
   }
 
   async generateCodes(batchId: string): Promise<{ generated: number; batch: CouponBatch }> {

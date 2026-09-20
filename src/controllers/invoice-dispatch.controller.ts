@@ -2,6 +2,8 @@ import { Response, NextFunction } from 'express';
 import { invoiceDispatchService } from '../services/invoice-dispatch.service';
 import { invoiceDispatchDAO } from '../dao/invoice-dispatch.dao';
 import { ResponseHandler } from '../utils/response';
+import { parsePaginationQuery, toPaginatedResult } from '../utils/pagination';
+import { parseSearchQuery } from '../utils/search';
 import {
   validate,
   createInvoiceDispatchSchema,
@@ -10,8 +12,10 @@ import {
   uuidSchema,
 } from '../utils/validators';
 import { AuthRequest } from '../middleware/auth.middleware';
+import { normalizeBuyerGstin } from '../constants/gst-state-codes';
 import { InvoiceDispatchLine } from '../models/invoice-dispatch-line.model';
 import { UpdateInvoiceDispatchDTO } from '../models/invoice-dispatch.model';
+import { buildDocumentCompliance } from '../services/invoice-dispatch-document-compliance';
 import {
   uploadToS3,
   validateFileSize,
@@ -23,16 +27,48 @@ import {
   NotFoundError,
   ValidationError,
 } from '../utils/errors';
+import { lrExtractionService, LrExtractionResult } from '../services/lr-extraction.service';
+import { logger } from '../utils/logger';
+
+const LR_EXTRACTION_IMAGE_MIME_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif'];
+
+/**
+ * Best-effort LR/Bilty OCR for a document being uploaded via /upload-bilti or /upload-lr.
+ * Bilti and LR copies are, in practice, the same transport receipt under different names —
+ * whichever one the user attaches first should still surface the LR number/vehicle match.
+ * Only runs for images (vision API doesn't read PDFs) and never blocks the upload: any
+ * extraction failure is logged and swallowed so the document is still saved successfully.
+ */
+async function attemptLrExtraction(file: Express.Multer.File): Promise<LrExtractionResult | null> {
+  if (!appConfig.openai.lrExtractionEnabled) {
+    return null;
+  }
+  if (!LR_EXTRACTION_IMAGE_MIME_TYPES.includes(file.mimetype)) {
+    return null;
+  }
+  try {
+    return await lrExtractionService.extractLrDetailsFromImage(file.buffer, file.mimetype);
+  } catch (error) {
+    logger.warn('LR extraction on document upload failed; continuing without it', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
+}
 
 function formatLine(line: InvoiceDispatchLine) {
   return {
     id: line.id,
     invoice_dispatch_id: line.invoice_dispatch_id,
     sales_sauda_line_id: line.sales_sauda_line_id,
-    product_id: line.product_id,
+    product_id: line.product_id ?? null,
+    product_alias: line.product_alias ?? null,
+    lot_id: line.lot_id ?? null,
     packaging_id: line.packaging_id,
     packet_count:
       line.packet_count != null ? parseInt(line.packet_count.toString(), 10) : null,
+    no_of_bags: line.no_of_bags != null ? parseInt(line.no_of_bags.toString(), 10) : null,
+    bag_weight: line.bag_weight != null ? parseFloat(line.bag_weight.toString()) : null,
     quantity: parseFloat(line.quantity.toString()),
     quantity_unit: line.quantity_unit,
     rate: parseFloat(line.rate.toString()),
@@ -54,12 +90,15 @@ function formatDispatch(dispatch: any) {
     sales_sauda_ids: salesSaudaIds,
     godown_id: dispatch.godown_id,
     to_godown_id: dispatch.to_godown_id ?? null,
+    serial_number:
+      dispatch.serial_number != null ? Number(dispatch.serial_number) : null,
     internal_invoice_number: dispatch.internal_invoice_number,
     dispatch_date: typeof dispatch.dispatch_date === 'string' ? dispatch.dispatch_date : dispatch.dispatch_date?.toISOString?.()?.split('T')[0] ?? null,
     financial_year: dispatch.financial_year,
     party_name: dispatch.party_name,
     party_address: dispatch.party_address,
-    party_gst_number: dispatch.party_gst_number,
+    // Legacy rows may still be null; expose URP for unregistered parties.
+    party_gst_number: normalizeBuyerGstin(dispatch.party_gst_number),
     party_pan_number: dispatch.party_pan_number,
     transporter_id: dispatch.transporter_id,
     vehicle_id: dispatch.vehicle_id,
@@ -80,7 +119,9 @@ function formatDispatch(dispatch: any) {
     receiving_doc_image_url: dispatch.receiving_doc_image_url ?? null,
     receiving_doc_pdf_url: dispatch.receiving_doc_pdf_url ?? null,
     status: dispatch.status,
+    bos_verification_token: dispatch.bos_verification_token ?? null,
     cancel_reason: dispatch.cancel_reason ?? null,
+    document_compliance: buildDocumentCompliance(dispatch),
     created_at: dispatch.created_at instanceof Date ? dispatch.created_at.toISOString() : dispatch.created_at,
     updated_at: dispatch.updated_at instanceof Date ? dispatch.updated_at.toISOString() : dispatch.updated_at,
     lines: Array.isArray(dispatch.lines) ? dispatch.lines.map(formatLine) : [],
@@ -94,9 +135,38 @@ export class InvoiceDispatchController {
       const godownId = req.query.godown_id as string | undefined;
       const status = req.query.status as 'draft' | 'confirmed' | 'cancelled' | undefined;
       const financialYear = req.query.financial_year as string | undefined;
-      const list = await invoiceDispatchService.list(salesSaudaId, status, godownId, financialYear);
-      const data = list.map((d) => formatDispatch({ ...d, lines: [] }));
-      return ResponseHandler.success(res, data);
+      const search = parseSearchQuery(req.query);
+      const { page, limit, offset } = parsePaginationQuery(req.query);
+      const { items, total } = await invoiceDispatchService.list(
+        salesSaudaId,
+        status,
+        godownId,
+        financialYear,
+        { limit, offset },
+        search
+      );
+      return ResponseHandler.success(
+        res,
+        toPaginatedResult(
+          items.map((d) => formatDispatch({ ...d, lines: [] })),
+          total,
+          page,
+          limit
+        )
+      );
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getNextBillEligibility(
+    _req: AuthRequest,
+    res: Response,
+    next: NextFunction
+  ): Promise<Response | void> {
+    try {
+      const eligibility = await invoiceDispatchService.getNextBillEligibility();
+      return ResponseHandler.success(res, eligibility);
     } catch (error) {
       next(error);
     }
@@ -260,6 +330,8 @@ export class InvoiceDispatchController {
         throw new InternalServerError('Failed to upload bilti. Please try again.');
       }
 
+      const extraction = await attemptLrExtraction(req.file);
+
       const isPdf = req.file.mimetype === 'application/pdf';
       const updateData: UpdateInvoiceDispatchDTO = {
         updated_by: req.user?.userId,
@@ -268,6 +340,10 @@ export class InvoiceDispatchController {
         updateData.bilti_pdf_url = uploadResult.url;
       } else {
         updateData.bilti_image_url = uploadResult.url;
+      }
+      // Only prefill lr_number if it isn't already set — never clobber a value the user entered.
+      if (extraction?.lr_number && !existing.lr_number) {
+        updateData.lr_number = extraction.lr_number;
       }
 
       const dispatch = await invoiceDispatchDAO.update(id, updateData);
@@ -281,6 +357,8 @@ export class InvoiceDispatchController {
           url: uploadResult.url,
           bilti_image_url: dispatch.bilti_image_url,
           bilti_pdf_url: dispatch.bilti_pdf_url,
+          lr_number: dispatch.lr_number,
+          extraction,
         },
         'Bilti uploaded successfully'
       );
@@ -326,6 +404,8 @@ export class InvoiceDispatchController {
         throw new InternalServerError('Failed to upload LR. Please try again.');
       }
 
+      const extraction = await attemptLrExtraction(req.file);
+
       const isPdf = req.file.mimetype === 'application/pdf';
       const updateData: UpdateInvoiceDispatchDTO = {
         updated_by: req.user?.userId,
@@ -334,6 +414,10 @@ export class InvoiceDispatchController {
         updateData.lr_pdf_url = uploadResult.url;
       } else {
         updateData.lr_image_url = uploadResult.url;
+      }
+      // Only prefill lr_number if it isn't already set — never clobber a value the user entered.
+      if (extraction?.lr_number && !existing.lr_number) {
+        updateData.lr_number = extraction.lr_number;
       }
 
       const dispatch = await invoiceDispatchDAO.update(id, updateData);
@@ -347,9 +431,50 @@ export class InvoiceDispatchController {
           url: uploadResult.url,
           lr_image_url: dispatch.lr_image_url,
           lr_pdf_url: dispatch.lr_pdf_url,
+          lr_number: dispatch.lr_number,
+          extraction,
         },
         'LR uploaded successfully'
       );
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /invoice-dispatches/extract-lr
+   * multipart field: file (image of the LR/Bilty/GR receipt)
+   *
+   * Stateless — does not persist anything or require an existing dispatch. Used by the
+   * frontend to prefill the LR number (and flag an unrecognised vehicle) before/while
+   * creating a dispatch, i.e. before there's a dispatch id to attach a document to.
+   * Once a dispatch exists, POST /:id/upload-bilti and POST /:id/upload-lr persist the
+   * document AND run this same extraction (see attemptLrExtraction below).
+   */
+  async extractLr(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      if (!appConfig.openai.lrExtractionEnabled) {
+        throw new ValidationError('LR extraction is currently disabled');
+      }
+
+      if (!req.file) {
+        throw new ValidationError('File is required');
+      }
+
+      validateFileSize(req.file.size, 5);
+      validateFileType(req.file.mimetype, LR_EXTRACTION_IMAGE_MIME_TYPES);
+
+      let extraction;
+      try {
+        extraction = await lrExtractionService.extractLrDetailsFromImage(
+          req.file.buffer,
+          req.file.mimetype
+        );
+      } catch {
+        throw new InternalServerError('Failed to extract details from the LR/Bilty image. Please try again.');
+      }
+
+      return ResponseHandler.success(res, extraction, 'LR/Bilty details extracted successfully');
     } catch (error) {
       next(error);
     }

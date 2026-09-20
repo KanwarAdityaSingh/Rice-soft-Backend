@@ -7,6 +7,7 @@ import {
   SalesMovementType,
 } from '../models/sales-sauda.model';
 import { logger } from '../utils/logger';
+import { buildNormalizedSearchClause } from '../utils/search';
 
 function formatDateToLocalString(date: Date | string | null | undefined): string | null {
   if (!date) return null;
@@ -20,6 +21,8 @@ function formatDateToLocalString(date: Date | string | null | undefined): string
 const SALES_SAUDA_SELECT = `
   ss.id, ss.sales_party_id, ss.salesman_id, sm.name as salesman_name,
   ss.salesman_commission_type, ss.salesman_commission_config,
+  ss.broker_id, br.business_name as broker_name,
+  ss.broker_commission, ss.broker_commission_type,
   ss.sauda_type, ss.movement_type, ss.from_godown_id, ss.to_godown_id,
   ss.status, ss.order_number, TO_CHAR(ss.sauda_date, 'YYYY-MM-DD') as sauda_date,
   ss.financial_year, ss.billing_address, ss.delivery_address,
@@ -33,40 +36,74 @@ export class SalesSaudaDAO {
     salesPartyId?: string,
     status?: SalesSaudaStatus,
     financialYear?: string,
-    movementType?: SalesMovementType | 'all'
-  ): Promise<SalesSauda[]> {
-    let query = `
-      SELECT ${SALES_SAUDA_SELECT}
-      FROM sales_saudas ss
-      LEFT JOIN salesmen sm ON sm.id = ss.salesman_id
-      WHERE 1=1
-    `;
+    movementType?: SalesMovementType | 'all',
+    pagination?: { limit: number; offset: number },
+    search?: string
+  ): Promise<{ rows: SalesSauda[]; total: number }> {
+    let where = ` WHERE 1=1`;
     const params: any[] = [];
     let paramCount = 1;
     if (salesPartyId) {
-      query += ` AND ss.sales_party_id = $${paramCount++}`;
+      where += ` AND ss.sales_party_id = $${paramCount++}`;
       params.push(salesPartyId);
     }
     if (status) {
-      query += ` AND ss.status = $${paramCount++}`;
+      where += ` AND ss.status = $${paramCount++}`;
       params.push(status);
     }
     if (financialYear) {
-      query += ` AND ss.financial_year = $${paramCount++}`;
+      where += ` AND ss.financial_year = $${paramCount++}`;
       params.push(financialYear);
     }
     // Default: customer sales only (exclude godown transfers from normal lists)
     if (movementType === undefined || movementType === 'sale') {
-      query += ` AND ss.movement_type = $${paramCount++}`;
+      where += ` AND ss.movement_type = $${paramCount++}`;
       params.push('sale');
     } else if (movementType === 'godown_transfer') {
-      query += ` AND ss.movement_type = $${paramCount++}`;
+      where += ` AND ss.movement_type = $${paramCount++}`;
       params.push('godown_transfer');
     }
     // movementType === 'all' → no filter
-    query += ` ORDER BY ss.created_at DESC`;
-    const result = await db.query<SalesSauda>(query, params);
-    return result.rows;
+
+    const searchClause = buildNormalizedSearchClause(
+      [
+        'ss.order_number',
+        'ss.notes',
+        'sp.business_name',
+        'br.business_name',
+        'sm.name',
+      ],
+      search,
+      paramCount
+    );
+    where += searchClause.sql;
+    params.push(...searchClause.params);
+    paramCount = searchClause.nextParamIndex;
+
+    const from = `
+      FROM sales_saudas ss
+      LEFT JOIN sales_parties sp ON sp.id = ss.sales_party_id
+      LEFT JOIN salesmen sm ON sm.id = ss.salesman_id
+      LEFT JOIN brokers br ON br.id = ss.broker_id
+    `;
+
+    const countResult = await db.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count ${from}${where}`,
+      params
+    );
+    const total = parseInt(countResult.rows[0]?.count ?? '0', 10);
+
+    const limit = pagination?.limit ?? 50;
+    const offset = pagination?.offset ?? 0;
+    const result = await db.query<SalesSauda>(
+      `SELECT ${SALES_SAUDA_SELECT}
+       ${from}
+       ${where}
+       ORDER BY ss.created_at DESC
+       LIMIT $${paramCount++} OFFSET $${paramCount}`,
+      [...params, limit, offset]
+    );
+    return { rows: result.rows, total };
   }
 
   async findById(id: string): Promise<SalesSauda | null> {
@@ -74,6 +111,7 @@ export class SalesSaudaDAO {
       SELECT ${SALES_SAUDA_SELECT}
       FROM sales_saudas ss
       LEFT JOIN salesmen sm ON sm.id = ss.salesman_id
+      LEFT JOIN brokers br ON br.id = ss.broker_id
       WHERE ss.id = $1
     `;
     const result = await db.query<SalesSauda>(query, [id]);
@@ -84,6 +122,7 @@ export class SalesSaudaDAO {
     const query = `
       INSERT INTO sales_saudas (
         sales_party_id, salesman_id, salesman_commission_type, salesman_commission_config,
+        broker_id, broker_commission, broker_commission_type,
         sauda_type, movement_type, from_godown_id, to_godown_id,
         status, sauda_date, financial_year,
         billing_address, delivery_address,
@@ -93,7 +132,7 @@ export class SalesSaudaDAO {
       )
       VALUES (
         $1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
-        $17, $18, $19, $20, $21
+        $17, $18, $19, $20, $21, $22, $23, $24
       )
       RETURNING id
     `;
@@ -104,6 +143,9 @@ export class SalesSaudaDAO {
       data.salesman_commission_config != null
         ? JSON.stringify(data.salesman_commission_config)
         : null,
+      data.broker_id ?? null,
+      data.broker_commission ?? null,
+      data.broker_commission_type ?? null,
       data.sauda_type,
       data.movement_type ?? 'sale',
       data.from_godown_id ?? null,
@@ -158,6 +200,18 @@ export class SalesSaudaDAO {
           ? JSON.stringify(data.salesman_commission_config)
           : null
       );
+    }
+    if (data.broker_id !== undefined) {
+      fields.push(`broker_id = $${paramCount++}`);
+      values.push(data.broker_id ?? null);
+    }
+    if (data.broker_commission !== undefined) {
+      fields.push(`broker_commission = $${paramCount++}`);
+      values.push(data.broker_commission ?? null);
+    }
+    if (data.broker_commission_type !== undefined) {
+      fields.push(`broker_commission_type = $${paramCount++}`);
+      values.push(data.broker_commission_type ?? null);
     }
     if (data.sauda_type !== undefined) {
       fields.push(`sauda_type = $${paramCount++}`);

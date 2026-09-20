@@ -1,5 +1,6 @@
 import { RiceType } from './lead.model';
 import type { RiceCategory } from '../constants/rice-categories';
+import type { SalesBrokerCommissionSummaryLine } from './broker-commission-entry.model';
 
 export interface PurchaseSummary {
   // Identifiers
@@ -161,10 +162,23 @@ export interface BrokerCommissionSummaryLine {
   payment_advices: BrokerCommissionPaymentAdviceRow[];
 }
 
+export interface BrokerCommissionSummarySection<T> {
+  lines: T[];
+  total_broker_commission: number;
+}
+
 export interface BrokerCommissionSummary {
   broker_id: string;
-  lines: BrokerCommissionSummaryLine[];
+  /** Purchase saudas — computed (unchanged behavior). */
+  purchase: BrokerCommissionSummarySection<BrokerCommissionSummaryLine>;
+  /** Sales ledger entries (accruals + reversals). */
+  sales: BrokerCommissionSummarySection<SalesBrokerCommissionSummaryLine>;
+  /** purchase.total + sales.total */
   total_broker_commission: number;
+  /**
+   * @deprecated Prefer `purchase.lines`. Kept for older FE clients.
+   */
+  lines: BrokerCommissionSummaryLine[];
   /** Echo of `from_date` query filter when provided (YYYY-MM-DD). */
   period_from?: string | null;
   /** Echo of `to_date` query filter when provided (YYYY-MM-DD). */

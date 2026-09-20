@@ -175,7 +175,9 @@ export class SalesmanCommissionEntryDAO {
     status?: SalesmanCommissionEntryStatus;
     from?: string;
     to?: string;
-  }): Promise<SalesmanCommissionEntry[]> {
+    limit?: number;
+    offset?: number;
+  }): Promise<{ rows: SalesmanCommissionEntry[]; total: number }> {
     const params: unknown[] = [];
     let where = 'WHERE 1=1';
     let i = 1;
@@ -195,12 +197,31 @@ export class SalesmanCommissionEntryDAO {
       where += ` AND e.created_at::date <= $${i++}::date`;
       params.push(filters.to);
     }
-    const result = await db.query<SalesmanCommissionEntry>(
-      `SELECT ${SELECT} ${FROM} ${where}
-       ORDER BY e.created_at DESC, e.id DESC`,
+
+    const countResult = await db.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count ${FROM} ${where}`,
       params
     );
-    return result.rows.map(transform);
+    const total = parseInt(countResult.rows[0]?.count ?? '0', 10);
+
+    // Report callers omit limit/offset → return all matching rows.
+    if (filters.limit == null) {
+      const result = await db.query<SalesmanCommissionEntry>(
+        `SELECT ${SELECT} ${FROM} ${where}
+         ORDER BY e.created_at DESC, e.id DESC`,
+        params
+      );
+      return { rows: result.rows.map(transform), total };
+    }
+
+    const offset = filters.offset ?? 0;
+    const result = await db.query<SalesmanCommissionEntry>(
+      `SELECT ${SELECT} ${FROM} ${where}
+       ORDER BY e.created_at DESC, e.id DESC
+       LIMIT $${i++} OFFSET $${i}`,
+      [...params, filters.limit, offset]
+    );
+    return { rows: result.rows.map(transform), total };
   }
 
   async setStatus(
@@ -303,6 +324,22 @@ export class SalesmanCommissionEntryDAO {
       approved: Number(r.approved),
       paid: Number(r.paid),
     }));
+  }
+
+  async deletePendingReversalByCreditNoteId(
+    creditNoteId: string,
+    client?: PoolClient
+  ): Promise<void> {
+    const sql = `DELETE FROM salesman_commission_entries
+       WHERE credit_note_id = $1 AND entry_type = 'reversal' AND status = 'pending'`;
+    if (client) await client.query(sql, [creditNoteId]);
+    else await db.query(sql, [creditNoteId]);
+  }
+
+  async deleteAllByCreditNoteId(creditNoteId: string, client?: PoolClient): Promise<void> {
+    const sql = `DELETE FROM salesman_commission_entries WHERE credit_note_id = $1`;
+    if (client) await client.query(sql, [creditNoteId]);
+    else await db.query(sql, [creditNoteId]);
   }
 }
 

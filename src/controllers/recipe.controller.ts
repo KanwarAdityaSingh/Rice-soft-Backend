@@ -17,11 +17,15 @@ import {
 } from '../models/recipe.model';
 import { createRecipeSchema, updateRecipeSchema } from '../utils/validators';
 import { NotFoundError, ConflictError, BadRequestError } from '../utils/errors';
+import { parsePaginationQuery, toPaginatedResult } from '../utils/pagination';
+import { parseSearchQuery } from '../utils/search';
 
 export class RecipeController {
-  async getAll(_req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+  async getAll(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const recipes = await recipeDAO.findAll();
+      const { page, limit, offset } = parsePaginationQuery(req.query);
+      const search = parseSearchQuery(req.query);
+      const { rows: recipes, total } = await recipeDAO.findAll({ limit, offset }, search);
 
       const recipeResponses: RecipeResponse[] = recipes.map((recipe) => ({
         id: recipe.id,
@@ -31,7 +35,10 @@ export class RecipeController {
         updated_at: recipe.updated_at.toISOString(),
       }));
 
-      return ResponseHandler.success(res, recipeResponses);
+      return ResponseHandler.success(
+        res,
+        toPaginatedResult(recipeResponses, total, page, limit)
+      );
     } catch (error) {
       next(error);
     }

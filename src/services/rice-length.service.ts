@@ -21,8 +21,12 @@ export function toRiceLengthResponse(row: RiceLength): RiceLengthResponse {
 }
 
 export class RiceLengthService {
-  async getAll(includeInactive = false): Promise<RiceLength[]> {
-    return riceLengthDAO.findAll(includeInactive);
+  async getAll(
+    includeInactive = false,
+    pagination?: { limit: number; offset: number }
+  ): Promise<{ items: RiceLength[]; total: number }> {
+    const { rows, total } = await riceLengthDAO.findAll(includeInactive, pagination);
+    return { items: rows, total };
   }
 
   async getById(riceLengthId: string): Promise<RiceLength> {

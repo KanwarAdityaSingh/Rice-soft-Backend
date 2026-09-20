@@ -3,34 +3,47 @@ import { Batch, CreateBatchDTO, UpdateBatchDTO, BatchLotUsage, BatchRiceCodeUsag
 import { logger } from '../utils/logger';
 
 export class BatchDAO {
-  async findAll(productId?: string, status?: string, godownId?: string): Promise<Batch[]> {
-    let query = `
-      SELECT id, batch_number, godown_id, product_id, recipe_id, packaging_id, quantity, status,
-             created_at, updated_at, created_by, updated_by
-      FROM batches
-      WHERE 1=1
-    `;
-    
+  async findAll(
+    productId?: string,
+    status?: string,
+    godownId?: string,
+    pagination?: { limit: number; offset: number }
+  ): Promise<{ rows: Batch[]; total: number }> {
+    let where = ` WHERE 1=1`;
     const params: any[] = [];
     let paramCount = 1;
 
     if (productId) {
-      query += ` AND product_id = $${paramCount++}`;
+      where += ` AND product_id = $${paramCount++}`;
       params.push(productId);
     }
     if (status) {
-      query += ` AND status = $${paramCount++}`;
+      where += ` AND status = $${paramCount++}`;
       params.push(status);
     }
     if (godownId) {
-      query += ` AND godown_id = $${paramCount++}`;
+      where += ` AND godown_id = $${paramCount++}`;
       params.push(godownId);
     }
 
-    query += ` ORDER BY created_at DESC`;
+    const countResult = await db.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM batches${where}`,
+      params
+    );
+    const total = parseInt(countResult.rows[0]?.count ?? '0', 10);
 
-    const result = await db.query<Batch>(query, params);
-    return result.rows;
+    const limit = pagination?.limit ?? 50;
+    const offset = pagination?.offset ?? 0;
+    const result = await db.query<Batch>(
+      `SELECT id, batch_number, godown_id, product_id, recipe_id, packaging_id, quantity, status,
+              created_at, updated_at, created_by, updated_by
+       FROM batches
+       ${where}
+       ORDER BY created_at DESC
+       LIMIT $${paramCount++} OFFSET $${paramCount}`,
+      [...params, limit, offset]
+    );
+    return { rows: result.rows, total };
   }
 
   async findById(id: string): Promise<Batch | null> {

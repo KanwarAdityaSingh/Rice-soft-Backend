@@ -951,8 +951,7 @@ async function run() {
     token,
     {
       invoice_dispatch_id: dispatchAId,
-      sales_sauda_id: salesSaudaAId,
-      credit_note_number: `CN-${Date.now()}`,
+      credit_note_type: 'sales_return_partial',
       credit_note_date: new Date().toISOString().slice(0, 10),
       reason: 'Return test',
       lines: [

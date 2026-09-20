@@ -7,6 +7,8 @@ import {
   InvoiceDispatchStatus,
 } from '../models/invoice-dispatch.model';
 import { logger } from '../utils/logger';
+import { buildNormalizedSearchClause } from '../utils/search';
+import { DISPATCH_DOCUMENT_GRACE_DAYS } from '../constants/invoice-dispatch-documents';
 
 function formatDate(date: Date | string | null | undefined): string | null {
   if (!date) return null;
@@ -15,12 +17,15 @@ function formatDate(date: Date | string | null | undefined): string | null {
 }
 
 const INVOICE_DISPATCH_SELECT = `
-  id, sales_sauda_id, godown_id, to_godown_id, internal_invoice_number,
+  id, sales_sauda_id, godown_id, to_godown_id, serial_number, internal_invoice_number,
   TO_CHAR(dispatch_date, 'YYYY-MM-DD') as dispatch_date, financial_year,
   party_name, party_address, party_gst_number, party_pan_number, transporter_id, vehicle_id,
   driver_id, lr_number, transportation_cost, distance_km, route_description, usp, bilti_image_url, bilti_pdf_url,
   lr_image_url, lr_pdf_url, receiving_doc_image_url, receiving_doc_pdf_url,
-  status, cancel_reason, created_at, updated_at, created_by, updated_by
+  status, bos_verification_token,
+  bos_verification_token_created_at,
+  document_compliance_required,
+  cancel_reason, created_at, updated_at, created_by, updated_by
 `;
 
 export class InvoiceDispatchDAO {
@@ -28,16 +33,15 @@ export class InvoiceDispatchDAO {
     salesSaudaId?: string,
     status?: InvoiceDispatchStatus,
     godownId?: string,
-    financialYear?: string
-  ): Promise<InvoiceDispatch[]> {
-    let query = `
-      SELECT ${INVOICE_DISPATCH_SELECT}
-      FROM invoice_dispatches WHERE 1=1
-    `;
+    financialYear?: string,
+    pagination?: { limit: number; offset: number },
+    search?: string
+  ): Promise<{ rows: InvoiceDispatch[]; total: number }> {
+    let where = ` WHERE 1=1`;
     const params: any[] = [];
     let n = 1;
     if (salesSaudaId) {
-      query += ` AND (
+      where += ` AND (
         sales_sauda_id = $${n}
         OR EXISTS (
           SELECT 1 FROM invoice_dispatch_saudas ids
@@ -49,20 +53,50 @@ export class InvoiceDispatchDAO {
       n++;
     }
     if (status) {
-      query += ` AND status = $${n++}`;
+      where += ` AND status = $${n++}`;
       params.push(status);
     }
     if (godownId) {
-      query += ` AND godown_id = $${n++}`;
+      where += ` AND godown_id = $${n++}`;
       params.push(godownId);
     }
     if (financialYear) {
-      query += ` AND financial_year = $${n++}`;
+      where += ` AND financial_year = $${n++}`;
       params.push(financialYear);
     }
-    query += ` ORDER BY created_at DESC`;
-    const result = await db.query<InvoiceDispatch>(query, params);
-    return result.rows;
+
+    const searchClause = buildNormalizedSearchClause(
+      [
+        'serial_number',
+        'internal_invoice_number',
+        'party_name',
+        'party_gst_number',
+        'lr_number',
+      ],
+      search,
+      n
+    );
+    where += searchClause.sql;
+    params.push(...searchClause.params);
+    n = searchClause.nextParamIndex;
+
+    const countResult = await db.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM invoice_dispatches${where}`,
+      params
+    );
+    const total = parseInt(countResult.rows[0]?.count ?? '0', 10);
+
+    const limit = pagination?.limit ?? 50;
+    const offset = pagination?.offset ?? 0;
+    const result = await db.query<InvoiceDispatch>(
+      `SELECT ${INVOICE_DISPATCH_SELECT}
+       FROM invoice_dispatches
+       ${where}
+       ORDER BY serial_number DESC NULLS LAST, created_at DESC
+       LIMIT $${n++} OFFSET $${n}`,
+      [...params, limit, offset]
+    );
+    return { rows: result.rows, total };
   }
 
   async findById(id: string): Promise<InvoiceDispatch | null> {
@@ -74,6 +108,36 @@ export class InvoiceDispatchDAO {
     return result.rows[0] || null;
   }
 
+  async findByBosVerificationToken(token: string): Promise<InvoiceDispatch | null> {
+    const query = `
+      SELECT ${INVOICE_DISPATCH_SELECT}
+      FROM invoice_dispatches
+      WHERE bos_verification_token = $1
+    `;
+    const result = await db.query<InvoiceDispatch>(query, [token]);
+    return result.rows[0] || null;
+  }
+
+  async assignBosVerificationToken(
+    id: string,
+    token: string,
+    client?: PoolClient,
+  ): Promise<void> {
+    const query = `
+      UPDATE invoice_dispatches
+      SET bos_verification_token = $1,
+          bos_verification_token_created_at = COALESCE(bos_verification_token_created_at, CURRENT_TIMESTAMP),
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = $2
+        AND bos_verification_token IS NULL
+    `;
+    if (client) {
+      await client.query(query, [token, id]);
+    } else {
+      await db.query(query, [token, id]);
+    }
+  }
+
   async create(
     data: CreateInvoiceDispatchDTO,
     client?: PoolClient
@@ -83,9 +147,9 @@ export class InvoiceDispatchDAO {
         sales_sauda_id, godown_id, to_godown_id, internal_invoice_number, dispatch_date, financial_year,
         party_name, party_address, party_gst_number, party_pan_number,
         transporter_id, vehicle_id, driver_id, lr_number, transportation_cost, distance_km, route_description, usp,
-        status, created_by
+        status, document_compliance_required, created_by
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, 'draft', $19)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, 'draft', true, $19)
       RETURNING ${INVOICE_DISPATCH_SELECT}
     `;
     const values = [
@@ -258,6 +322,38 @@ export class InvoiceDispatchDAO {
       logger.info('Invoice dispatch deleted', { id });
     }
     return deleted;
+  }
+
+  /**
+   * Confirmed sale invoices past the 3-day IST grace with neither receiving
+   * nor bilti/LR uploaded. Either file clears the next-invoice gate.
+   */
+  async findOverdueDocumentDispatches(): Promise<InvoiceDispatch[]> {
+    const result = await db.query<InvoiceDispatch>(
+      `SELECT ${INVOICE_DISPATCH_SELECT}
+       FROM invoice_dispatches
+       WHERE status = 'confirmed'
+         AND document_compliance_required = true
+         AND distance_km IS NOT NULL
+         AND (
+           COALESCE(dispatch_date, (created_at AT TIME ZONE 'Asia/Kolkata')::date)
+           + ${DISPATCH_DOCUMENT_GRACE_DAYS}
+         ) < (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')::date
+         AND EXISTS (
+           SELECT 1 FROM sales_saudas s
+           WHERE s.id = invoice_dispatches.sales_sauda_id
+             AND s.movement_type = 'sale'
+         )
+         AND receiving_doc_image_url IS NULL
+         AND receiving_doc_pdf_url IS NULL
+         AND bilti_image_url IS NULL
+         AND bilti_pdf_url IS NULL
+         AND lr_image_url IS NULL
+         AND lr_pdf_url IS NULL
+       ORDER BY dispatch_date ASC NULLS FIRST, serial_number ASC
+       LIMIT 50`
+    );
+    return result.rows;
   }
 }
 

@@ -6,6 +6,8 @@ import {
   createVendorSchema,
   updateVendorSchema,
   uuidSchema,
+  kycVerificationDetailsSchema,
+  kycVerificationDetailsWithRequiredBankSchema,
 } from '../utils/validators';
 import {
   NotFoundError,
@@ -39,6 +41,8 @@ import { appConfig } from '../config/app.config';
 import { logger } from '../utils/logger';
 import Joi from 'joi';
 import { bankDetailsForVerifySchema } from '../utils/validators';
+import { parsePaginationQuery, toPaginatedResult } from '../utils/pagination';
+import { parseSearchQuery } from '../utils/search';
 
 const LENIENT_BANK_VERIFY_FAIL_MESSAGE =
   'Vendor created but bank account holder name does not match the verification snapshot.';
@@ -127,6 +131,8 @@ function assertVendorRegistrationOnUpdate(existing: Vendor, update: UpdateVendor
 export class VendorController {
   async getAll(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
+      const { page, limit, offset } = parsePaginationQuery(req.query);
+      const search = parseSearchQuery(req.query);
       const includeInactive = req.query.include_inactive === 'true';
       const type = req.query.type as VendorType | undefined;
       const bankVerifiedRaw = req.query.bank_verified as string | undefined;
@@ -153,17 +159,20 @@ export class VendorController {
         throw new ValidationError('registration_type must be registered or unregistered');
       }
 
-      const vendors = await vendorDAO.findAll({
+      const { rows, total } = await vendorDAO.findAll({
         includeInactive,
         type,
         bankVerified,
         isVerified,
         registrationType,
+        search,
+        limit,
+        offset,
       });
 
-      const vendorResponses: VendorResponse[] = vendors.map(toVendorResponse);
+      const vendorResponses: VendorResponse[] = rows.map(toVendorResponse);
 
-      return ResponseHandler.success(res, vendorResponses);
+      return ResponseHandler.success(res, toPaginatedResult(vendorResponses, total, page, limit));
     } catch (error) {
       next(error);
     }
@@ -573,10 +582,8 @@ export class VendorController {
         }),
         kyc_verification_details: Joi.when('verify_bank', {
           is: true,
-          then: Joi.object({
-            bank: Joi.object().required(),
-          }).required(),
-          otherwise: Joi.object().optional(),
+          then: kycVerificationDetailsWithRequiredBankSchema.required(),
+          otherwise: kycVerificationDetailsSchema,
         }),
       });
 
@@ -720,10 +727,8 @@ export class VendorController {
         }),
         kyc_verification_details: Joi.when('verify_bank', {
           is: true,
-          then: Joi.object({
-            bank: Joi.object().required(),
-          }).required(),
-          otherwise: Joi.object().optional(),
+          then: kycVerificationDetailsWithRequiredBankSchema.required(),
+          otherwise: kycVerificationDetailsSchema,
         }),
       });
 

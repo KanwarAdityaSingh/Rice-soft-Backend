@@ -5,6 +5,8 @@ import { saudaDAO } from '../dao/sauda.dao';
 import { transporterDAO } from '../dao/transporter.dao';
 import { vehicleDAO } from '../dao/vehicle.dao';
 import { ResponseHandler } from '../utils/response';
+import { parsePaginationQuery, toPaginatedResult } from '../utils/pagination';
+import { parseSearchQuery } from '../utils/search';
 import {
   validate,
   createInwardSlipPassSchema,
@@ -29,43 +31,50 @@ export class InwardSlipPassController {
     try {
       const saudaId = req.query.sauda_id as string | undefined;
       const godownId = req.query.godown_id as string | undefined;
-      
-      const inwardSlipPasses = await inwardSlipPassDAO.findAll(saudaId, godownId);
+      const { page, limit, offset } = parsePaginationQuery(req.query);
+      const search = parseSearchQuery(req.query);
 
-      // Fetch sauda_ids for each inward slip pass
-      const responses: InwardSlipPassResponse[] = await Promise.all(
-        inwardSlipPasses.map(async (pass) => {
-          const saudaIds = await inwardSlipPassSaudaDAO.getLinkedSaudaIds(pass.id);
-          return {
-            id: pass.id,
-            godown_id: pass.godown_id,
-            sauda_ids: saudaIds,
-            slip_number: pass.slip_number,
-            date: pass.date.toISOString().split('T')[0],
-            vehicle_id: pass.vehicle_id,
-            party_name: pass.party_name,
-            party_address: pass.party_address,
-            party_gst_number: pass.party_gst_number,
-            party_pan_number: pass.party_pan_number,
-            transporter_id: pass.transporter_id,
-            transportation_cost: pass.transportation_cost ? parseFloat(pass.transportation_cost.toString()) : null,
-            status: pass.status,
-            other_bills: pass.other_bills,
-            bill_pdf_url: pass.bill_pdf_url,
-            bill_number: pass.bill_number,
-            bill_date: pass.bill_date ? pass.bill_date.toISOString().split('T')[0] : null,
-            bilti_image_url: pass.bilti_image_url,
-            bilti_pdf_url: pass.bilti_pdf_url,
-            eway_bill_number: pass.eway_bill_number,
-            eway_bill_url: pass.eway_bill_url,
-            notes: pass.notes,
-            created_at: pass.created_at.toISOString(),
-            updated_at: pass.updated_at.toISOString(),
-          };
-        })
+      const { rows, total } = await inwardSlipPassDAO.findAll(
+        saudaId,
+        godownId,
+        { limit, offset },
+        search
       );
 
-      return ResponseHandler.success(res, responses);
+      const saudaIdsByPass = await inwardSlipPassSaudaDAO.getLinkedSaudaIdsByPassIds(
+        rows.map((pass) => pass.id)
+      );
+
+      const items: InwardSlipPassResponse[] = rows.map((pass) => ({
+        id: pass.id,
+        godown_id: pass.godown_id,
+        sauda_ids: saudaIdsByPass.get(pass.id) ?? [],
+        slip_number: pass.slip_number,
+        date: pass.date.toISOString().split('T')[0],
+        vehicle_id: pass.vehicle_id,
+        party_name: pass.party_name,
+        party_address: pass.party_address,
+        party_gst_number: pass.party_gst_number,
+        party_pan_number: pass.party_pan_number,
+        transporter_id: pass.transporter_id,
+        transportation_cost: pass.transportation_cost
+          ? parseFloat(pass.transportation_cost.toString())
+          : null,
+        status: pass.status,
+        other_bills: pass.other_bills,
+        bill_pdf_url: pass.bill_pdf_url,
+        bill_number: pass.bill_number,
+        bill_date: pass.bill_date ? pass.bill_date.toISOString().split('T')[0] : null,
+        bilti_image_url: pass.bilti_image_url,
+        bilti_pdf_url: pass.bilti_pdf_url,
+        eway_bill_number: pass.eway_bill_number,
+        eway_bill_url: pass.eway_bill_url,
+        notes: pass.notes,
+        created_at: pass.created_at.toISOString(),
+        updated_at: pass.updated_at.toISOString(),
+      }));
+
+      return ResponseHandler.success(res, toPaginatedResult(items, total, page, limit));
     } catch (error) {
       next(error);
     }

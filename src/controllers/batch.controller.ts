@@ -3,6 +3,7 @@ import { batchService } from '../services/batch.service';
 import { batchDAO } from '../dao/batch.dao';
 import { inventoryAuditService } from '../services/inventory-audit.service';
 import { ResponseHandler } from '../utils/response';
+import { parsePaginationQuery, toPaginatedResult } from '../utils/pagination';
 import { validate, uuidSchema } from '../utils/validators';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { CreateBatchDTO, UpdateBatchDTO, BatchResponse, BatchWithDetailsResponse, CreateBatchProductDTO, CreateBatchPackagingDTO, BatchProduct } from '../models/batch.model';
@@ -27,10 +28,14 @@ export class BatchController {
       const productId = req.query.product_id as string | undefined;
       const status = req.query.status as string | undefined;
       const godownId = req.query.godown_id as string | undefined;
+      const { page, limit, offset } = parsePaginationQuery(req.query);
 
-      const batches = await batchDAO.findAll(productId, status, godownId);
+      const { rows, total } = await batchDAO.findAll(productId, status, godownId, {
+        limit,
+        offset,
+      });
 
-      const batchResponses: BatchResponse[] = batches.map((batch) => ({
+      const items: BatchResponse[] = rows.map((batch) => ({
         id: batch.id,
         batch_number: batch.batch_number,
         godown_id: batch.godown_id,
@@ -43,7 +48,7 @@ export class BatchController {
         updated_at: batch.updated_at.toISOString(),
       }));
 
-      return ResponseHandler.success(res, batchResponses);
+      return ResponseHandler.success(res, toPaginatedResult(items, total, page, limit));
     } catch (error) {
       next(error);
     }
@@ -204,9 +209,8 @@ export class BatchController {
   async getInventoryAudit(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const batchId = validate<string>(uuidSchema, req.params.id);
-
-      const audits = await inventoryAuditService.getAllAuditsByBatchId(batchId);
-
+      const { limit, offset } = parsePaginationQuery(req.query);
+      const audits = await inventoryAuditService.getAllAuditsByBatchId(batchId, { limit, offset });
       return ResponseHandler.success(res, audits);
     } catch (error) {
       next(error);

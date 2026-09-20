@@ -162,13 +162,17 @@ export class ParameterService {
     return row;
   }
 
-  async list(filters: {
-    sauda_id?: string;
-    batch_id?: string;
-    product_id?: string;
-    inward_slip_pass_id?: string;
-  }): Promise<Parameter[]> {
-    return parameterDAO.findAll(filters);
+  async list(
+    filters: {
+      sauda_id?: string;
+      batch_id?: string;
+      product_id?: string;
+      inward_slip_pass_id?: string;
+    },
+    pagination?: { limit: number; offset: number }
+  ): Promise<{ items: Parameter[]; total: number }> {
+    const { rows, total } = await parameterDAO.findAll(filters, pagination);
+    return { items: rows, total };
   }
 
   async upsertForSauda(

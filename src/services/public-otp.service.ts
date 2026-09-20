@@ -3,6 +3,7 @@ import { appConfig, isDevelopment, isProduction } from '../config/app.config';
 import { BadRequestError } from '../utils/errors';
 import { normalizePhone } from '../utils/coupon.helpers';
 import { logger } from '../utils/logger';
+import { msg91Service } from './msg91.service';
 import crypto from 'crypto';
 
 export class PublicOtpService {
@@ -127,22 +128,34 @@ export class PublicOtpService {
       return;
     }
 
+    if (msg91Service.isConfigured()) {
+      try {
+        await msg91Service.sendCouponOtp(phone, otp, this.OTP_EXPIRY_MINUTES);
+        return;
+      } catch (error) {
+        logger.error('Error sending coupon OTP via MSG91', { phone, error });
+        if (isDevelopment) {
+          logger.warn('[DEV] MSG91 SMS failed but OTP is stored in database', { phone, otp });
+          return;
+        }
+        throw new Error('Failed to send OTP. Please try again.');
+      }
+    }
+
     const { url, apiKey, senderId, templateId } = appConfig.apis.kaleyra;
 
     if (!apiKey || !url) {
-      logger.warn('Kaleyra SMS not configured - OTP not sent', { phone });
+      logger.warn('SMS provider not configured - OTP not sent', { phone });
       if (isDevelopment) {
         logger.info(`[DEV] OTP for ${phone}: ${otp}`);
       }
       return;
     }
 
-    // Kaleyra expects E.164 digits with country code: 91XXXXXXXXXX
-    // coupon.helpers.normalizePhone stores 10-digit local form.
+    // Kaleyra fallback when MSG91 is not configured
     const kaleyraTo = phone.length === 10 ? `91${phone}` : phone;
 
     try {
-      // MUST match DLT registered template EXACTLY (template_id in Kaleyra config)
       const message = [
         'AAAPL Rice Rewards',
         `Your verification code is ${otp}. Enter it to access your rewards account. This code expires in 10 minutes. Never share this code with anyone.`,

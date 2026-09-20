@@ -1,4 +1,4 @@
-import { CreatePromotionRuleDTO, UpdatePromotionRuleDTO } from '../models/coupon.model';
+import { CreatePromotionRuleDTO, PromotionRule, UpdatePromotionRuleDTO } from '../models/coupon.model';
 import { PromotionRuleDAO } from '../dao/promotion-rule.dao';
 import { RuleApplicationDAO } from '../dao/rule-application.dao';
 import { RedeemerDAO } from '../dao/redeemer.dao';
@@ -32,8 +32,13 @@ export class PromotionRuleService {
     return this.ruleDAO.create(data);
   }
 
-  async getAll(includeInactive = true) {
-    return this.ruleDAO.findAll(includeInactive);
+  async getAll(
+    includeInactive = true,
+    pagination?: { limit: number; offset: number },
+    search?: string
+  ): Promise<{ items: PromotionRule[]; total: number }> {
+    const { rows, total } = await this.ruleDAO.findAll(includeInactive, pagination, search);
+    return { items: rows, total };
   }
 
   async getById(id: string) {

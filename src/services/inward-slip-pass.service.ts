@@ -2,6 +2,7 @@ import type { PoolClient } from 'pg';
 import { db } from '../database/connection';
 import { logger } from '../utils/logger';
 import { ConflictError, NotFoundError, ValidationError } from '../utils/errors';
+import { assertCanDeleteSerialNumbers } from '../utils/sequential-serial';
 
 /** Matches auto-generated slips (ISP-001, ISP-002, …); same pattern as delete guard. */
 function parseIspSequence(slipNumber: string): number | null {
@@ -89,9 +90,10 @@ export class InwardSlipPassService {
       }
 
       let lotIds: string[] = [];
+      let lotSerials: number[] = [];
       if (kaantas.length > 0) {
-        const lotsRes = await client.query<{ id: string }>(
-          `SELECT l.id
+        const lotsRes = await client.query<{ id: string; serial_number: number }>(
+          `SELECT l.id, l.serial_number
            FROM inward_slip_lots l
            INNER JOIN kaantas k
              ON k.sauda_id = l.sauda_id AND l.lot_number = 'LOT-' || k.kaanta_id
@@ -99,9 +101,12 @@ export class InwardSlipPassService {
           [inwardSlipPassId]
         );
         lotIds = lotsRes.rows.map((r) => r.id);
+        lotSerials = lotsRes.rows.map((r) => Number(r.serial_number));
       }
 
       if (lotIds.length > 0) {
+        await assertCanDeleteSerialNumbers('inward_slip_lots', lotSerials, client);
+
         const batchUsage = await client.query(
           `SELECT lot_id FROM batch_lot_usage WHERE lot_id = ANY($1::uuid[]) LIMIT 1`,
           [lotIds]

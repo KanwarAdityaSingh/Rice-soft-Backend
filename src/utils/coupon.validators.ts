@@ -1,5 +1,9 @@
 import Joi from 'joi';
-import { COUPON_STATUSES, PROMOTION_RULE_TYPES } from '../constants/coupon-status';
+import {
+  COUPON_BATCH_STATUSES,
+  COUPON_STATUSES,
+  PROMOTION_RULE_TYPES,
+} from '../constants/coupon-status';
 import { kycVerificationDetailsSchema } from './validators';
 
 const promotionRuleRewardSchema = Joi.alternatives()
@@ -148,6 +152,8 @@ export const redemptionAttemptListQuerySchema = Joi.object({
   phone: Joi.string().optional(),
   ip: Joi.string().optional(),
   failureReason: Joi.string().optional(),
+  search: Joi.string().trim().max(200).optional().allow(''),
+  q: Joi.string().trim().max(200).optional().allow(''),
   fromDate: analyticsDateQuerySchema,
   toDate: analyticsDateQuerySchema,
   page: Joi.number().integer().min(1).optional(),
@@ -220,6 +226,27 @@ export const refreshTokenSchema = Joi.object({
   refreshToken: Joi.string().required().min(20),
 });
 
+export const couponBatchListQuerySchema = Joi.object({
+  search: Joi.string().trim().max(200).optional().allow(''),
+  q: Joi.string().trim().max(200).optional().allow(''),
+  status: Joi.string()
+    .valid(...COUPON_BATCH_STATUSES)
+    .optional(),
+  isLocked: Joi.boolean().optional(),
+  page: Joi.number().integer().min(1).optional(),
+  limit: Joi.number().integer().min(1).max(200).optional(),
+});
+
+export const couponBatchDetailQuerySchema = Joi.object({
+  /** Optional serial scope — status counts on the batch detail are limited to this range */
+  from_serial: Joi.string().trim().max(64).optional(),
+  to_serial: Joi.string().trim().max(64).optional(),
+})
+  .and('from_serial', 'to_serial')
+  .messages({
+    'object.and': 'from_serial and to_serial must be provided together',
+  });
+
 export const couponListQuerySchema = Joi.object({
   batchId: Joi.string().uuid().optional(),
   status: Joi.string()
@@ -227,7 +254,102 @@ export const couponListQuerySchema = Joi.object({
     .optional(),
   /** When true, omit void coupons. Ignored if `status` is set (exact status wins). */
   excludeVoid: Joi.boolean().optional(),
+  /** @deprecated Prefer `search` — kept for backward compatibility (code prefix) */
   code: Joi.string().optional(),
+  search: Joi.string().trim().max(200).optional().allow(''),
+  q: Joi.string().trim().max(200).optional().allow(''),
+  from_serial: Joi.string().trim().max(64).optional(),
+  to_serial: Joi.string().trim().max(64).optional(),
+  page: Joi.number().integer().min(1).optional(),
+  limit: Joi.number().integer().min(1).max(200).optional(),
+})
+  .and('from_serial', 'to_serial')
+  .messages({
+    'object.and': 'from_serial and to_serial must be provided together',
+  });
+
+// ---------------------------------------------------------------------------
+// Coupon ↔ invoice dispatch allotment
+// ---------------------------------------------------------------------------
+
+const serialRangeItemSchema = Joi.object({
+  from_serial: Joi.string().trim().required().max(64),
+  to_serial: Joi.string().trim().required().max(64),
+});
+
+/**
+ * mode omitted / 'next_available' → auto-pick the next N printed coupons (count required).
+ * mode='serial_range' → caller hand-picks one exact range (from_serial/to_serial required).
+ * mode='serial_ranges' → caller hand-picks several disjoint ranges from the same batch in
+ * one go (e.g. serials 1-5 and 8-12) — each becomes its own ledger row under the hood.
+ */
+export const previewAllotmentSchema = Joi.object({
+  coupon_batch_id: Joi.string().uuid().required(),
+  mode: Joi.string().valid('next_available', 'serial_range', 'serial_ranges').optional(),
+  count: Joi.when('mode', {
+    is: Joi.valid('serial_range', 'serial_ranges'),
+    then: Joi.forbidden(),
+    otherwise: Joi.number().integer().min(1).max(500000).required(),
+  }),
+  from_serial: Joi.when('mode', {
+    is: 'serial_range',
+    then: Joi.string().trim().required().max(64),
+    otherwise: Joi.forbidden(),
+  }),
+  to_serial: Joi.when('mode', {
+    is: 'serial_range',
+    then: Joi.string().trim().required().max(64),
+    otherwise: Joi.forbidden(),
+  }),
+  ranges: Joi.when('mode', {
+    is: 'serial_ranges',
+    then: Joi.array().items(serialRangeItemSchema).min(1).max(20).required(),
+    otherwise: Joi.forbidden(),
+  }),
+});
+
+const allotmentLineSelectionSchema = Joi.object({
+  invoice_dispatch_line_id: Joi.string().uuid().required(),
+  coupon_batch_id: Joi.string().uuid().required(),
+  mode: Joi.string().valid('next_available', 'serial_range', 'serial_ranges').optional(),
+  from_serial: Joi.when('mode', {
+    is: 'serial_range',
+    then: Joi.string().trim().required().max(64),
+    otherwise: Joi.forbidden(),
+  }),
+  to_serial: Joi.when('mode', {
+    is: 'serial_range',
+    then: Joi.string().trim().required().max(64),
+    otherwise: Joi.forbidden(),
+  }),
+  ranges: Joi.when('mode', {
+    is: 'serial_ranges',
+    then: Joi.array().items(serialRangeItemSchema).min(1).max(20).required(),
+    otherwise: Joi.forbidden(),
+  }),
+});
+
+export const confirmAllotmentSchema = Joi.object({
+  lines: Joi.array().items(allotmentLineSelectionSchema).min(1).max(50).required(),
+});
+
+export const unlinkAllotmentLineSchema = Joi.object({
+  reason: Joi.string().trim().min(1).required().max(500),
+});
+
+export const allotmentHistoryQuerySchema = Joi.object({
+  coupon_batch_id: Joi.string().uuid().optional(),
+  invoice_dispatch_id: Joi.string().uuid().optional(),
+  search: Joi.string().trim().max(200).optional().allow(''),
+  q: Joi.string().trim().max(200).optional().allow(''),
+  page: Joi.number().integer().min(1).optional(),
+  limit: Joi.number().integer().min(1).max(200).optional(),
+});
+
+export const invoiceAllotmentSummaryQuerySchema = Joi.object({
+  search: Joi.string().trim().max(200).optional().allow(''),
+  q: Joi.string().trim().max(200).optional().allow(''),
+  fulfillment: Joi.string().valid('unallotted', 'partial', 'fulfilled').optional(),
   page: Joi.number().integer().min(1).optional(),
   limit: Joi.number().integer().min(1).max(200).optional(),
 });
@@ -237,8 +359,17 @@ export const redemptionListQuerySchema = Joi.object({
   batchId: Joi.string().uuid().optional(),
   phone: Joi.string().optional(),
   code: couponCodeSchema.optional(),
+  search: Joi.string().trim().max(200).optional().allow(''),
+  q: Joi.string().trim().max(200).optional().allow(''),
   fromDate: analyticsDateQuerySchema,
   toDate: analyticsDateQuerySchema,
+  page: Joi.number().integer().min(1).optional(),
+  limit: Joi.number().integer().min(1).max(200).optional(),
+});
+
+export const redeemerListQuerySchema = Joi.object({
+  search: Joi.string().trim().max(200).optional().allow(''),
+  q: Joi.string().trim().max(200).optional().allow(''),
   page: Joi.number().integer().min(1).optional(),
   limit: Joi.number().integer().min(1).max(200).optional(),
 });

@@ -2,6 +2,8 @@ import { Response, NextFunction } from 'express';
 import { inwardSlipLotDAO } from '../dao/inward-slip-lot.dao';
 import { saudaDAO } from '../dao/sauda.dao';
 import { ResponseHandler } from '../utils/response';
+import { parsePaginationQuery, toPaginatedResult } from '../utils/pagination';
+import { parseSearchQuery } from '../utils/search';
 import {
   validate,
   createLotSchema,
@@ -17,12 +19,14 @@ import {
 import { AuthRequest } from '../middleware/auth.middleware';
 import { godownService } from '../services/godown.service';
 import { resolveLotRiceFromSauda } from '../utils/lot-rice-from-sauda';
+import { assertCanDeleteSerialNumber } from '../utils/sequential-serial';
 
 function toInwardSlipLotResponse(lot: InwardSlipLot): InwardSlipLotResponse {
   return {
     id: lot.id,
     sauda_id: lot.sauda_id,
     godown_id: lot.godown_id,
+    serial_number: Number(lot.serial_number),
     lot_number: lot.lot_number,
     rice_category: lot.rice_category,
     rice_code_id: lot.rice_code_id,
@@ -48,9 +52,19 @@ export class LotController {
     try {
       const saudaId = req.query.sauda_id as string | undefined;
       const godownId = req.query.godown_id as string | undefined;
+      const { page, limit, offset } = parsePaginationQuery(req.query);
+      const search = parseSearchQuery(req.query);
 
-      const lots = await inwardSlipLotDAO.findAll(saudaId, godownId);
-      return ResponseHandler.success(res, lots.map(toInwardSlipLotResponse));
+      const { rows, total } = await inwardSlipLotDAO.findAll(
+        saudaId,
+        godownId,
+        { limit, offset },
+        search
+      );
+      return ResponseHandler.success(
+        res,
+        toPaginatedResult(rows.map(toInwardSlipLotResponse), total, page, limit)
+      );
     } catch (error) {
       next(error);
     }
@@ -142,6 +156,8 @@ export class LotController {
       if (!lot) {
         throw new NotFoundError('Lot not found');
       }
+
+      await assertCanDeleteSerialNumber('inward_slip_lots', Number(lot.serial_number));
 
       const deleted = await inwardSlipLotDAO.delete(id);
       if (!deleted) {

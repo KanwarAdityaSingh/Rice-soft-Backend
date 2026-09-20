@@ -6,29 +6,46 @@ import { packagingDAO } from '../dao/packaging.dao';
 import { productDAO } from '../dao/product.dao';
 import { packagingVendorDAO } from '../dao/packaging-vendor.dao';
 import { inwardSlipLotDAO } from '../dao/inward-slip-lot.dao';
+import { packagingMaterialPurchaseDAO } from '../dao/packaging-material-purchase.dao';
 import { db } from '../database/connection';
 import type { BagType } from '../constants/bag-types';
 import type { Packaging } from '../models/packaging.model';
 
-/** Nested `packaging` on GET inventory packets — aligns with costing on `PackagingResponse`. */
-function mapPackagingForPacketsInventory(packaging: Packaging) {
+/** Nested `packaging` on GET inventory packets — prefers latest purchase cost when present. */
+async function mapPackagingForPacketsInventory(packaging: Packaging) {
+  const purchase = await packagingMaterialPurchaseDAO.findLatestByPackagingId(packaging.id);
   return {
     id: packaging.id,
     packaging_number: packaging.packaging_number,
     holding_capacity: packaging.holding_capacity,
     packet_type: packaging.packet_type,
-    packaging_vendor_id: packaging.packaging_vendor_id,
+    packaging_material_id: packaging.packaging_material_id,
+    packaging_vendor_id: purchase?.vendor_id ?? packaging.packaging_vendor_id,
     ordered_weight: packaging.ordered_weight,
-    empty_bag_weight_kg: packaging.empty_bag_weight_kg,
-    empty_bag_rate_per_kg: packaging.empty_bag_rate_per_kg,
-    empty_bag_gst_percent: packaging.empty_bag_gst_percent,
-    empty_bags_total_weight_kg: packaging.empty_bags_total_weight_kg,
-    empty_bags_taxable_amount: packaging.empty_bags_taxable_amount,
-    empty_bags_gst_amount: packaging.empty_bags_gst_amount,
-    empty_bags_total_amount: packaging.empty_bags_total_amount,
+    empty_bag_weight_kg: purchase
+      ? Number(purchase.empty_bag_weight_kg)
+      : packaging.empty_bag_weight_kg,
+    empty_bag_rate_per_kg: purchase
+      ? Number(purchase.rate_per_kg)
+      : packaging.empty_bag_rate_per_kg,
+    empty_bag_gst_percent: purchase
+      ? Number(purchase.gst_percent)
+      : packaging.empty_bag_gst_percent,
+    empty_bags_total_weight_kg: purchase
+      ? Number(purchase.quantity_kg)
+      : packaging.empty_bags_total_weight_kg,
+    empty_bags_taxable_amount: purchase
+      ? Number(purchase.taxable_amount)
+      : packaging.empty_bags_taxable_amount,
+    empty_bags_gst_amount: purchase
+      ? Number(purchase.gst_amount)
+      : packaging.empty_bags_gst_amount,
+    empty_bags_total_amount: purchase
+      ? Number(purchase.total_amount)
+      : packaging.empty_bags_total_amount,
     bill_number: packaging.bill_number,
     bill_date: packaging.bill_date ? packaging.bill_date.toISOString().split('T')[0] : null,
-    packaging_bill_url: packaging.packaging_bill_url,
+    packaging_bill_url: purchase?.invoice_document_url ?? packaging.packaging_bill_url,
   };
 }
 
@@ -74,7 +91,7 @@ export class InventoryService {
       const packaging = await packagingDAO.findById(item.packaging_id);
       results.push({
         ...item,
-        packaging: packaging ? mapPackagingForPacketsInventory(packaging) : undefined
+        packaging: packaging ? await mapPackagingForPacketsInventory(packaging) : undefined
       });
     }
 
@@ -145,9 +162,9 @@ export class InventoryService {
 
   async getHierarchicalInventory(godownId?: string) {
     // Get all products grouped by brand
-    const products = await productDAO.findAll();
+    const { rows: products } = await productDAO.findAll();
     const finishedGoods = await finishedGoodsInventoryDAO.findAll(undefined, undefined, godownId);
-    const packaging = await packagingDAO.findAll();
+    const { rows: packaging } = await packagingDAO.findAll();
 
     // Group products by brand
     const brandMap = new Map<string, Array<{
@@ -187,7 +204,7 @@ export class InventoryService {
         if (pkg.packaging_vendor_id) {
           const vendorData = await packagingVendorDAO.findById(pkg.packaging_vendor_id);
           if (vendorData) {
-            vendor = { id: vendorData.id, name: vendorData.name };
+            vendor = { id: vendorData.id, name: vendorData.business_name || vendorData.name };
           }
         }
 

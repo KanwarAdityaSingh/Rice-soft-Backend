@@ -229,6 +229,44 @@ export interface CouponBatchStats {
   expired: number;
   void: number;
   redemption_rate: number;
+  /** Present when stats were scoped to a serial range on the batch detail screen */
+  from_serial?: string | null;
+  to_serial?: string | null;
+  /** Coupons counted inside the (optional) serial scope — equals sum of status buckets */
+  scoped_count?: number;
+}
+
+/** List filters for GET getAllCouponBatches */
+export interface CouponBatchListFilters {
+  search?: string;
+  status?: CouponBatchStatus;
+  isLocked?: boolean;
+  page?: number;
+  limit?: number;
+}
+
+/**
+ * List filters for GET getAllCoupons (inventory).
+ * `status_counts` in the response are faceted over the same filters except `status`
+ * itself — so entering a serial range updates the status chip counts correctly.
+ */
+export interface CouponListFilters {
+  batchId?: string;
+  status?: CouponStatus;
+  excludeVoid?: boolean;
+  /** @deprecated Prefer `search` — kept for backward compatibility (code prefix) */
+  code?: string;
+  search?: string;
+  from_serial?: string;
+  to_serial?: string;
+  page?: number;
+  limit?: number;
+}
+
+export interface CouponListResult {
+  rows: Coupon[];
+  total: number;
+  status_counts: Omit<CouponBatchStats, 'redemption_rate' | 'from_serial' | 'to_serial' | 'scoped_count'>;
 }
 
 export interface AppliedRuleResult {

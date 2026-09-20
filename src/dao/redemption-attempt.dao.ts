@@ -2,6 +2,7 @@ import { PoolClient } from 'pg';
 import { db } from '../database/connection';
 import { RedemptionAttempt } from '../models/coupon.model';
 import { appendDateRangeConditions } from '../utils/analytics-date-filter';
+import { buildNormalizedSearchClause } from '../utils/search';
 
 export class RedemptionAttemptDAO {
   async insert(
@@ -35,6 +36,7 @@ export class RedemptionAttemptDAO {
     phone?: string;
     ip?: string;
     failureReason?: string;
+    search?: string;
     fromDate?: string;
     toDate?: string;
     page?: number;
@@ -45,25 +47,34 @@ export class RedemptionAttemptDAO {
     const offset = (page - 1) * limit;
     const conditions = ['1=1'];
     const values: unknown[] = [];
-    let i = 1;
 
     if (filters.code) {
-      conditions.push(`code_attempted ILIKE $${i++}`);
+      conditions.push(`code_attempted ILIKE $${values.length + 1}`);
       values.push(`${filters.code.toUpperCase()}%`);
     }
     if (filters.phone) {
-      conditions.push(`phone = $${i++}`);
+      conditions.push(`phone = $${values.length + 1}`);
       values.push(filters.phone);
     }
     if (filters.ip) {
-      conditions.push(`ip::text = $${i++}`);
+      conditions.push(`ip::text = $${values.length + 1}`);
       values.push(filters.ip);
     }
     if (filters.failureReason) {
-      conditions.push(`failure_reason = $${i++}`);
+      conditions.push(`failure_reason = $${values.length + 1}`);
       values.push(filters.failureReason);
     }
     appendDateRangeConditions(conditions, values, 'created_at', filters.fromDate, filters.toDate);
+
+    const searchClause = buildNormalizedSearchClause(
+      ['code_attempted', 'phone', 'ip::text', 'failure_reason'],
+      filters.search,
+      values.length + 1
+    );
+    if (searchClause.sql) {
+      conditions.push(searchClause.sql.replace(/^\s*AND\s*/, ''));
+      values.push(...searchClause.params);
+    }
 
     const where = conditions.join(' AND ');
 

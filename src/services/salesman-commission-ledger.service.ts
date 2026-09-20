@@ -7,6 +7,7 @@ import { salesSaudaLineDAO } from '../dao/sales-sauda-line.dao';
 import { creditNoteDAO } from '../dao/credit-note.dao';
 import { creditNoteLineDAO } from '../dao/credit-note-line.dao';
 import { productDAO } from '../dao/product.dao';
+import { inwardSlipLotDAO } from '../dao/inward-slip-lot.dao';
 import { salesmanCommissionEntryDAO } from '../dao/salesman-commission-entry.dao';
 import {
   SalesmanCommissionEntry,
@@ -103,9 +104,16 @@ export class SalesmanCommissionLedgerService {
         const amount = Number(line.amount) || 0;
         quantityKg += qty;
         saleAmount += amount;
-        const product = await productDAO.findById(line.product_id);
+        let riceType: string | null = null;
+        if (line.lot_id) {
+          const lot = await inwardSlipLotDAO.findById(line.lot_id);
+          riceType = lot?.rice_type ?? null;
+        } else if (line.product_id) {
+          const product = await productDAO.findById(line.product_id);
+          riceType = product?.rice_type ?? null;
+        }
         basisLines.push({
-          rice_type: product?.rice_type ?? null,
+          rice_type: riceType,
           quantity_kg: qty,
           sale_amount: amount,
         });
@@ -224,16 +232,24 @@ export class SalesmanCommissionLedgerService {
     let saleAmount = 0;
 
     for (const cnLine of cnLines) {
-      const returned = Number(cnLine.quantity_returned) || 0;
-      if (returned <= 0) continue;
+      const returned =
+        Number(cnLine.quantity_credited) || Number(cnLine.quantity_returned) || 0;
       const dLine = dispatchLineById.get(cnLine.invoice_dispatch_line_id);
       const rate = dLine ? Number(dLine.rate) || 0 : 0;
-      const amount = round2(returned * rate);
+      const stored = Number(cnLine.taxable_amount) || 0;
+      const amount = stored > 0 ? stored : round2(returned * rate);
       quantityKg += returned;
       saleAmount += amount;
-      const product = await productDAO.findById(cnLine.product_id);
+      let riceType: string | null = null;
+      if (dLine?.lot_id) {
+        const lot = await inwardSlipLotDAO.findById(dLine.lot_id);
+        riceType = lot?.rice_type ?? null;
+      } else if (cnLine.product_id) {
+        const product = await productDAO.findById(cnLine.product_id);
+        riceType = product?.rice_type ?? null;
+      }
       basisLines.push({
-        rice_type: product?.rice_type ?? null,
+        rice_type: riceType,
         quantity_kg: returned,
         sale_amount: amount,
       });
@@ -241,7 +257,7 @@ export class SalesmanCommissionLedgerService {
 
     quantityKg = round3(quantityKg);
     saleAmount = round2(saleAmount);
-    if (quantityKg <= 0) return null;
+    if (quantityKg <= 0 && saleAmount <= 0) return null;
 
     // fixed_per_transaction: no automatic clawback on partial returns (only qty-based types)
     if (sauda.salesman_commission_type === 'fixed_per_transaction') {
@@ -280,12 +296,31 @@ export class SalesmanCommissionLedgerService {
     );
   }
 
+  async voidPendingReversalOnCreditNoteCancel(
+    creditNoteId: string,
+    client?: PoolClient
+  ): Promise<void> {
+    const existing = await salesmanCommissionEntryDAO.findReversalByCreditNoteId(
+      creditNoteId,
+      client
+    );
+    if (!existing) return;
+    if (existing.status !== 'pending') {
+      throw new ConflictError(
+        `Cannot cancel credit note: salesman commission reversal is ${existing.status}`
+      );
+    }
+    await salesmanCommissionEntryDAO.deletePendingReversalByCreditNoteId(creditNoteId, client);
+  }
+
   async list(filters: {
     salesmanId?: string;
     status?: SalesmanCommissionEntryStatus;
     from?: string;
     to?: string;
-  }): Promise<SalesmanCommissionEntry[]> {
+    limit?: number;
+    offset?: number;
+  }): Promise<{ rows: SalesmanCommissionEntry[]; total: number }> {
     return salesmanCommissionEntryDAO.list(filters);
   }
 

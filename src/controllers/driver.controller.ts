@@ -16,6 +16,8 @@ import { AuthRequest } from '../middleware/auth.middleware';
 import { gstLookupService } from '../services/gst-lookup.service';
 import { kycPersistenceService } from '../services/kyc-persistence.service';
 import { parseLicenseOcrUpload, drivingLicenseOcrPayload } from '../utils/license-ocr-request';
+import { parsePaginationQuery, toPaginatedResult } from '../utils/pagination';
+import { parseSearchQuery } from '../utils/search';
 
 function dateOnlyFromDb(value: Date | string | null | undefined): string | null {
   if (value == null) {
@@ -92,6 +94,8 @@ function driverLicenseVerifyPayload(
 export class DriverController {
   async getAll(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
     try {
+      const { page, limit, offset } = parsePaginationQuery(req.query);
+      const search = parseSearchQuery(req.query);
       const includeInactive = req.query.include_inactive === 'true';
       let isActive: boolean | undefined;
       if (includeInactive) {
@@ -109,8 +113,18 @@ export class DriverController {
         isVerified = false;
       }
 
-      const drivers = await driverDAO.findAll({ includeInactive, isActive, isVerified });
-      return ResponseHandler.success(res, drivers.map(toResponse));
+      const { rows, total } = await driverDAO.findAll({
+        includeInactive,
+        isActive,
+        isVerified,
+        search,
+        limit,
+        offset,
+      });
+      return ResponseHandler.success(
+        res,
+        toPaginatedResult(rows.map(toResponse), total, page, limit)
+      );
     } catch (error) {
       next(error);
     }

@@ -3,6 +3,7 @@ import { db } from '../database/connection';
 import { Redemption } from '../models/coupon.model';
 import type { RedemptionPaidVia, RedemptionPayoutStatus } from '../constants/coupon-status';
 import { appendDateRangeConditions } from '../utils/analytics-date-filter';
+import { buildNormalizedSearchClause } from '../utils/search';
 
 export interface CreateRedemptionInput {
   public_ref: string;
@@ -123,6 +124,7 @@ export class RedemptionDAO {
     batchId?: string;
     phone?: string;
     code?: string;
+    search?: string;
     fromDate?: string;
     toDate?: string;
     page?: number;
@@ -153,8 +155,35 @@ export class RedemptionDAO {
     }
     appendDateRangeConditions(conditions, values, 'r.created_at', filters.fromDate, filters.toDate);
 
+    const needsRedeemerJoin = Boolean(filters.phone || filters.search);
+    const join = needsRedeemerJoin
+      ? 'JOIN redeemers rd ON rd.redeemer_id = r.redeemer_id'
+      : '';
+
+    if (filters.search) {
+      const searchClause = buildNormalizedSearchClause(
+        [
+          'r.code',
+          'r.public_ref',
+          'r.payment_reference',
+          'r.payout_status',
+          'r.payout_upi_vpa',
+          'r.payout_account_holder_name',
+          'r.payout_account_number',
+          'rd.phone',
+          'rd.name',
+        ],
+        filters.search,
+        i
+      );
+      if (searchClause.sql) {
+        conditions.push(searchClause.sql.replace(/^\s*AND\s*/, ''));
+        values.push(...searchClause.params);
+        i = searchClause.nextParamIndex;
+      }
+    }
+
     const where = conditions.join(' AND ');
-    const join = filters.phone ? 'JOIN redeemers rd ON rd.redeemer_id = r.redeemer_id' : '';
 
     const countResult = await db.query<{ count: string }>(
       `SELECT COUNT(*)::text AS count FROM redemptions r ${join} WHERE ${where}`,

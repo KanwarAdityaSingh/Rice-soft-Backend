@@ -7,15 +7,20 @@ import {
 } from '../models/sales-sauda-line.model';
 import { logger } from '../utils/logger';
 
+const LINE_COLUMNS = `
+  id, sales_sauda_id, line_type, product_id, product_alias, lot_id, packaging_id, packet_count,
+  no_of_bags, bag_weight, quantity, quantity_unit, rate,
+  discount_value, discount_type, gst_percent, amount, discount_amount, gst_amount, final_amount, sort_order,
+  created_at, updated_at
+`;
+
 export class SalesSaudaLineDAO {
   async findBySalesSaudaId(
     salesSaudaId: string,
     client?: PoolClient
   ): Promise<SalesSaudaLine[]> {
     const query = `
-      SELECT id, sales_sauda_id, product_id, packaging_id, packet_count, quantity, quantity_unit, rate,
-             discount_value, discount_type, gst_percent, amount, discount_amount, gst_amount, final_amount, sort_order,
-             created_at, updated_at
+      SELECT ${LINE_COLUMNS}
       FROM sales_sauda_lines
       WHERE sales_sauda_id = $1
       ORDER BY sort_order ASC, created_at ASC
@@ -26,38 +31,82 @@ export class SalesSaudaLineDAO {
     return result.rows;
   }
 
+  /** Prefetch lines for many saudas in one query (list fulfillment). */
+  async findBySalesSaudaIds(
+    salesSaudaIds: string[],
+    client?: PoolClient
+  ): Promise<SalesSaudaLine[]> {
+    if (salesSaudaIds.length === 0) return [];
+    const query = `
+      SELECT ${LINE_COLUMNS}
+      FROM sales_sauda_lines
+      WHERE sales_sauda_id = ANY($1::uuid[])
+      ORDER BY sales_sauda_id ASC, sort_order ASC, created_at ASC
+    `;
+    const result = client
+      ? await client.query<SalesSaudaLine>(query, [salesSaudaIds])
+      : await db.query<SalesSaudaLine>(query, [salesSaudaIds]);
+    return result.rows;
+  }
+
   async findById(id: string): Promise<SalesSaudaLine | null> {
     const query = `
-      SELECT id, sales_sauda_id, product_id, packaging_id, packet_count, quantity, quantity_unit, rate,
-             discount_value, discount_type, gst_percent, amount, discount_amount, gst_amount, final_amount, sort_order,
-             created_at, updated_at
+      SELECT ${LINE_COLUMNS}
       FROM sales_sauda_lines WHERE id = $1
     `;
     const result = await db.query<SalesSaudaLine>(query, [id]);
     return result.rows[0] || null;
   }
 
+  async findByIds(ids: string[]): Promise<SalesSaudaLine[]> {
+    if (ids.length === 0) return [];
+    const query = `
+      SELECT ${LINE_COLUMNS}
+      FROM sales_sauda_lines
+      WHERE id = ANY($1::uuid[])
+    `;
+    const result = await db.query<SalesSaudaLine>(query, [ids]);
+    return result.rows;
+  }
+
   async create(salesSaudaId: string, data: CreateSalesSaudaLineDTO): Promise<SalesSaudaLine> {
     if (data.quantity === undefined) {
       throw new Error('Quantity is required to create sales sauda line');
     }
-    if (data.amount === undefined || data.discount_amount === undefined || data.gst_amount === undefined || data.final_amount === undefined) {
+    if (
+      data.amount === undefined ||
+      data.discount_amount === undefined ||
+      data.gst_amount === undefined ||
+      data.final_amount === undefined
+    ) {
       throw new Error('Computed line amounts are required to create sales sauda line');
     }
+    const lineType = data.line_type ?? 'product';
+    const productAlias =
+      lineType === 'lot'
+        ? null
+        : data.product_alias != null && String(data.product_alias).trim() !== ''
+          ? String(data.product_alias).trim()
+          : null;
     const query = `
       INSERT INTO sales_sauda_lines (
-        sales_sauda_id, product_id, packaging_id, packet_count, quantity, quantity_unit, rate,
+        sales_sauda_id, line_type, product_id, product_alias, lot_id, packaging_id, packet_count,
+        no_of_bags, bag_weight, quantity, quantity_unit, rate,
         discount_value, discount_type, gst_percent, amount, discount_amount, gst_amount, final_amount, sort_order
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-      RETURNING id, sales_sauda_id, product_id, packaging_id, packet_count, quantity, quantity_unit, rate,
-                discount_value, discount_type, gst_percent, amount, discount_amount, gst_amount, final_amount, sort_order, created_at, updated_at
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+      RETURNING ${LINE_COLUMNS}
     `;
     const values = [
       salesSaudaId,
-      data.product_id,
-      data.packaging_id || null,
-      data.packet_count ?? null,
+      lineType,
+      lineType === 'lot' ? null : data.product_id ?? null,
+      productAlias,
+      lineType === 'lot' ? data.lot_id ?? null : null,
+      lineType === 'lot' ? null : data.packaging_id || null,
+      lineType === 'lot' ? null : data.packet_count ?? null,
+      lineType === 'lot' ? data.no_of_bags ?? null : null,
+      lineType === 'lot' ? data.bag_weight ?? null : null,
       data.quantity,
       data.quantity_unit || 'kg',
       data.rate,
@@ -71,14 +120,24 @@ export class SalesSaudaLineDAO {
       data.sort_order ?? 0,
     ];
     const result = await db.query<SalesSaudaLine>(query, values);
-    logger.info('Sales sauda line created', { id: result.rows[0].id });
+    logger.info('Sales sauda line created', {
+      id: result.rows[0].id,
+      line_type: result.rows[0].line_type,
+    });
     return result.rows[0];
   }
 
-  async createMany(salesSaudaId: string, lines: CreateSalesSaudaLineDTO[], sortStart = 0): Promise<SalesSaudaLine[]> {
+  async createMany(
+    salesSaudaId: string,
+    lines: CreateSalesSaudaLineDTO[],
+    sortStart = 0
+  ): Promise<SalesSaudaLine[]> {
     const created: SalesSaudaLine[] = [];
     for (let i = 0; i < lines.length; i++) {
-      const line = await this.create(salesSaudaId, { ...lines[i], sort_order: lines[i].sort_order ?? sortStart + i });
+      const line = await this.create(salesSaudaId, {
+        ...lines[i],
+        sort_order: lines[i].sort_order ?? sortStart + i,
+      });
       created.push(line);
     }
     return created;
@@ -90,9 +149,25 @@ export class SalesSaudaLineDAO {
     const fields: string[] = [];
     const values: any[] = [];
     let paramCount = 1;
+    if (data.line_type !== undefined) {
+      fields.push(`line_type = $${paramCount++}`);
+      values.push(data.line_type);
+    }
     if (data.product_id !== undefined) {
       fields.push(`product_id = $${paramCount++}`);
-      values.push(data.product_id);
+      values.push(data.product_id ?? null);
+    }
+    if (data.product_alias !== undefined) {
+      fields.push(`product_alias = $${paramCount++}`);
+      values.push(
+        data.product_alias != null && String(data.product_alias).trim() !== ''
+          ? String(data.product_alias).trim()
+          : null
+      );
+    }
+    if (data.lot_id !== undefined) {
+      fields.push(`lot_id = $${paramCount++}`);
+      values.push(data.lot_id ?? null);
     }
     if (data.packaging_id !== undefined) {
       fields.push(`packaging_id = $${paramCount++}`);
@@ -101,6 +176,14 @@ export class SalesSaudaLineDAO {
     if (data.packet_count !== undefined) {
       fields.push(`packet_count = $${paramCount++}`);
       values.push(data.packet_count ?? null);
+    }
+    if (data.no_of_bags !== undefined) {
+      fields.push(`no_of_bags = $${paramCount++}`);
+      values.push(data.no_of_bags ?? null);
+    }
+    if (data.bag_weight !== undefined) {
+      fields.push(`bag_weight = $${paramCount++}`);
+      values.push(data.bag_weight ?? null);
     }
     if (data.quantity !== undefined) {
       fields.push(`quantity = $${paramCount++}`);
@@ -153,8 +236,7 @@ export class SalesSaudaLineDAO {
     const query = `
       UPDATE sales_sauda_lines SET ${fields.join(', ')}, updated_at = CURRENT_TIMESTAMP
       WHERE id = $${paramCount}
-      RETURNING id, sales_sauda_id, product_id, packaging_id, packet_count, quantity, quantity_unit, rate,
-                discount_value, discount_type, gst_percent, amount, discount_amount, gst_amount, final_amount, sort_order, created_at, updated_at
+      RETURNING ${LINE_COLUMNS}
     `;
     const result = await db.query<SalesSaudaLine>(query, values);
     if (result.rows.length === 0) return null;
@@ -168,7 +250,9 @@ export class SalesSaudaLineDAO {
   }
 
   async deleteBySalesSaudaId(salesSaudaId: string): Promise<number> {
-    const result = await db.query('DELETE FROM sales_sauda_lines WHERE sales_sauda_id = $1', [salesSaudaId]);
+    const result = await db.query('DELETE FROM sales_sauda_lines WHERE sales_sauda_id = $1', [
+      salesSaudaId,
+    ]);
     return result.rowCount ?? 0;
   }
 }

@@ -1,14 +1,18 @@
 import { db } from '../database/connection';
+import { randomBytes } from 'crypto';
 import { PoolClient } from 'pg';
 import { invoiceDispatchDAO } from '../dao/invoice-dispatch.dao';
 import { invoiceDispatchLineDAO } from '../dao/invoice-dispatch-line.dao';
 import { invoiceDispatchAllocationDAO } from '../dao/invoice-dispatch-allocation.dao';
+import { invoiceDispatchLotAllocationDAO } from '../dao/invoice-dispatch-lot-allocation.dao';
 import { invoiceDispatchSaudaDAO } from '../dao/invoice-dispatch-sauda.dao';
 import { invoiceNumberSequenceDAO } from '../dao/invoice-number-sequence.dao';
 import { salesSaudaLineDAO } from '../dao/sales-sauda-line.dao';
 import { salesPartyDAO } from '../dao/sales-party.dao';
 import { packagingDAO } from '../dao/packaging.dao';
 import { inventoryLedgerDAO } from '../dao/inventory-ledger.dao';
+import { lotInventoryAuditDAO } from '../dao/inventory-audit.dao';
+import { INVENTORY_AUDIT_REASONS } from '../models/inventory-audit.model';
 import { eInvoiceDAO } from '../dao/e-invoice.dao';
 import { eWayBillDAO } from '../dao/e-way-bill.dao';
 import { godownDAO } from '../dao/godown.dao';
@@ -23,6 +27,7 @@ import {
   type SaudaLineFulfillment,
 } from './sales-sauda-fulfillment';
 import { financialYearFromDate } from '../constants/financial-year';
+import { normalizeBuyerGstin } from '../constants/gst-state-codes';
 import {
   buildInvoiceSeriesKey,
   formatInternalInvoiceNumber,
@@ -31,15 +36,23 @@ import {
   INVOICE_DOCUMENT_TYPE_BOS,
 } from '../constants/invoice-number-series';
 import { BadRequestError, NotFoundError, ValidationError, ConflictError } from '../utils/errors';
+import { assertCanDeleteSerialNumber } from '../utils/sequential-serial';
 import type { Address } from '../models/vendor.model';
 import type { SalesSaudaLine } from '../models/sales-sauda-line.model';
 import { salesmanCommissionLedgerService } from './salesman-commission-ledger.service';
+import { brokerCommissionLedgerService } from './broker-commission-ledger.service';
+import { couponAllotmentService } from './coupon-allotment.service';
+import { invoiceDispatchPublicService } from './invoice-dispatch-public.service';
+import { invoiceDispatchDocumentComplianceService } from './invoice-dispatch-document-compliance';
 import type { InvoiceDispatch } from '../models/invoice-dispatch.model';
 import type { InvoiceDispatchLine } from '../models/invoice-dispatch-line.model';
 
 /** 409 when another user already consumed remaining qty on the sales order(s). */
 const DISPATCH_ALREADY_TAKEN_MESSAGE =
   'This Sales Order/Invoice has already been dispatched by another user. Please refresh the page to view the latest details.';
+
+const LOT_DISPATCH_SHORT_MESSAGE =
+  'Insufficient lot inventory to confirm this dispatch. Please refresh and try again.';
 
 function formatPartyAddress(addr: Address | null | undefined): string {
   if (!addr) return '';
@@ -389,16 +402,76 @@ export class InvoiceDispatchService {
     return Number(value.toFixed(3));
   }
 
+  private round2(value: number): number {
+    return Number(value.toFixed(2));
+  }
+
   /**
-   * Resolve kg quantity (and optional packet_count) for a requested dispatch line.
-   * packet_count uses the sauda line's packaging.holding_capacity (same rules as sales sauda).
+   * Resolve kg quantity (and optional packet_count / lot bags) for a requested dispatch line.
+   * Product: packet_count uses packaging.holding_capacity (hard match if qty also sent).
+   * Lot: no_of_bags soft-derives qty when qty omitted; never hard-match bags×weight to qty.
    */
   private async resolveRequestedQuantity(
     saudaLine: SalesSaudaLine,
-    req: { quantity?: number; packet_count?: number }
-  ): Promise<{ quantity: number; packet_count: number | null }> {
+    req: {
+      quantity?: number;
+      packet_count?: number;
+      no_of_bags?: number | null;
+      bag_weight?: number | null;
+    }
+  ): Promise<{
+    quantity: number;
+    packet_count: number | null;
+    no_of_bags: number | null;
+    bag_weight: number | null;
+  }> {
+    const isLot = saudaLine.line_type === 'lot';
     const hasPacketCount = req.packet_count !== undefined && req.packet_count !== null;
     const hasQuantity = req.quantity !== undefined && req.quantity !== null;
+    const hasBags = req.no_of_bags !== undefined && req.no_of_bags !== null;
+
+    if (isLot) {
+      if (hasPacketCount) {
+        throw new ValidationError(
+          `packet_count is not allowed on lot dispatch line ${saudaLine.id}; use no_of_bags`
+        );
+      }
+
+      const noOfBags = hasBags ? Math.trunc(Number(req.no_of_bags)) : null;
+      if (hasBags && (!Number.isInteger(noOfBags) || (noOfBags as number) <= 0)) {
+        throw new ValidationError(
+          `no_of_bags must be a positive integer for line ${saudaLine.id}`
+        );
+      }
+
+      let bagWeight: number | null = null;
+      if (req.bag_weight != null && Number(req.bag_weight) > 0) {
+        bagWeight = this.round2(Number(req.bag_weight));
+      } else if (saudaLine.bag_weight != null && Number(saudaLine.bag_weight) > 0) {
+        bagWeight = this.round2(Number(saudaLine.bag_weight));
+      }
+
+      let quantity: number;
+      if (hasQuantity) {
+        quantity = this.round3(Number(req.quantity));
+      } else if (noOfBags != null && bagWeight != null) {
+        quantity = this.round3(noOfBags * bagWeight);
+      } else {
+        throw new ValidationError(
+          `quantity or no_of_bags is required for lot line ${saudaLine.id}`
+        );
+      }
+      if (!(quantity > 0)) {
+        throw new ValidationError(`quantity must be > 0 for line ${saudaLine.id}`);
+      }
+
+      return {
+        quantity,
+        packet_count: null,
+        no_of_bags: noOfBags ?? saudaLine.no_of_bags ?? null,
+        bag_weight: bagWeight ?? saudaLine.bag_weight ?? null,
+      };
+    }
 
     if (!hasPacketCount && !hasQuantity) {
       throw new ValidationError(
@@ -438,14 +511,19 @@ export class InvoiceDispatchService {
           );
         }
       }
-      return { quantity: derivedQuantity, packet_count: packetCount };
+      return {
+        quantity: derivedQuantity,
+        packet_count: packetCount,
+        no_of_bags: null,
+        bag_weight: null,
+      };
     }
 
     const quantity = this.round3(Number(req.quantity));
     if (!(quantity > 0)) {
       throw new ValidationError(`quantity must be > 0 for line ${saudaLine.id}`);
     }
-    return { quantity, packet_count: null };
+    return { quantity, packet_count: null, no_of_bags: null, bag_weight: null };
   }
 
   /**
@@ -455,8 +533,22 @@ export class InvoiceDispatchService {
   private async resolveDispatchLines(
     saudaLines: SalesSaudaLine[],
     fulfillment: Map<string, SaudaLineFulfillment>,
-    requestLines?: Array<{ sales_sauda_line_id: string; quantity?: number; packet_count?: number }>
-  ): Promise<Array<{ saudaLine: SalesSaudaLine; quantity: number; packet_count: number | null }>> {
+    requestLines?: Array<{
+      sales_sauda_line_id: string;
+      quantity?: number;
+      packet_count?: number;
+      no_of_bags?: number | null;
+      bag_weight?: number | null;
+    }>
+  ): Promise<
+    Array<{
+      saudaLine: SalesSaudaLine;
+      quantity: number;
+      packet_count: number | null;
+      no_of_bags: number | null;
+      bag_weight: number | null;
+    }>
+  > {
     const byId = new Map(saudaLines.map((l) => [l.id, l]));
 
     if (!requestLines || requestLines.length === 0) {
@@ -464,11 +556,19 @@ export class InvoiceDispatchService {
         saudaLine: SalesSaudaLine;
         quantity: number;
         packet_count: number | null;
+        no_of_bags: number | null;
+        bag_weight: number | null;
       }> = [];
       for (const line of saudaLines) {
         const remaining = fulfillment.get(line.id)?.remaining ?? 0;
         if (hasPositiveRemaining(remaining)) {
-          resolved.push({ saudaLine: line, quantity: remaining, packet_count: null });
+          resolved.push({
+            saudaLine: line,
+            quantity: remaining,
+            packet_count: null,
+            no_of_bags: line.line_type === 'lot' ? line.no_of_bags ?? null : null,
+            bag_weight: line.line_type === 'lot' ? line.bag_weight ?? null : null,
+          });
         }
       }
       if (resolved.length === 0) {
@@ -482,6 +582,8 @@ export class InvoiceDispatchService {
       saudaLine: SalesSaudaLine;
       quantity: number;
       packet_count: number | null;
+      no_of_bags: number | null;
+      bag_weight: number | null;
     }> = [];
     for (const req of requestLines) {
       if (seen.has(req.sales_sauda_line_id)) {
@@ -496,7 +598,8 @@ export class InvoiceDispatchService {
         );
       }
 
-      const { quantity, packet_count } = await this.resolveRequestedQuantity(saudaLine, req);
+      const { quantity, packet_count, no_of_bags, bag_weight } =
+        await this.resolveRequestedQuantity(saudaLine, req);
 
       const remaining = fulfillment.get(saudaLine.id)?.remaining ?? 0;
       if (qtyExceedsRemaining(quantity, remaining)) {
@@ -504,7 +607,7 @@ export class InvoiceDispatchService {
         throw new ConflictError(DISPATCH_ALREADY_TAKEN_MESSAGE);
       }
 
-      resolved.push({ saudaLine, quantity, packet_count });
+      resolved.push({ saudaLine, quantity, packet_count, no_of_bags, bag_weight });
     }
 
     return resolved;
@@ -514,13 +617,22 @@ export class InvoiceDispatchService {
     salesSaudaId?: string,
     status?: 'draft' | 'confirmed' | 'cancelled',
     godownId?: string,
-    financialYear?: string
+    financialYear?: string,
+    pagination?: { limit: number; offset: number },
+    search?: string
   ) {
-    const list = await invoiceDispatchDAO.findAll(salesSaudaId, status, godownId, financialYear);
-    const idsByDispatch = await invoiceDispatchSaudaDAO.getLinkedSaudaIdsByDispatchIds(
-      list.map((d) => d.id)
+    const { rows, total } = await invoiceDispatchDAO.findAll(
+      salesSaudaId,
+      status,
+      godownId,
+      financialYear,
+      pagination,
+      search
     );
-    const driverIds = [...new Set(list.map((d) => d.driver_id).filter(Boolean))] as string[];
+    const idsByDispatch = await invoiceDispatchSaudaDAO.getLinkedSaudaIdsByDispatchIds(
+      rows.map((d) => d.id)
+    );
+    const driverIds = [...new Set(rows.map((d) => d.driver_id).filter(Boolean))] as string[];
     const driversById = new Map<string, InvoiceDispatchDriverSummary>();
     await Promise.all(
       driverIds.map(async (id) => {
@@ -528,16 +640,27 @@ export class InvoiceDispatchService {
         if (driver) driversById.set(id, toDriverSummary(driver));
       })
     );
-    return list.map((d) => ({
-      ...d,
-      sales_sauda_ids: idsByDispatch.get(d.id) ?? [d.sales_sauda_id],
-      driver: d.driver_id ? driversById.get(d.driver_id) ?? null : null,
-    }));
+    return {
+      items: rows.map((d) => ({
+        ...d,
+        sales_sauda_ids: idsByDispatch.get(d.id) ?? [d.sales_sauda_id],
+        driver: d.driver_id ? driversById.get(d.driver_id) ?? null : null,
+      })),
+      total,
+    };
+  }
+
+  async getNextBillEligibility() {
+    return invoiceDispatchDocumentComplianceService.getNextBillEligibility();
   }
 
   async getById(id: string) {
     const dispatch = await invoiceDispatchDAO.findById(id);
     if (!dispatch) throw new NotFoundError('Invoice dispatch not found');
+    let bosVerificationToken = dispatch.bos_verification_token;
+    if (dispatch.status !== 'cancelled' && !bosVerificationToken) {
+      bosVerificationToken = await invoiceDispatchPublicService.ensureBosVerificationToken(id);
+    }
     const lines = await invoiceDispatchLineDAO.findByInvoiceDispatchId(id);
     const sales_sauda_ids = await invoiceDispatchSaudaDAO.getLinkedSaudaIds(id);
     let driver: InvoiceDispatchDriverSummary | null = null;
@@ -547,6 +670,7 @@ export class InvoiceDispatchService {
     }
     return {
       ...dispatch,
+      bos_verification_token: bosVerificationToken,
       sales_sauda_ids: sales_sauda_ids.length > 0 ? sales_sauda_ids : [dispatch.sales_sauda_id],
       driver,
       lines,
@@ -573,12 +697,15 @@ export class InvoiceDispatchService {
         sales_sauda_line_id: string;
         quantity?: number;
         packet_count?: number;
+        no_of_bags?: number | null;
+        bag_weight?: number | null;
       }>;
     },
     userId?: string
   ) {
     await godownService.assertActive(data.godown_id);
     await this.assertDriverAssignable(data.driver_id);
+    await invoiceDispatchDocumentComplianceService.assertCanCreateNextBill();
     const saudaIds = resolveRequestedSaudaIds(data);
     const primarySaudaId = saudaIds[0];
 
@@ -681,6 +808,18 @@ export class InvoiceDispatchService {
           }
         }
 
+        const hasLotLines = saudaLines.some((l) => l.line_type === 'lot');
+        if (hasLotLines && toGodownId) {
+          throw new ValidationError(
+            'Lot sales cannot be dispatched as godown transfers'
+          );
+        }
+        if (hasLotLines && saudas.some((s) => s.movement_type === 'godown_transfer')) {
+          throw new ValidationError(
+            'Lot sales cannot be dispatched as godown transfers'
+          );
+        }
+
         const resolvedLines = await this.resolveDispatchLines(
           saudaLines,
           fulfillment,
@@ -691,7 +830,8 @@ export class InvoiceDispatchService {
         const sharedDelivery = primary.delivery_address;
         const party_address =
           formatPartyAddress(sharedDelivery) || formatPartyAddress(salesParty.address);
-        const party_gst_number = salesParty.business_details?.gst_number ?? null;
+        // Unregistered / no-GST parties are stored as URP (Masters India B2C sentinel).
+        const party_gst_number = normalizeBuyerGstin(salesParty.business_details?.gst_number);
         const party_pan_number = salesParty.business_details?.pan_number ?? null;
 
         const { internalInvoiceNumber, financialYear } = await this.allocateInternalInvoiceNumber(
@@ -727,16 +867,27 @@ export class InvoiceDispatchService {
 
         await invoiceDispatchSaudaDAO.linkSaudas(dispatch.id, saudaIds, client);
 
-        for (const { saudaLine, quantity, packet_count } of resolvedLines) {
+        for (const { saudaLine, quantity, packet_count, no_of_bags, bag_weight } of resolvedLines) {
           const rate = parseFloat(saudaLine.rate.toString());
           const amount = Math.round(quantity * rate * 100) / 100;
+          const isLotLine = saudaLine.line_type === 'lot';
+          const productAlias =
+            !isLotLine &&
+            saudaLine.product_alias != null &&
+            String(saudaLine.product_alias).trim() !== ''
+              ? String(saudaLine.product_alias).trim()
+              : null;
           await invoiceDispatchLineDAO.create(
             {
               invoice_dispatch_id: dispatch.id,
               sales_sauda_line_id: saudaLine.id,
-              product_id: saudaLine.product_id,
-              packaging_id: saudaLine.packaging_id,
-              packet_count,
+              product_id: isLotLine ? null : saudaLine.product_id,
+              product_alias: productAlias,
+              lot_id: isLotLine ? saudaLine.lot_id : null,
+              packaging_id: isLotLine ? null : saudaLine.packaging_id,
+              packet_count: isLotLine ? null : packet_count,
+              no_of_bags: isLotLine ? no_of_bags : null,
+              bag_weight: isLotLine ? bag_weight : null,
               quantity,
               quantity_unit: saudaLine.quantity_unit,
               rate,
@@ -753,6 +904,10 @@ export class InvoiceDispatchService {
         throw new ConflictError('Invoice number already exists for this financial year');
       }
       throw err;
+    }
+
+    if (data.distance_km == null) {
+      await invoiceDispatchDocumentComplianceService.ensureDistanceKm(dispatchId);
     }
 
     return this.getById(dispatchId);
@@ -812,6 +967,16 @@ export class InvoiceDispatchService {
     }
 
     await this.assertDispatchHardDeletable(id);
+    const serialScope = {
+      godownId: dispatch.godown_id,
+      financialYear: dispatch.financial_year,
+    };
+    await assertCanDeleteSerialNumber(
+      'invoice_dispatches',
+      Number(dispatch.serial_number),
+      undefined,
+      serialScope
+    );
 
     let parsed: ReturnType<typeof parseInternalInvoiceNumber>;
     try {
@@ -828,6 +993,14 @@ export class InvoiceDispatchService {
         : [];
 
     await db.transaction(async (client: PoolClient) => {
+      // Re-check serial tip under lock of the delete transaction
+      await assertCanDeleteSerialNumber(
+        'invoice_dispatches',
+        Number(dispatch.serial_number),
+        client,
+        serialScope
+      );
+
       // Includes the row being deleted; tip must match its sequence (latest only)
       const tip = await this.syncSeriesTipToExisting(
         client,
@@ -846,6 +1019,14 @@ export class InvoiceDispatchService {
 
       if (dispatch.status === 'confirmed') {
         await this.reverseConfirmedDispatchInventory(client, dispatch, lines, userId);
+        // Free any coupons still allotted before the row (and its allotment ledger, via
+        // ON DELETE CASCADE) disappears.
+        await couponAllotmentService.reverseOnDispatchCancel(
+          id,
+          'invoice_dispatch_deleted',
+          userId,
+          client
+        );
       }
 
       const result = await client.query('DELETE FROM invoice_dispatches WHERE id = $1', [id]);
@@ -910,7 +1091,7 @@ export class InvoiceDispatchService {
     }
 
     const eWayBills = await eWayBillDAO.findByInvoiceDispatchId(id);
-    if (eWayBills.length > 0) {
+    if (eWayBills.some((row) => row.status !== 'cancelled')) {
       throw new ConflictError(
         'Cannot delete invoice dispatch that has an e-way bill; cancel/remove the e-way bill first'
       );
@@ -960,6 +1141,7 @@ export class InvoiceDispatchService {
 
       if (destCredits.rows.length === 0) {
         for (const line of lines) {
+          if (line.lot_id || !line.product_id) continue;
           const qty = line.quantity_unit === 'kg' ? parseFloat(line.quantity.toString()) : 0;
           if (qty <= 0) continue;
           await this.debitDestinationFgi(client, {
@@ -1036,12 +1218,61 @@ export class InvoiceDispatchService {
         client
       );
     }
+
+    // Restore lot inventory for lot-sale dispatch lines
+    const lotAllocations = await invoiceDispatchLotAllocationDAO.findByInvoiceDispatchId(
+      dispatch.id,
+      client
+    );
+    for (const alloc of lotAllocations) {
+      const addBack = parseFloat(alloc.quantity_deducted.toString());
+      if (addBack <= 0) continue;
+
+      const locked = await client.query<{
+        id: string;
+        lot_id: string;
+        available_quantity: string | number;
+      }>(
+        `SELECT id, lot_id, available_quantity FROM lot_inventory WHERE id = $1 FOR UPDATE`,
+        [alloc.lot_inventory_id]
+      );
+      if (locked.rows.length === 0) {
+        throw new ConflictError(
+          `Cannot reverse dispatch: lot inventory ${alloc.lot_inventory_id} not found`
+        );
+      }
+      const inv = locked.rows[0];
+      const stockBefore = parseFloat(inv.available_quantity.toString());
+      const stockAfter = stockBefore + addBack;
+      await client.query(
+        `UPDATE lot_inventory
+         SET available_quantity = $1, updated_at = CURRENT_TIMESTAMP
+         WHERE id = $2`,
+        [stockAfter, inv.id]
+      );
+      await lotInventoryAuditDAO.create(
+        {
+          lot_inventory_id: inv.id,
+          lot_id: alloc.lot_id,
+          operation_type: 'addition',
+          quantity_change: addBack,
+          quantity_before: stockBefore,
+          quantity_after: stockAfter,
+          reason: INVENTORY_AUDIT_REASONS.LOT.SALE_RETURN,
+          reference_type: 'invoice_dispatch_cancel',
+          reference_id: dispatch.id,
+          created_by: userId,
+        },
+        client
+      );
+    }
   }
 
   async confirm(id: string, userId?: string) {
     const dispatch = await invoiceDispatchDAO.findById(id);
     if (!dispatch) throw new NotFoundError('Invoice dispatch not found');
     if (dispatch.status === 'confirmed') {
+      await invoiceDispatchPublicService.ensureBosVerificationToken(id);
       return this.getById(id);
     }
 
@@ -1058,10 +1289,75 @@ export class InvoiceDispatchService {
 
     await db.transaction(async (client: PoolClient) => {
       for (const line of lines) {
-        const requiredKg = line.quantity_unit === 'kg' ? line.quantity : 0;
+        const requiredKg = line.quantity_unit === 'kg' ? Number(line.quantity) : 0;
         if (requiredKg <= 0) continue;
 
-        // Lock FGI rows for this product (and selected packaging when set) in FIFO order
+        // --- Lot sale path: deduct lot_inventory (hard fail if short) ---
+        if (line.lot_id) {
+          const locked = await client.query<{
+            id: string;
+            lot_id: string;
+            godown_id: string;
+            available_quantity: string | number;
+          }>(
+            `SELECT id, lot_id, godown_id, available_quantity
+             FROM lot_inventory
+             WHERE lot_id = $1
+             FOR UPDATE`,
+            [line.lot_id]
+          );
+          const inv = locked.rows[0];
+          if (!inv) {
+            throw new ConflictError(LOT_DISPATCH_SHORT_MESSAGE);
+          }
+          const available = parseFloat(inv.available_quantity.toString());
+          if (available + 1e-6 < requiredKg) {
+            throw new ConflictError(LOT_DISPATCH_SHORT_MESSAGE);
+          }
+          const stockBefore = available;
+          const stockAfter = available - requiredKg;
+          await client.query(
+            `UPDATE lot_inventory
+             SET available_quantity = $1, updated_at = CURRENT_TIMESTAMP
+             WHERE id = $2`,
+            [stockAfter, inv.id]
+          );
+          await invoiceDispatchLotAllocationDAO.create(
+            {
+              invoice_dispatch_id: id,
+              invoice_dispatch_line_id: line.id,
+              lot_id: line.lot_id,
+              lot_inventory_id: inv.id,
+              quantity_deducted: requiredKg,
+            },
+            client
+          );
+          await lotInventoryAuditDAO.create(
+            {
+              lot_inventory_id: inv.id,
+              lot_id: line.lot_id,
+              operation_type: 'reduction',
+              quantity_change: requiredKg,
+              quantity_before: stockBefore,
+              quantity_after: stockAfter,
+              reason: INVENTORY_AUDIT_REASONS.LOT.SALES_DISPATCH,
+              reference_type: 'invoice_dispatch',
+              reference_id: id,
+              notes: `Dispatch line ${line.id}`,
+              created_by: userId,
+            },
+            client
+          );
+          continue;
+        }
+
+        // --- Product / FGI path (existing) ---
+        if (!line.product_id) {
+          throw new ValidationError(
+            `Dispatch line ${line.id} is missing product_id and lot_id`
+          );
+        }
+
         const usePackaging = line.packaging_id != null;
         const lockParams = usePackaging
           ? [dispatch.godown_id, line.product_id, line.packaging_id]
@@ -1096,7 +1392,6 @@ export class InvoiceDispatchService {
             packetsToRemove = Math.min(row.no_of_packets, Math.ceil(deduct / capacity));
             newPackets = Math.max(0, row.no_of_packets - packetsToRemove);
           }
-          // After migration 098, total_weight and no_of_packets allow 0 (row fully consumed)
           await client.query(
             `UPDATE finished_goods_inventory SET no_of_packets = $1, total_weight = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3`,
             [newPackets, newWeight, row.id]
@@ -1130,12 +1425,11 @@ export class InvoiceDispatchService {
             client
           );
 
-          // Mirror deducted stock into destination godown (same batch/packaging)
           if (dispatch.to_godown_id) {
             await this.creditDestinationFgi(client, {
               toGodownId: dispatch.to_godown_id,
               fromGodownId: dispatch.godown_id,
-              productId: line.product_id,
+              productId: line.product_id!,
               packagingId: row.packaging_id,
               batchId: row.batch_id,
               quantityKg: deduct,
@@ -1146,7 +1440,6 @@ export class InvoiceDispatchService {
           }
         }
 
-        // Credit any shortfall at destination so dispatched qty still arrives (no stock check v1)
         if (dispatch.to_godown_id && deductedTotal < requiredKg) {
           const shortfall = requiredKg - deductedTotal;
           let packetDelta = 0;
@@ -1164,7 +1457,7 @@ export class InvoiceDispatchService {
           await this.creditDestinationFgi(client, {
             toGodownId: dispatch.to_godown_id,
             fromGodownId: dispatch.godown_id,
-            productId: line.product_id,
+            productId: line.product_id!,
             packagingId: line.packaging_id,
             batchId: null,
             quantityKg: shortfall,
@@ -1175,14 +1468,24 @@ export class InvoiceDispatchService {
         }
       }
 
+      const bosVerificationToken = randomBytes(32).toString('base64url');
       await client.query(
-        `UPDATE invoice_dispatches SET status = 'confirmed', updated_at = CURRENT_TIMESTAMP, updated_by = $1 WHERE id = $2`,
-        [userId ?? null, id]
+        `UPDATE invoice_dispatches
+         SET status = 'confirmed',
+             updated_at = CURRENT_TIMESTAMP,
+             updated_by = $1,
+             bos_verification_token = COALESCE(bos_verification_token, $3),
+             bos_verification_token_created_at = COALESCE(bos_verification_token_created_at, CURRENT_TIMESTAMP)
+         WHERE id = $2`,
+        [userId ?? null, id, bosVerificationToken]
       );
 
-      // Accrue salesman commission from sauda snapshot (sale only; no-op for transfers / no config)
+      // Accrue salesman + broker commission from sauda snapshot (sale only; no-op for transfers / no config)
       await salesmanCommissionLedgerService.accrueOnDispatchConfirm(id, userId, client);
+      await brokerCommissionLedgerService.accrueOnDispatchConfirm(id, userId, client);
     });
+
+    await invoiceDispatchDocumentComplianceService.ensureDistanceKm(id);
 
     return this.getById(id);
   }
@@ -1215,6 +1518,8 @@ export class InvoiceDispatchService {
 
     await db.transaction(async (client: PoolClient) => {
       await this.reverseConfirmedDispatchInventory(client, dispatch, lines, userId);
+      // Unlink any coupons allotted against this invoice (no-op if none were ever allotted).
+      await couponAllotmentService.reverseOnDispatchCancel(id, 'invoice_dispatch_cancelled', userId, client);
       await client.query(
         `UPDATE invoice_dispatches
          SET status = 'cancelled',

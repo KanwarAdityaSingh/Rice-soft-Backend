@@ -2,6 +2,8 @@ import { db } from '../database/connection';
 import { PoolClient } from 'pg';
 import { Sauda, CreateSaudaDTO, UpdateSaudaDTO, SaudaStatus, SaudaType } from '../models/sauda.model';
 import { logger } from '../utils/logger';
+import { assertCanDeleteSerialNumbers } from '../utils/sequential-serial';
+import { buildNormalizedSearchClause } from '../utils/search';
 
 /**
  * Format a Date object to YYYY-MM-DD string using UTC
@@ -29,6 +31,9 @@ const SAUDA_SELECT = `
 const SAUDA_FROM = `
   FROM saudas s
   LEFT JOIN rice_lengths rl ON rl.rice_length_id = s.rice_length_id
+  LEFT JOIN vendors v ON v.id = s.purchaser_id
+  LEFT JOIN brokers b ON b.id = s.broker_id
+  LEFT JOIN rice_codes rc ON rc.rice_code_id = s.rice_code_id
 `;
 
 export class SaudaDAO {
@@ -36,40 +41,73 @@ export class SaudaDAO {
     includeInactive = false,
     status?: SaudaStatus,
     saudaType?: SaudaType,
-    purchaserId?: string
-  ): Promise<Sauda[]> {
-    let query = `
-      SELECT ${SAUDA_SELECT}
-      ${SAUDA_FROM}
-      WHERE 1=1
-    `;
-    
+    purchaserId?: string,
+    pagination?: { limit: number; offset: number },
+    search?: string
+  ): Promise<{ rows: Sauda[]; total: number }> {
+    let where = ` WHERE 1=1`;
     const params: any[] = [];
     let paramCount = 1;
 
     if (!includeInactive && !status) {
-      query += ` AND status != 'cancelled'`;
+      where += ` AND s.status != 'cancelled'`;
     }
 
     if (status) {
-      query += ` AND status = $${paramCount++}`;
+      where += ` AND s.status = $${paramCount++}`;
       params.push(status);
     }
 
     if (saudaType) {
-      query += ` AND sauda_type = $${paramCount++}`;
+      where += ` AND s.sauda_type = $${paramCount++}`;
       params.push(saudaType);
     }
 
     if (purchaserId) {
-      query += ` AND purchaser_id = $${paramCount++}`;
+      where += ` AND s.purchaser_id = $${paramCount++}`;
       params.push(purchaserId);
     }
 
-    query += ` ORDER BY created_at DESC`;
+    const searchClause = buildNormalizedSearchClause(
+      [
+        's.notes',
+        's.rice_type',
+        's.rice_category',
+        's.status',
+        's.sauda_type',
+        `TO_CHAR(s.sauda_date, 'YYYY-MM-DD')`,
+        's.rate',
+        's.quantity',
+        's.no_of_bags',
+        'rl.name',
+        'v.business_name',
+        'b.business_name',
+        'rc.rice_code_name',
+      ],
+      search,
+      paramCount
+    );
+    where += searchClause.sql;
+    params.push(...searchClause.params);
+    paramCount = searchClause.nextParamIndex;
 
-    const result = await db.query<Sauda>(query, params);
-    return result.rows;
+    const countResult = await db.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count ${SAUDA_FROM}${where}`,
+      params
+    );
+    const total = parseInt(countResult.rows[0]?.count ?? '0', 10);
+
+    const limit = pagination?.limit ?? 50;
+    const offset = pagination?.offset ?? 0;
+    const result = await db.query<Sauda>(
+      `SELECT ${SAUDA_SELECT}
+       ${SAUDA_FROM}
+       ${where}
+       ORDER BY s.created_at DESC
+       LIMIT $${paramCount++} OFFSET $${paramCount}`,
+      [...params, limit, offset]
+    );
+    return { rows: result.rows, total };
   }
 
   async findById(id: string, client?: PoolClient): Promise<Sauda | null> {
@@ -331,6 +369,16 @@ export class SaudaDAO {
 
     // 5. Delete inward slip lots linked to this sauda
     //    (lots have sauda_id directly and use ON DELETE RESTRICT)
+    const lotsRes = await db.query<{ serial_number: number }>(
+      `SELECT serial_number FROM inward_slip_lots WHERE sauda_id = $1`,
+      [id]
+    );
+    if (lotsRes.rows.length > 0) {
+      await assertCanDeleteSerialNumbers(
+        'inward_slip_lots',
+        lotsRes.rows.map((r) => Number(r.serial_number))
+      );
+    }
     const deleteLotsQuery = `DELETE FROM inward_slip_lots WHERE sauda_id = $1`;
     await db.query(deleteLotsQuery, [id]);
 

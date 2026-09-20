@@ -1,5 +1,6 @@
 import { Response, NextFunction } from 'express';
 import { ResponseHandler } from '../utils/response';
+import { parsePaginationQuery, toPaginatedResult } from '../utils/pagination';
 import { validate, uuidSchema } from '../utils/validators';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { salesmanCommissionLedgerService } from '../services/salesman-commission-ledger.service';
@@ -78,6 +79,8 @@ const listEntriesQuerySchema = Joi.object({
   status: Joi.string().optional().valid('pending', 'approved', 'paid'),
   from: Joi.string().optional().isoDate(),
   to: Joi.string().optional().isoDate(),
+  page: Joi.alternatives().try(Joi.number().integer(), Joi.string()).optional(),
+  limit: Joi.alternatives().try(Joi.number().integer(), Joi.string()).optional(),
 });
 
 export class SalesmanCommissionReportController {
@@ -199,13 +202,19 @@ export class SalesmanCommissionReportController {
         from?: string;
         to?: string;
       }>(listEntriesQuerySchema, req.query);
-      const rows = await salesmanCommissionLedgerService.list({
+      const { page, limit, offset } = parsePaginationQuery(req.query);
+      const { rows, total } = await salesmanCommissionLedgerService.list({
         salesmanId: query.salesman_id,
         status: query.status,
         from: query.from,
         to: query.to,
+        limit,
+        offset,
       });
-      return ResponseHandler.success(res, rows.map(toEntryResponse));
+      return ResponseHandler.success(
+        res,
+        toPaginatedResult(rows.map(toEntryResponse), total, page, limit)
+      );
     } catch (error) {
       next(error);
     }

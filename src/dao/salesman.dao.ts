@@ -12,6 +12,7 @@ import {
   isSalesmanKycVerified,
 } from '../utils/kyc-verification';
 import { logger } from '../utils/logger';
+import { buildNormalizedSearchClause } from '../utils/search';
 
 const COLUMNS = `
   id, salesperson_code, name, phone, alternate_phone, email,
@@ -39,15 +40,52 @@ function transformSalesman(row: Salesman): Salesman {
 }
 
 export class SalesmanDAO {
-  async findAll(includeInactive = false): Promise<Salesman[]> {
-    const query = `
-      SELECT ${COLUMNS}
-      FROM salesmen
-      ${includeInactive ? '' : 'WHERE is_active = true'}
-      ORDER BY name ASC
-    `;
-    const result = await db.query<Salesman>(query);
-    return result.rows.map(transformSalesman);
+  async findAll(filters: {
+    includeInactive?: boolean;
+    search?: string;
+    limit: number;
+    offset: number;
+  }): Promise<{ rows: Salesman[]; total: number }> {
+    const { includeInactive = false, search, limit, offset } = filters;
+    let where = includeInactive ? 'WHERE 1=1' : 'WHERE is_active = true';
+    const params: unknown[] = [];
+    let paramCount = 1;
+
+    const searchClause = buildNormalizedSearchClause(
+      [
+        'name',
+        'salesperson_code',
+        'phone',
+        'alternate_phone',
+        'email',
+        'aadhar_number',
+        'pan_number',
+        'designation',
+        'address::text',
+      ],
+      search,
+      paramCount
+    );
+    where += searchClause.sql;
+    params.push(...searchClause.params);
+    paramCount = searchClause.nextParamIndex;
+
+    const countResult = await db.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM salesmen ${where}`,
+      params
+    );
+    const total = parseInt(countResult.rows[0]?.count ?? '0', 10);
+
+    params.push(limit, offset);
+    const result = await db.query<Salesman>(
+      `SELECT ${COLUMNS}
+       FROM salesmen
+       ${where}
+       ORDER BY name ASC
+       LIMIT $${paramCount++} OFFSET $${paramCount}`,
+      params
+    );
+    return { rows: result.rows.map(transformSalesman), total };
   }
 
   async findById(id: string): Promise<Salesman | null> {

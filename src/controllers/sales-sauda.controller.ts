@@ -2,6 +2,8 @@ import { Response, NextFunction } from 'express';
 import { salesSaudaService } from '../services/sales-sauda.service';
 import { salesSaudaDAO } from '../dao/sales-sauda.dao';
 import { ResponseHandler } from '../utils/response';
+import { parsePaginationQuery, toPaginatedResult } from '../utils/pagination';
+import { parseSearchQuery } from '../utils/search';
 import { validate, createSalesSaudaSchema, updateSalesSaudaSchema, uuidSchema } from '../utils/validators';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { SalesSaudaStatus, SalesSaudaType, SalesMovementType, UpdateSalesSaudaDTO } from '../models/sales-sauda.model';
@@ -35,14 +37,20 @@ function formatLine(line: SalesSaudaLine & {
   allocated?: number;
   returned?: number;
   remaining?: number;
+  lot_available?: number | null;
 }) {
   const quantity = parseFloat(line.quantity.toString());
   return {
     id: line.id,
     sales_sauda_id: line.sales_sauda_id,
-    product_id: line.product_id,
+    line_type: line.line_type ?? 'product',
+    product_id: line.product_id ?? null,
+    product_alias: line.product_alias ?? null,
+    lot_id: line.lot_id ?? null,
     packaging_id: line.packaging_id,
     packet_count: line.packet_count != null ? parseInt(line.packet_count.toString(), 10) : null,
+    no_of_bags: line.no_of_bags != null ? parseInt(line.no_of_bags.toString(), 10) : null,
+    bag_weight: line.bag_weight != null ? parseFloat(line.bag_weight.toString()) : null,
     quantity,
     quantity_unit: line.quantity_unit,
     rate: parseFloat(line.rate.toString()),
@@ -61,13 +69,21 @@ function formatLine(line: SalesSaudaLine & {
       line.remaining != null
         ? parseFloat(line.remaining.toString())
         : quantity,
+    lot_available:
+      line.lot_available != null ? parseFloat(line.lot_available.toString()) : null,
     created_at: line.created_at instanceof Date ? line.created_at.toISOString() : line.created_at,
     updated_at: line.updated_at instanceof Date ? line.updated_at.toISOString() : line.updated_at,
   };
 }
 
+function parseQueryFlag(value: unknown): boolean {
+  if (value == null) return false;
+  const v = String(value).trim().toLowerCase();
+  return v === 'true' || v === '1' || v === 'yes';
+}
+
 function formatSauda(sauda: any) {
-  return {
+  const formatted: Record<string, unknown> = {
     id: sauda.id,
     display_id: formatSaudaDisplayId(sauda.id),
     sales_party_id: sauda.sales_party_id,
@@ -78,6 +94,15 @@ function formatSauda(sauda: any) {
     salesman_commission_preview:
       sauda.salesman_commission_preview != null
         ? Number(sauda.salesman_commission_preview)
+        : null,
+    broker_id: sauda.broker_id ?? null,
+    broker_name: sauda.broker_name ?? null,
+    broker_commission:
+      sauda.broker_commission != null ? Number(sauda.broker_commission) : null,
+    broker_commission_type: sauda.broker_commission_type ?? null,
+    broker_commission_preview:
+      sauda.broker_commission_preview != null
+        ? Number(sauda.broker_commission_preview)
         : null,
     sauda_type: sauda.sauda_type ?? null,
     movement_type: sauda.movement_type ?? 'sale',
@@ -100,6 +125,13 @@ function formatSauda(sauda: any) {
     updated_at: sauda.updated_at instanceof Date ? sauda.updated_at.toISOString() : sauda.updated_at,
     lines: Array.isArray(sauda.lines) ? sauda.lines.map(formatLine) : undefined,
   };
+  if (sauda.has_remaining_quantity !== undefined) {
+    formatted.has_remaining_quantity = Boolean(sauda.has_remaining_quantity);
+  }
+  if (sauda.is_fully_dispatched !== undefined) {
+    formatted.is_fully_dispatched = Boolean(sauda.is_fully_dispatched);
+  }
+  return formatted;
 }
 
 export class SalesSaudaController {
@@ -121,9 +153,24 @@ export class SalesSaudaController {
       if (movementRaw === 'all' || movementRaw === 'sale' || movementRaw === 'godown_transfer') {
         movementType = movementRaw;
       }
-      const list = await salesSaudaService.list(salesPartyId, status, financialYear, movementType);
-      const data = list.map((s) => formatSauda({ ...s, lines: [] }));
-      return ResponseHandler.success(res, data);
+      // Dispatch modal: include_fulfillment=true or for_dispatch=1 → lines + remaining + flags
+      const includeFulfillment =
+        parseQueryFlag(req.query.include_fulfillment) || parseQueryFlag(req.query.for_dispatch);
+      const search = parseSearchQuery(req.query);
+      const { page, limit, offset } = parsePaginationQuery(req.query);
+      const { items, total } = await salesSaudaService.list(
+        salesPartyId,
+        status,
+        financialYear,
+        movementType,
+        includeFulfillment,
+        { limit, offset },
+        search
+      );
+      return ResponseHandler.success(
+        res,
+        toPaginatedResult(items.map((s) => formatSauda(s)), total, page, limit)
+      );
     } catch (error) {
       next(error);
     }
@@ -146,6 +193,9 @@ export class SalesSaudaController {
         salesman_id?: string | null;
         salesman_commission_type?: string | null;
         salesman_commission_config?: Record<string, unknown> | null;
+        broker_id?: string | null;
+        broker_commission?: number | null;
+        broker_commission_type?: string | null;
         sauda_type: SalesSaudaType;
         movement_type?: SalesMovementType;
         from_godown_id?: string | null;
@@ -162,6 +212,7 @@ export class SalesSaudaController {
         whatsapp_screenshot_url?: string | null;
         lines?: Array<{
           product_id: string;
+          product_alias?: string | null;
           packaging_id?: string;
           packet_count?: number;
           quantity?: number;
@@ -180,6 +231,9 @@ export class SalesSaudaController {
           salesman_id: body.salesman_id,
           salesman_commission_type: body.salesman_commission_type as any,
           salesman_commission_config: body.salesman_commission_config as any,
+          broker_id: body.broker_id,
+          broker_commission: body.broker_commission,
+          broker_commission_type: body.broker_commission_type as any,
           sauda_type: body.sauda_type,
           movement_type: body.movement_type,
           from_godown_id: body.from_godown_id,
@@ -212,6 +266,9 @@ export class SalesSaudaController {
         salesman_id?: string | null;
         salesman_commission_type?: string | null;
         salesman_commission_config?: Record<string, unknown> | null;
+        broker_id?: string | null;
+        broker_commission?: number | null;
+        broker_commission_type?: string | null;
         sauda_type?: SalesSaudaType;
         movement_type?: SalesMovementType;
         from_godown_id?: string | null;
@@ -228,6 +285,7 @@ export class SalesSaudaController {
         whatsapp_screenshot_url?: string | null;
         lines?: Array<{
           product_id: string;
+          product_alias?: string | null;
           packaging_id?: string;
           packet_count?: number;
           quantity?: number;
@@ -247,6 +305,9 @@ export class SalesSaudaController {
           salesman_id: body.salesman_id,
           salesman_commission_type: body.salesman_commission_type as any,
           salesman_commission_config: body.salesman_commission_config as any,
+          broker_id: body.broker_id,
+          broker_commission: body.broker_commission,
+          broker_commission_type: body.broker_commission_type as any,
           sauda_type: body.sauda_type,
           movement_type: body.movement_type,
           from_godown_id: body.from_godown_id,
@@ -267,6 +328,18 @@ export class SalesSaudaController {
         userId
       );
       return ResponseHandler.success(res, formatSauda(sauda), 'Sales sauda updated successfully');
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async clone(req: AuthRequest, res: Response, next: NextFunction): Promise<Response | void> {
+    try {
+      const id = validate<string>(uuidSchema, req.params.id);
+      const userId = req.user?.userId;
+      const copyAttachments = parseQueryFlag(req.query.copy_attachments);
+      const sauda = await salesSaudaService.clone(id, userId, { copyAttachments });
+      return ResponseHandler.created(res, formatSauda(sauda), 'Sales sauda cloned successfully');
     } catch (error) {
       next(error);
     }

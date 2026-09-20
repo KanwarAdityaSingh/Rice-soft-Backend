@@ -5,6 +5,8 @@ export interface InwardSlipLot {
   id: string;
   sauda_id: string;
   godown_id: string;
+  /** Global ascending serial; auto-assigned; only tip may be deleted */
+  serial_number: number;
   lot_number: string;
   rice_category: RiceCategory;
   rice_code_id: string | null;
@@ -56,6 +58,7 @@ export interface InwardSlipLotResponse {
   id: string;
   sauda_id: string;
   godown_id: string;
+  serial_number: number;
   lot_number: string;
   rice_category: RiceCategory;
   rice_code_id: string | null;

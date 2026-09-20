@@ -1,6 +1,7 @@
 import { Response, NextFunction } from 'express';
 import { inventoryLedgerDAO } from '../dao/inventory-ledger.dao';
 import { ResponseHandler } from '../utils/response';
+import { parsePaginationQuery, toPaginatedResult } from '../utils/pagination';
 import { AuthRequest } from '../middleware/auth.middleware';
 import type { InventoryLedgerSourceType } from '../models/inventory-ledger.model';
 
@@ -12,20 +13,19 @@ export class InventoryLedgerController {
       const sourceType = req.query.source_type as InventoryLedgerSourceType | undefined;
       const fromDate = req.query.from_date as string | undefined;
       const toDate = req.query.to_date as string | undefined;
-      const limit = req.query.limit != null ? parseInt(String(req.query.limit), 10) : 100;
-      const offset = req.query.offset != null ? parseInt(String(req.query.offset), 10) : 0;
+      const { page, limit, offset } = parsePaginationQuery(req.query);
 
-      const entries = await inventoryLedgerDAO.find({
+      const { rows, total } = await inventoryLedgerDAO.find({
         godown_id: godownId,
         product_id: productId,
         source_type: sourceType,
         from_date: fromDate,
         to_date: toDate,
-        limit: Math.min(limit, 500),
+        limit,
         offset,
       });
 
-      const data = entries.map((e) => ({
+      const items = rows.map((e) => ({
         id: e.id,
         godown_id: e.godown_id,
         product_id: e.product_id,
@@ -42,7 +42,7 @@ export class InventoryLedgerController {
         created_by: e.created_by,
       }));
 
-      return ResponseHandler.success(res, data);
+      return ResponseHandler.success(res, toPaginatedResult(items, total, page, limit));
     } catch (error) {
       next(error);
     }
