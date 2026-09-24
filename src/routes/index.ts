@@ -48,6 +48,7 @@ import couponAllotmentRoutes from './coupon-allotment.routes';
 import invoiceDispatchPublicRoutes from './invoice-dispatch-public.routes';
 import expenseCategoryRoutes from './expense-category.routes';
 import expenseRoutes from './expense.routes';
+import replenishmentRoutes from './replenishment.routes';
 
 const router = Router();
 
@@ -111,6 +112,7 @@ router.use('/public/invoice-dispatches', invoiceDispatchPublicRoutes);
 router.use('/coupons/analytics', couponAnalyticsRoutes);
 router.use('/expense-categories', expenseCategoryRoutes);
 router.use('/expenses', expenseRoutes);
+router.use('/replenishment', replenishmentRoutes);
 
 export default router;
 

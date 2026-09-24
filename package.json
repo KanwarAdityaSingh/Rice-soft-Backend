@@ -23,6 +23,8 @@
     "test:list-search": "ts-node src/scripts/test-list-search.ts",
     "test:weight-variance": "ts-node src/scripts/test-weight-variance.ts",
     "test:credit-notes": "ts-node src/scripts/test-credit-note-workflow.ts",
+    "test:replenishment": "ts-node src/scripts/test-replenishment-engine.ts",
+    "test:replenishment-api": "ts-node src/scripts/test-replenishment-api.ts",
     "lint": "eslint . --ext .ts",
     "format": "prettier --write \"src/**/*.ts\""
   },

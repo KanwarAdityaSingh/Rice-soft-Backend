@@ -2300,4 +2300,37 @@ export const updateExpenseSchema = Joi.object({
   entity_links: Joi.array().items(expenseEntityLinkSchema).optional(),
 }).min(1);
 
+export const replenishmentPreviewSchema = Joi.object({
+  godown_id: Joi.string().uuid().required(),
+  sales_sauda_ids: Joi.array().items(Joi.string().uuid()).optional().default([]),
+  mode: Joi.string().valid('recommend_truck', 'fill_truck').required(),
+  truck_tonnes: Joi.number()
+    .positive()
+    .when('mode', {
+      is: 'fill_truck',
+      then: Joi.required(),
+      otherwise: Joi.optional(),
+    }),
+  trend_window_days: Joi.number().integer().min(1).max(365).optional(),
+  safety_days: Joi.number().integer().min(0).max(90).optional(),
+});
+
+export const createReplenishmentPlanSchema = replenishmentPreviewSchema.keys({
+  notes: Joi.string().allow(null, '').max(2000).optional(),
+});
+
+export const replaceTruckSizesSchema = Joi.object({
+  sizes: Joi.array()
+    .items(
+      Joi.object({
+        tonnes: Joi.number().positive().required(),
+        label: Joi.string().max(50).optional().allow('', null),
+        sort_order: Joi.number().integer().min(0).optional(),
+        is_active: Joi.boolean().optional(),
+      })
+    )
+    .min(1)
+    .required(),
+});
+
 
